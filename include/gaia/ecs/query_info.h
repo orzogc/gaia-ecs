@@ -817,10 +817,8 @@ namespace gaia {
 			//! \warning Not thread safe. No two threads can call this at the same time.
 			template <typename ArchetypeLookup>
 			void match(
-					const ArchetypeLookup& entityToArchetypeMap,
-					std::span<const Archetype*> allArchetypes,
-					ArchetypeId archetypeLastId,
-					const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings,
+					const ArchetypeLookup& entityToArchetypeMap, std::span<const Archetype*> allArchetypes,
+					ArchetypeId archetypeLastId, const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings,
 					uint8_t runtimeVarBindingMask) {
 				auto& ctxData = m_plan.ctx.data;
 
@@ -1968,6 +1966,19 @@ namespace gaia {
 				const_cast<QueryInfo*>(this)->ensure_group_data();
 				return std::span{m_state.grouped.archetypeGroupData.data(), m_state.grouped.archetypeGroupData.size()};
 			}
+
+#if GAIA_ECS_TEST_HOOKS
+			//! Test-only helper that seeds the transient cache with one archetype so unit tests can
+			//! inspect derived execution payloads deterministically without relying on runtime query paths.
+			void test_add_transient_archetype(const Archetype* pArchetype) {
+				GAIA_ASSERT(pArchetype != nullptr);
+				if (pArchetype == nullptr)
+					return;
+
+				m_state.clear_transient_result_cache();
+				add_archetype_to_transient_cache(pArchetype);
+			}
+#endif
 		};
 	} // namespace ecs
 } // namespace gaia

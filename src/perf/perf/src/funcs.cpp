@@ -42,9 +42,12 @@ namespace {
 		uint8_t payload[128]{};
 
 		TrackedLargeCallable() = default;
-		TrackedLargeCallable(TrackedLargeCallable&&) = delete;
+		TrackedLargeCallable(TrackedLargeCallable&& other) noexcept: bias(other.bias) {
+			std::memcpy(payload, other.payload, sizeof(payload));
+			g_trackedLargeCallableGuard += (uintptr_t)this;
+		}
 		TrackedLargeCallable& operator=(const TrackedLargeCallable&) = default;
-		TrackedLargeCallable& operator=(TrackedLargeCallable&&) = delete;
+		TrackedLargeCallable& operator=(TrackedLargeCallable&&) noexcept = default;
 		TrackedLargeCallable(int32_t value): bias(value) {}
 
 		TrackedLargeCallable(const TrackedLargeCallable& other): bias(other.bias) {
@@ -66,9 +69,12 @@ namespace {
 		uint8_t payload[1024]{};
 
 		TrackedHeapCallable() = default;
-		TrackedHeapCallable(TrackedHeapCallable&&) = delete;
+		TrackedHeapCallable(TrackedHeapCallable&& other) noexcept: bias(other.bias) {
+			std::memcpy(payload, other.payload, sizeof(payload));
+			g_trackedHeapCallableGuard += (uintptr_t)this;
+		}
 		TrackedHeapCallable& operator=(const TrackedHeapCallable&) = default;
-		TrackedHeapCallable& operator=(TrackedHeapCallable&&) = delete;
+		TrackedHeapCallable& operator=(TrackedHeapCallable&&) noexcept = default;
 		TrackedHeapCallable(int32_t value): bias(value) {}
 
 		TrackedHeapCallable(const TrackedHeapCallable& other): bias(other.bias) {

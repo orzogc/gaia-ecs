@@ -5211,6 +5211,165 @@ TEST_CASE("Query - cached grouped queries with instance-local group filters") {
 	expect_exact_entities(qCarrot, {eCarrotA, eCarrotB});
 }
 
+TEST_CASE("QueryInfo - uncached transient single-archetype grouping") {
+	TestWorld twld;
+
+	const auto eats = wld.add();
+	const auto carrot = wld.add();
+	const auto salad = wld.add();
+
+	const auto eCarrot = wld.add();
+	wld.add<Position>(eCarrot, {1, 0, 0});
+	wld.add(eCarrot, ecs::Pair(eats, carrot));
+
+	const auto eSalad = wld.add();
+	wld.add<Position>(eSalad, {2, 0, 0});
+	wld.add<Something>(eSalad, {true});
+	wld.add(eSalad, ecs::Pair(eats, salad));
+
+	auto q = wld.uquery().all<Position>().group_by(eats);
+	auto& info = q.fetch();
+
+	const auto* pCarrotArchetype = wld.fetch(eCarrot).pArchetype;
+	const auto* pSaladArchetype = wld.fetch(eSalad).pArchetype;
+	CHECK(pCarrotArchetype != nullptr);
+	CHECK(pSaladArchetype != nullptr);
+	if (pCarrotArchetype == nullptr || pSaladArchetype == nullptr)
+		return;
+
+	info.test_add_transient_archetype(pCarrotArchetype);
+	CHECK(info.cache_archetype_view().size() == 1);
+	CHECK(info.group_data_view().size() == 1);
+	CHECK(info.group_id(0) == ecs::GroupId(carrot.id()));
+	{
+		const auto* pCarrotGroup = info.selected_group_data(ecs::GroupId(carrot.id()));
+		CHECK(pCarrotGroup != nullptr);
+		if (pCarrotGroup == nullptr)
+			return;
+		CHECK(pCarrotGroup->groupId == ecs::GroupId(carrot.id()));
+		CHECK(pCarrotGroup->idxFirst == 0);
+		CHECK(pCarrotGroup->idxLast == 0);
+	}
+	CHECK(info.selected_group_data(ecs::GroupId(salad.id())) == nullptr);
+
+	info.test_add_transient_archetype(pSaladArchetype);
+	CHECK(info.cache_archetype_view().size() == 1);
+	CHECK(info.group_data_view().size() == 1);
+	CHECK(info.group_id(0) == ecs::GroupId(salad.id()));
+
+	q.match_all(info);
+	CHECK(q.count() == 2);
+	CHECK(!info.cache_archetype_view().empty());
+	CHECK(info.group_data_view().size() >= 2);
+	{
+		const auto* pCarrotGroup = info.selected_group_data(ecs::GroupId(carrot.id()));
+		CHECK(pCarrotGroup != nullptr);
+		if (pCarrotGroup != nullptr)
+			CHECK(pCarrotGroup->groupId == ecs::GroupId(carrot.id()));
+	}
+	{
+		const auto* pSaladGroup = info.selected_group_data(ecs::GroupId(salad.id()));
+		CHECK(pSaladGroup != nullptr);
+		if (pSaladGroup != nullptr)
+			CHECK(pSaladGroup->groupId == ecs::GroupId(salad.id()));
+	}
+}
+
+TEST_CASE("QueryInfo - inherited data view exposes inherited prefab payload") {
+	TestWorld twld;
+
+	const auto prefabAnimal = wld.prefab();
+	const auto position = wld.add<Position>().entity;
+	wld.add<Position>(prefabAnimal, {5, 6, 7});
+	wld.add(position, ecs::Pair(ecs::OnInstantiate, ecs::Inherit));
+
+	const auto instance = wld.instantiate(prefabAnimal);
+	const auto* pInstanceArchetype = wld.fetch(instance).pArchetype;
+	CHECK(pInstanceArchetype != nullptr);
+	if (pInstanceArchetype == nullptr)
+		return;
+
+	auto q = wld.uquery().all<Position>();
+	auto& info = q.fetch();
+	CHECK(q.count() == 1);
+	info.test_add_transient_archetype(pInstanceArchetype);
+
+	const auto archetypes = info.cache_archetype_view();
+	CHECK(archetypes.size() == 1);
+	if (archetypes.size() != 1)
+		return;
+	const auto* pArchetype = archetypes[0];
+	CHECK(pArchetype != nullptr);
+	if (pArchetype == nullptr)
+		return;
+
+	CHECK(info.try_inherited_data_view(pArchetype).empty());
+
+	const auto inheritedData = info.inherited_data_view(pArchetype);
+	const auto terms = info.ctx().data.terms_view();
+	CHECK(terms.size() == 1);
+	if (terms.size() != 1)
+		return;
+	const auto fieldIdx = terms[0].fieldIndex;
+	CHECK(fieldIdx < inheritedData.size());
+	if (fieldIdx >= inheritedData.size())
+		return;
+
+	const auto* pInheritedPos = static_cast<const Position*>(inheritedData[fieldIdx]);
+	CHECK(pInheritedPos != nullptr);
+	if (pInheritedPos == nullptr)
+		return;
+	CHECK(pInheritedPos->x == doctest::Approx(5.0f));
+	CHECK(pInheritedPos->y == doctest::Approx(6.0f));
+	CHECK(pInheritedPos->z == doctest::Approx(7.0f));
+
+	const auto inheritedDataCached = info.try_inherited_data_view(pArchetype);
+	CHECK(fieldIdx < inheritedDataCached.size());
+	if (fieldIdx >= inheritedDataCached.size())
+		return;
+	CHECK(inheritedDataCached[fieldIdx] == inheritedData[fieldIdx]);
+
+	CHECK(wld.has(instance));
+}
+
+TEST_CASE("QueryInfo - diagnostics and explicit invalidation stay stable") {
+	TestWorld twld;
+
+	const auto e0 = wld.add();
+	const auto e1 = wld.add();
+	wld.add<Position>(e0, {1, 0, 0});
+	wld.add<Position>(e1, {2, 0, 0});
+	wld.add<Rotation>(e1, {3, 0, 0, 1});
+
+	auto qA = wld.query().all<Position>();
+	auto qB = wld.query().all<Position>();
+	auto qC = wld.query().all<Position>().no<Rotation>();
+
+	auto& infoA = qA.fetch();
+	auto& infoB = qB.fetch();
+	auto& infoC = qC.fetch();
+
+	CHECK(infoA.op_count() > 0);
+	CHECK(infoA.op_signature() != 0);
+	CHECK(infoA.op_count() == infoB.op_count());
+	CHECK(infoA.op_signature() == infoB.op_signature());
+	CHECK(infoA.op_signature() != infoC.op_signature());
+
+	qA.match_all(infoA);
+	CHECK(qA.count() == 2);
+	const auto archetypeCntBefore = infoA.cache_archetype_view().size();
+
+	infoA.invalidate_seed();
+	qA.match_all(infoA);
+	CHECK(qA.count() == 2);
+	CHECK(infoA.cache_archetype_view().size() == archetypeCntBefore);
+
+	infoA.invalidate_result();
+	qA.match_all(infoA);
+	CHECK(qA.count() == 2);
+	CHECK(infoA.cache_archetype_view().size() == archetypeCntBefore);
+}
+
 TEST_CASE("Query - cached relation wildcard query after repeated pair additions") {
 	TestWorld twld;
 	static constexpr uint32_t PairCount = 30;

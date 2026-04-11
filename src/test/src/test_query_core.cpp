@@ -4088,6 +4088,160 @@ TEST_CASE("Query - delete from cache") {
 	}
 }
 
+template <typename TQuery>
+void Test_Query_CopyMoveLifecycle() {
+	constexpr bool UseCachedQuery = use_cached_query_v<TQuery>;
+
+	TestWorld twld;
+
+	const auto e0 = wld.add();
+	const auto e1 = wld.add();
+	const auto e2 = wld.add();
+
+	wld.add<Position>(e0, {1.0f, 0.0f, 0.0f});
+	wld.add<Position>(e1, {2.0f, 0.0f, 0.0f});
+	wld.add<Rotation>(e2, {3.0f, 0.0f, 0.0f, 1.0f});
+
+	auto q = make_query<UseCachedQuery>(wld).template all<Position>();
+	CHECK(q.count() == 2);
+	CHECK(q.is_cached() == UseCachedQuery);
+
+	auto qCopy(q);
+	CHECK(qCopy.count() == 2);
+	CHECK(qCopy.is_cached() == UseCachedQuery);
+
+	q.destroy();
+	CHECK(qCopy.count() == 2);
+	CHECK(qCopy.is_cached() == UseCachedQuery);
+
+	auto qMoved(GAIA_MOV(qCopy));
+	CHECK(qMoved.count() == 2);
+	CHECK(qMoved.is_cached() == UseCachedQuery);
+
+	auto qAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	CHECK(qAssigned.count() == 1);
+	qAssigned = qMoved;
+	CHECK(qAssigned.count() == 2);
+	CHECK(qAssigned.is_cached() == UseCachedQuery);
+
+	auto qMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	CHECK(qMoveAssigned.count() == 0);
+	qMoveAssigned = GAIA_MOV(qAssigned);
+	CHECK(qMoveAssigned.count() == 2);
+	CHECK(qMoveAssigned.is_cached() == UseCachedQuery);
+
+	qMoveAssigned.destroy();
+	CHECK(qMoveAssigned.count() == 2);
+	CHECK(qMoveAssigned.is_cached() == UseCachedQuery);
+}
+
+TEST_CASE("Query - copy and move lifecycle") {
+	SUBCASE("Cached query") {
+		Test_Query_CopyMoveLifecycle<ecs::Query>();
+	}
+	SUBCASE("Non-cached query") {
+		Test_Query_CopyMoveLifecycle<ecs::QueryUncached>();
+	}
+}
+
+template <typename TQuery>
+void Test_Query_CopyMovePreservesRuntimeCaches() {
+	constexpr bool UseCachedQuery = use_cached_query_v<TQuery>;
+
+	TestWorld twld;
+
+	const auto root = wld.add();
+	const auto child = wld.add();
+	const auto leaf = wld.add();
+
+	wld.child(child, root);
+	wld.child(leaf, child);
+	wld.add<Position>(root, {0.0f, 0.0f, 0.0f});
+	wld.add<Position>(child, {1.0f, 0.0f, 0.0f});
+	wld.add<Position>(leaf, {2.0f, 0.0f, 0.0f});
+
+	auto check_walk = [&](auto& query) {
+		cnt::darr<ecs::Entity> ents;
+		query.walk(ecs::ChildOf).each([&](ecs::Entity entity) {
+			ents.push_back(entity);
+		});
+
+		CHECK(ents.size() == 3);
+		if (ents.size() == 3) {
+			CHECK(ents[0] == root);
+			CHECK(ents[1] == child);
+			CHECK(ents[2] == leaf);
+		}
+		CHECK(query.is_cached() == UseCachedQuery);
+	};
+
+	auto qWalk = make_query<UseCachedQuery>(wld).template all<Position>();
+	check_walk(qWalk);
+	check_walk(qWalk);
+
+	auto qWalkCopy(qWalk);
+	check_walk(qWalkCopy);
+
+	auto qWalkMoved(GAIA_MOV(qWalkCopy));
+	check_walk(qWalkMoved);
+
+	auto qWalkAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	qWalkAssigned = qWalk;
+	check_walk(qWalkAssigned);
+
+	auto qWalkMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	qWalkMoveAssigned = GAIA_MOV(qWalkAssigned);
+	check_walk(qWalkMoveAssigned);
+
+	const auto base = wld.add();
+	const auto derived = wld.add();
+	const auto grandchild = wld.add();
+
+	wld.as(derived, base);
+	wld.as(grandchild, derived);
+	wld.add<Position>(derived, {10.0f, 0.0f, 0.0f});
+	wld.add<Position>(grandchild, {20.0f, 0.0f, 0.0f});
+
+	auto check_is = [&](auto& query) {
+		cnt::darr<ecs::Entity> ents;
+		query.each([&](ecs::Entity entity) {
+			ents.push_back(entity);
+		});
+
+		CHECK(ents.size() == 2);
+		CHECK(core::has(ents, derived));
+		CHECK(core::has(ents, grandchild));
+		CHECK(query.is_cached() == UseCachedQuery);
+	};
+
+	auto qIs = make_query<UseCachedQuery>(wld).template all<Position>().is(base);
+	check_is(qIs);
+	check_is(qIs);
+
+	auto qIsCopy(qIs);
+	check_is(qIsCopy);
+
+	auto qIsMoved(GAIA_MOV(qIsCopy));
+	check_is(qIsMoved);
+
+	auto qIsAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	qIsAssigned = qIs;
+	check_is(qIsAssigned);
+
+	auto qIsMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	qIsMoveAssigned = GAIA_MOV(qIsAssigned);
+	check_is(qIsMoveAssigned);
+}
+
+TEST_CASE("Query - copy and move preserve runtime caches") {
+	SUBCASE("Cached query") {
+		Test_Query_CopyMovePreservesRuntimeCaches<ecs::Query>();
+	}
+	SUBCASE("Non-cached query") {
+		Test_Query_CopyMovePreservesRuntimeCaches<ecs::QueryUncached>();
+	}
+}
+
 TEST_CASE("Query - semantic Is cached runs refresh after descendant changes") {
 	TestWorld twld;
 
