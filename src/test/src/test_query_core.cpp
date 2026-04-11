@@ -3110,6 +3110,113 @@ TEST_CASE("Relationship wildcard target traversal with many exclusive dontfragme
 	CHECK(wld.target(source, ecs::All) != ecs::EntityBad);
 }
 
+TEST_CASE("Exclusive dontfragment relation rebinding updates wildcard membership and traversal") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	wld.add(rel, ecs::Exclusive);
+	wld.add(rel, ecs::DontFragment);
+
+	const auto targetA = wld.add();
+	const auto targetB = wld.add();
+	const auto sourceA = wld.add();
+	const auto sourceB = wld.add();
+
+	wld.add(sourceA, {rel, targetA});
+	wld.add(sourceB, {rel, targetA});
+
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+
+	wld.add(sourceA, {rel, targetA});
+
+	cnt::darr<ecs::Entity> sourcesA;
+	wld.sources(rel, targetA, [&sourcesA](ecs::Entity source) {
+		sourcesA.push_back(source);
+	});
+	CHECK(sourcesA.size() == 2);
+	CHECK(core::has(sourcesA, sourceA));
+	CHECK(core::has(sourcesA, sourceB));
+
+	wld.add(sourceA, {rel, targetB});
+
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetB)));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(ecs::All, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, targetB)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.target(sourceA, rel) == targetB);
+
+	sourcesA.clear();
+	wld.sources(rel, targetA, [&sourcesA](ecs::Entity source) {
+		sourcesA.push_back(source);
+	});
+	CHECK(sourcesA.size() == 1);
+	CHECK(sourcesA[0] == sourceB);
+
+	cnt::darr<ecs::Entity> sourcesB;
+	wld.sources(rel, targetB, [&sourcesB](ecs::Entity source) {
+		sourcesB.push_back(source);
+	});
+	CHECK(sourcesB.size() == 1);
+	CHECK(sourcesB[0] == sourceA);
+
+	uint32_t visited = 0;
+	wld.sources_if(rel, targetB, [&](ecs::Entity source) {
+		++visited;
+		CHECK(source == sourceA);
+		return false;
+	});
+	CHECK(visited == 1);
+}
+
+TEST_CASE("Deleting exclusive dontfragment relation entity clears adjunct bindings") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	wld.add(rel, ecs::Exclusive);
+	wld.add(rel, ecs::DontFragment);
+
+	const auto targetA = wld.add();
+	const auto targetB = wld.add();
+	const auto sourceA = wld.add();
+	const auto sourceB = wld.add();
+
+	wld.add(sourceA, {rel, targetA});
+	wld.add(sourceB, {rel, targetB});
+
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceB, ecs::Pair(rel, targetB)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.has(sourceB, ecs::Pair(ecs::All, ecs::All)));
+
+	wld.del(rel);
+	wld.update();
+
+	CHECK_FALSE(wld.has(rel));
+	CHECK(wld.has(sourceA));
+	CHECK(wld.has(sourceB));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK_FALSE(wld.has(sourceB, ecs::Pair(rel, targetB)));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK_FALSE(wld.has(sourceB, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.target(sourceA, ecs::All) == ecs::EntityBad);
+	CHECK(wld.target(sourceB, ecs::All) == ecs::EntityBad);
+
+	cnt::darr<ecs::Entity> targetsA;
+	wld.targets(sourceA, ecs::All, [&targetsA](ecs::Entity target) {
+		targetsA.push_back(target);
+	});
+	CHECK(targetsA.empty());
+
+	cnt::darr<ecs::Entity> targetsB;
+	wld.targets(sourceB, ecs::All, [&targetsB](ecs::Entity target) {
+		targetsB.push_back(target);
+	});
+	CHECK(targetsB.empty());
+}
+
 TEST_CASE("Child hierarchy traversal") {
 	TestWorld twld;
 

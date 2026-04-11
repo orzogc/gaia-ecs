@@ -2932,6 +2932,40 @@ TEST_CASE("Prefab - explicit override by id and inherited runtime sparse compone
 	CHECK(pos.z == doctest::Approx(4.0f));
 }
 
+TEST_CASE("Prefab - inherited runtime sparse component set by id writes local override") {
+	TestWorld twld;
+
+	const auto prefabAnimal = wld.prefab();
+	const auto& runtimeComp = wld.add(
+			"Runtime_Sparse_Prefab_Position_Query", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+			(uint32_t)alignof(Position));
+	wld.add(runtimeComp.entity, ecs::DontFragment);
+	wld.add(prefabAnimal, runtimeComp.entity, Position{2, 3, 4});
+	wld.add(runtimeComp.entity, ecs::Pair(ecs::OnInstantiate, ecs::Inherit));
+
+	const auto instance = wld.instantiate(prefabAnimal);
+
+	CHECK_FALSE(wld.has_direct(instance, runtimeComp.entity));
+	CHECK(wld.has(instance, runtimeComp.entity));
+
+	{
+		auto pos = wld.set<Position>(instance, runtimeComp.entity);
+		pos = {7, 10, 4};
+	}
+
+	CHECK(wld.has_direct(instance, runtimeComp.entity));
+
+	const auto& pos = wld.get<Position>(instance, runtimeComp.entity);
+	CHECK(pos.x == doctest::Approx(7.0f));
+	CHECK(pos.y == doctest::Approx(10.0f));
+	CHECK(pos.z == doctest::Approx(4.0f));
+
+	const auto& prefabPos = wld.get<Position>(prefabAnimal, runtimeComp.entity);
+	CHECK(prefabPos.x == doctest::Approx(2.0f));
+	CHECK(prefabPos.y == doctest::Approx(3.0f));
+	CHECK(prefabPos.z == doctest::Approx(4.0f));
+}
+
 TEST_CASE("Prefab - instantiate recurses Parent-owned prefab children") {
 	TestWorld twld;
 
