@@ -42,6 +42,9 @@ namespace {
 		uint8_t payload[128]{};
 
 		TrackedLargeCallable() = default;
+		TrackedLargeCallable(TrackedLargeCallable&&) = delete;
+		TrackedLargeCallable& operator=(const TrackedLargeCallable&) = default;
+		TrackedLargeCallable& operator=(TrackedLargeCallable&&) = delete;
 		TrackedLargeCallable(int32_t value): bias(value) {}
 
 		TrackedLargeCallable(const TrackedLargeCallable& other): bias(other.bias) {
@@ -63,6 +66,9 @@ namespace {
 		uint8_t payload[1024]{};
 
 		TrackedHeapCallable() = default;
+		TrackedHeapCallable(TrackedHeapCallable&&) = delete;
+		TrackedHeapCallable& operator=(const TrackedHeapCallable&) = default;
+		TrackedHeapCallable& operator=(TrackedHeapCallable&&) = delete;
 		TrackedHeapCallable(int32_t value): bias(value) {}
 
 		TrackedHeapCallable(const TrackedHeapCallable& other): bias(other.bias) {
@@ -476,77 +482,73 @@ void register_funcs(PerfRunMode mode) {
 			PICOBENCH_REG(BM_MoveFunc_InvokeSmall).PICO_SETTINGS_SANI().label("MoveFunc invoke small");
 			PICOBENCH_REG(BM_MoveFunc_ConstructSmall).PICO_SETTINGS_SANI().label("MoveFunc construct small");
 			return;
-			case PerfRunMode::Normal:
-				PICOBENCH_SUITE_REG("Function wrappers invoke");
-				PICOBENCH_REG(BM_StdFunction_InvokeSmall).PICO_SETTINGS().label("std::function invoke small");
-				PICOBENCH_REG(BM_MoveFunc_InvokeSmall).PICO_SETTINGS().label("MoveFunc invoke small");
+		case PerfRunMode::Normal:
+			PICOBENCH_SUITE_REG("Function wrappers invoke");
+			PICOBENCH_REG(BM_StdFunction_InvokeSmall).PICO_SETTINGS().label("std::function invoke small");
+			PICOBENCH_REG(BM_MoveFunc_InvokeSmall).PICO_SETTINGS().label("MoveFunc invoke small");
 			PICOBENCH_REG(BM_StdFunction_InvokeLarge).PICO_SETTINGS().label("std::function invoke large");
 			PICOBENCH_REG(BM_MoveFunc_InvokeLarge).PICO_SETTINGS().label("MoveFunc invoke large");
 
-				PICOBENCH_SUITE_REG("Function wrappers invoke erased");
-				PICOBENCH_REG(BM_StdFunction_InvokeLargeErased).PICO_SETTINGS().label("std::function invoke large erased");
-				PICOBENCH_REG(BM_MoveFunc_InvokeLargeErased).PICO_SETTINGS().label("MoveFunc invoke large erased");
+			PICOBENCH_SUITE_REG("Function wrappers invoke erased");
+			PICOBENCH_REG(BM_StdFunction_InvokeLargeErased).PICO_SETTINGS().label("std::function invoke large erased");
+			PICOBENCH_REG(BM_MoveFunc_InvokeLargeErased).PICO_SETTINGS().label("MoveFunc invoke large erased");
 
-				PICOBENCH_SUITE_REG("Function wrappers construct");
-				PICOBENCH_REG(BM_StdFunction_ConstructSmall).PICO_SETTINGS().label("std::function construct small");
-				PICOBENCH_REG(BM_MoveFunc_ConstructSmall).PICO_SETTINGS().label("MoveFunc construct small");
-				PICOBENCH_REG(BM_StdFunction_ConstructLarge).PICO_SETTINGS().label("std::function construct large");
-				PICOBENCH_REG(BM_MoveFunc_ConstructLarge).PICO_SETTINGS().label("MoveFunc construct large");
+			PICOBENCH_SUITE_REG("Function wrappers construct");
+			PICOBENCH_REG(BM_StdFunction_ConstructSmall).PICO_SETTINGS().label("std::function construct small");
+			PICOBENCH_REG(BM_MoveFunc_ConstructSmall).PICO_SETTINGS().label("MoveFunc construct small");
+			PICOBENCH_REG(BM_StdFunction_ConstructLarge).PICO_SETTINGS().label("std::function construct large");
+			PICOBENCH_REG(BM_MoveFunc_ConstructLarge).PICO_SETTINGS().label("MoveFunc construct large");
 
-				PICOBENCH_SUITE_REG("Function wrapper boxing");
-				PICOBENCH_REG(BM_RawBox_ConstructLarge_DefaultHeap).PICO_SETTINGS().label("Raw box construct large default heap");
-				PICOBENCH_REG(BM_RawBox_ConstructLarge_MoveFuncStorage)
-						.PICO_SETTINGS()
-						.label("Raw box construct large MoveFunc storage");
-				PICOBENCH_REG(BM_StdFunction_ConstructHeap).PICO_SETTINGS().label("std::function construct heap");
-				PICOBENCH_REG(BM_MoveFunc_ConstructHeap).PICO_SETTINGS().label("MoveFunc construct heap");
-				PICOBENCH_REG(BM_RawBox_ConstructHeap_DefaultHeap).PICO_SETTINGS().label("Raw box construct heap default heap");
-				PICOBENCH_REG(BM_RawBox_ConstructHeap_MoveFuncStorage)
-						.PICO_SETTINGS()
-						.label("Raw box construct heap MoveFunc storage");
+			PICOBENCH_SUITE_REG("Function wrapper boxing");
+			PICOBENCH_REG(BM_RawBox_ConstructLarge_DefaultHeap).PICO_SETTINGS().label("Raw box construct large default heap");
+			PICOBENCH_REG(BM_RawBox_ConstructLarge_MoveFuncStorage)
+					.PICO_SETTINGS()
+					.label("Raw box construct large MoveFunc storage");
+			PICOBENCH_REG(BM_StdFunction_ConstructHeap).PICO_SETTINGS().label("std::function construct heap");
+			PICOBENCH_REG(BM_MoveFunc_ConstructHeap).PICO_SETTINGS().label("MoveFunc construct heap");
+			PICOBENCH_REG(BM_RawBox_ConstructHeap_DefaultHeap).PICO_SETTINGS().label("Raw box construct heap default heap");
+			PICOBENCH_REG(BM_RawBox_ConstructHeap_MoveFuncStorage)
+					.PICO_SETTINGS()
+					.label("Raw box construct heap MoveFunc storage");
 
-				PICOBENCH_SUITE_REG("Function wrapper boxing tracked");
-				PICOBENCH_REG(BM_RawStorage_TrackedLarge_DefaultHeap)
-						.PICO_SETTINGS()
-						.label("Raw storage tracked large default heap");
-				PICOBENCH_REG(BM_RawStorage_TrackedLarge_SmallBlock)
-						.PICO_SETTINGS()
-						.label("Raw storage tracked large smallblock");
-				PICOBENCH_REG(BM_RawBox_TrackedLarge_DefaultHeap)
-						.PICO_SETTINGS()
-						.label("Raw box tracked large default heap");
-				PICOBENCH_REG(BM_RawBox_TrackedLarge_SmallBlock)
-						.PICO_SETTINGS()
-						.label("Raw box tracked large smallblock");
+			PICOBENCH_SUITE_REG("Function wrapper boxing tracked");
+			PICOBENCH_REG(BM_RawStorage_TrackedLarge_DefaultHeap)
+					.PICO_SETTINGS()
+					.label("Raw storage tracked large default heap");
+			PICOBENCH_REG(BM_RawStorage_TrackedLarge_SmallBlock)
+					.PICO_SETTINGS()
+					.label("Raw storage tracked large smallblock");
+			PICOBENCH_REG(BM_RawBox_TrackedLarge_DefaultHeap).PICO_SETTINGS().label("Raw box tracked large default heap");
+			PICOBENCH_REG(BM_RawBox_TrackedLarge_SmallBlock).PICO_SETTINGS().label("Raw box tracked large smallblock");
 
-				PICOBENCH_SUITE_REG("Function wrapper lifetime trivial");
-				PICOBENCH_REG(BM_StdFunction_ConstructOnly_Large).PICO_SETTINGS().label("std::function construct-only large");
-				PICOBENCH_REG(BM_MoveFunc_ConstructOnly_Large).PICO_SETTINGS().label("MoveFunc construct-only large");
-				PICOBENCH_REG(BM_RawBox_ConstructOnly_Large_DefaultHeap)
-						.PICO_SETTINGS()
-						.label("Raw box construct-only large default heap");
+			PICOBENCH_SUITE_REG("Function wrapper lifetime trivial");
+			PICOBENCH_REG(BM_StdFunction_ConstructOnly_Large).PICO_SETTINGS().label("std::function construct-only large");
+			PICOBENCH_REG(BM_MoveFunc_ConstructOnly_Large).PICO_SETTINGS().label("MoveFunc construct-only large");
+			PICOBENCH_REG(BM_RawBox_ConstructOnly_Large_DefaultHeap)
+					.PICO_SETTINGS()
+					.label("Raw box construct-only large default heap");
 
-				PICOBENCH_SUITE_REG("Function wrapper lifetime");
-				PICOBENCH_REG(BM_StdFunction_ConstructOnly_Heap).PICO_SETTINGS().label("std::function construct-only heap");
-				PICOBENCH_REG(BM_MoveFunc_ConstructOnly_Heap).PICO_SETTINGS().label("MoveFunc construct-only heap");
-				PICOBENCH_REG(BM_RawBox_ConstructOnly_Heap_DefaultHeap)
-						.PICO_SETTINGS()
-						.label("Raw box construct-only heap default heap");
+			PICOBENCH_SUITE_REG("Function wrapper lifetime");
+			PICOBENCH_REG(BM_StdFunction_ConstructOnly_Heap).PICO_SETTINGS().label("std::function construct-only heap");
+			PICOBENCH_REG(BM_MoveFunc_ConstructOnly_Heap).PICO_SETTINGS().label("MoveFunc construct-only heap");
+			PICOBENCH_REG(BM_RawBox_ConstructOnly_Heap_DefaultHeap)
+					.PICO_SETTINGS()
+					.label("Raw box construct-only heap default heap");
 
-				PICOBENCH_SUITE_REG("Function wrapper tracked heap");
-				PICOBENCH_REG(BM_StdFunction_Construct_TrackedHeap).PICO_SETTINGS().label("std::function construct tracked heap");
-				PICOBENCH_REG(BM_MoveFunc_Construct_TrackedHeap).PICO_SETTINGS().label("MoveFunc construct tracked heap");
-				PICOBENCH_REG(BM_RawBox_Construct_TrackedHeap_DefaultHeap)
-						.PICO_SETTINGS()
-						.label("Raw box construct tracked heap default heap");
+			PICOBENCH_SUITE_REG("Function wrapper tracked heap");
+			PICOBENCH_REG(BM_StdFunction_Construct_TrackedHeap).PICO_SETTINGS().label("std::function construct tracked heap");
+			PICOBENCH_REG(BM_MoveFunc_Construct_TrackedHeap).PICO_SETTINGS().label("MoveFunc construct tracked heap");
+			PICOBENCH_REG(BM_RawBox_Construct_TrackedHeap_DefaultHeap)
+					.PICO_SETTINGS()
+					.label("Raw box construct tracked heap default heap");
 
-				PICOBENCH_SUITE_REG("SmallFunc construct");
-				PICOBENCH_REG(BM_StdFunction_ConstructSmallVoid).PICO_SETTINGS().label("std::function construct small void");
-				PICOBENCH_REG(BM_SmallFunc_ConstructSmallVoid).PICO_SETTINGS().label("SmallFunc construct small void");
-				PICOBENCH_REG(BM_StdFunction_ConstructLargeVoid).PICO_SETTINGS().label("std::function construct large void");
-				PICOBENCH_REG(BM_SmallFunc_ConstructLargeVoid).PICO_SETTINGS().label("SmallFunc construct large void");
-				PICOBENCH_REG(BM_StdFunction_ConstructHeapVoid).PICO_SETTINGS().label("std::function construct heap void");
-				PICOBENCH_REG(BM_SmallFunc_ConstructHeapVoid).PICO_SETTINGS().label("SmallFunc construct heap void");
-				return;
-		}
+			PICOBENCH_SUITE_REG("SmallFunc construct");
+			PICOBENCH_REG(BM_StdFunction_ConstructSmallVoid).PICO_SETTINGS().label("std::function construct small void");
+			PICOBENCH_REG(BM_SmallFunc_ConstructSmallVoid).PICO_SETTINGS().label("SmallFunc construct small void");
+			PICOBENCH_REG(BM_StdFunction_ConstructLargeVoid).PICO_SETTINGS().label("std::function construct large void");
+			PICOBENCH_REG(BM_SmallFunc_ConstructLargeVoid).PICO_SETTINGS().label("SmallFunc construct large void");
+			PICOBENCH_REG(BM_StdFunction_ConstructHeapVoid).PICO_SETTINGS().label("std::function construct heap void");
+			PICOBENCH_REG(BM_SmallFunc_ConstructHeapVoid).PICO_SETTINGS().label("SmallFunc construct heap void");
+			return;
 	}
+}

@@ -421,6 +421,48 @@ TEST_CASE("Entity safe") {
 		CHECK_FALSE(wld.valid(e));
 		CHECK_FALSE(wld.has(e));
 	}
+
+	SUBCASE("copy move serialize and compare helpers") {
+		TestWorld twld;
+
+		auto e = wld.add();
+		CHECK(wld.valid(e));
+
+		{
+			ecs::SafeEntity base(wld, e);
+			ecs::SafeEntity copied(base);
+			ecs::SafeEntity assigned;
+			assigned = base;
+			ecs::SafeEntity movedCtor(GAIA_MOV(copied));
+			ecs::SafeEntity movedAssign;
+			movedAssign = GAIA_MOV(assigned);
+
+			CHECK(base == movedCtor);
+			CHECK(base == movedAssign);
+			CHECK(e == base);
+			CHECK(e == movedCtor);
+			CHECK_FALSE(base != e);
+			CHECK_FALSE(e != movedAssign);
+			CHECK((ecs::Entity)copied == ecs::EntityBad);
+			CHECK((ecs::Entity)assigned == ecs::EntityBad);
+
+			ser::bin_stream stream;
+			auto ctx = ser::serializer::bind_ctx(stream);
+			ser::serializer s{ctx};
+			CHECK(s.valid());
+			movedAssign.save(s);
+			s.seek(0);
+
+			ecs::SafeEntity loaded;
+			loaded.load(s);
+			CHECK((ecs::Entity)loaded == e);
+
+			wld.del(e);
+			CHECK(wld.valid(e));
+		}
+
+		CHECK_FALSE(wld.valid(e));
+	}
 }
 #endif
 
@@ -613,6 +655,45 @@ TEST_CASE("Entity weak") {
 
 		wld.del(e);
 		CHECK(second == ecs::EntityBad);
+	}
+
+	SUBCASE("copy move serialize and compare helpers") {
+		TestWorld twld;
+
+		auto e = wld.add();
+		ecs::WeakEntity base(wld, e);
+		ecs::WeakEntity copied(base);
+		ecs::WeakEntity assigned;
+		assigned = base;
+		ecs::WeakEntity movedCtor(GAIA_MOV(copied));
+		ecs::WeakEntity movedAssign;
+		movedAssign = GAIA_MOV(assigned);
+
+		CHECK(base == movedCtor);
+		CHECK(base == movedAssign);
+		CHECK(e == base);
+		CHECK(e == movedCtor);
+		CHECK_FALSE(base != e);
+		CHECK_FALSE(e != movedAssign);
+		CHECK(copied == ecs::EntityBad);
+		CHECK(assigned == ecs::EntityBad);
+
+		ser::bin_stream stream;
+		auto ctx = ser::serializer::bind_ctx(stream);
+		ser::serializer s{ctx};
+		CHECK(s.valid());
+		movedAssign.save(s);
+		s.seek(0);
+
+		ecs::WeakEntity loaded(wld, e);
+		loaded.load(s);
+		CHECK(loaded == e);
+
+		wld.del(e);
+		CHECK(base == ecs::EntityBad);
+		CHECK(movedCtor == ecs::EntityBad);
+		CHECK(movedAssign == ecs::EntityBad);
+		CHECK(loaded == ecs::EntityBad);
 	}
 
 	SUBCASE("stress random copy move delete sequences") {

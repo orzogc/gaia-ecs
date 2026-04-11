@@ -345,6 +345,89 @@ TEST_CASE("Component cache - runtime registration") {
 	}
 }
 
+TEST_CASE("ArchetypeGraph") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	const auto tgt = wld.add();
+	const auto ent = wld.add();
+	const auto pairEnt = (ecs::Entity)ecs::Pair(rel, tgt);
+
+	wld.name(rel, "Rel");
+	wld.name(tgt, "Tgt");
+	wld.name(ent, "Entity");
+
+	ecs::ArchetypeGraph graph;
+	CHECK(graph.find_edge_right(ent) == ecs::ArchetypeIdHashPairBad);
+	CHECK(graph.find_edge_left(pairEnt) == ecs::ArchetypeIdHashPairBad);
+
+	graph.add_edge_right(ent, 17, {101});
+	graph.add_edge_left(pairEnt, 23, {202});
+	graph.add_edge_right(ent, 17, {101});
+	graph.add_edge_left(pairEnt, 23, {202});
+
+	{
+		const auto edge = graph.find_edge_right(ent);
+		CHECK(edge.id == 17);
+		CHECK(edge.hash == ecs::ArchetypeIdHash{101});
+	}
+	{
+		const auto edge = graph.find_edge_left(pairEnt);
+		CHECK(edge.id == 23);
+		CHECK(edge.hash == ecs::ArchetypeIdHash{202});
+	}
+
+	CHECK(graph.right_edges().size() == 1);
+	CHECK(graph.left_edges().size() == 1);
+
+	const auto& graphConst = graph;
+	CHECK(graphConst.right_edges().size() == 1);
+	CHECK(graphConst.left_edges().size() == 1);
+
+	const auto logLevelBackup = util::g_logLevelMask;
+	util::g_logLevelMask = 0;
+	graphConst.diag(wld);
+	util::g_logLevelMask = logLevelBackup;
+
+	graph.del_edge_right(ent);
+	graph.del_edge_left(pairEnt);
+	CHECK(graph.find_edge_right(ent) == ecs::ArchetypeIdHashPairBad);
+	CHECK(graph.find_edge_left(pairEnt) == ecs::ArchetypeIdHashPairBad);
+}
+
+TEST_CASE("EntityContainer helpers") {
+	ecs::EntityContainerCtx entityCtx{true, false, ecs::EntityKind::EK_Gen};
+	auto entityContainer = ecs::EntityContainer::create(7, 3, &entityCtx);
+	CHECK(entityContainer.idx == 7);
+	CHECK(entityContainer.data.gen == 3);
+	CHECK(entityContainer.data.ent == 1);
+	CHECK(entityContainer.data.pair == 0);
+	CHECK(entityContainer.data.kind == (uint32_t)ecs::EntityKind::EK_Gen);
+	CHECK(ecs::EntityContainer::handle(entityContainer) == ecs::Entity(7, 3, true, false, ecs::EntityKind::EK_Gen));
+	CHECK(cnt::to_page_storage_id<ecs::EntityContainer>::get(entityContainer) == 7);
+
+	entityContainer.req_del();
+	CHECK((entityContainer.flags & ecs::DeleteRequested) != 0);
+
+	ecs::EntityContainers containers;
+	const auto entityHandle = containers.entities.alloc(&entityCtx);
+	auto& entityRecord = containers.entities[entityHandle.id()];
+	entityRecord.row = 11;
+
+	const auto pairHandle = (ecs::Entity)ecs::Pair(ecs::ChildOf, entityHandle);
+	ecs::EntityContainerCtx pairCtx{pairHandle.entity(), pairHandle.pair(), pairHandle.kind()};
+	auto pairRecord = ecs::EntityContainer::create(pairHandle.id(), pairHandle.gen(), &pairCtx);
+	pairRecord.row = 22;
+	(void)containers.pairs.try_emplace(ecs::EntityLookupKey(pairHandle), pairRecord);
+
+	CHECK(containers[entityHandle].row == 11);
+	CHECK(containers[pairHandle].row == 22);
+
+	const auto& containersConst = containers;
+	CHECK(containersConst[entityHandle].row == 11);
+	CHECK(containersConst[pairHandle].row == 22);
+}
+
 TEST_CASE("Component helpers") {
 	const ecs::Component denseComp(
 			11, 0, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Table);
@@ -2515,6 +2598,17 @@ TEST_CASE("Serialization - world + query") {
 // Multithreading
 //------------------------------------------------------------------------------
 
+struct JobParallelRefProbe {
+	std::atomic_uint32_t items = 0;
+	std::atomic_uint32_t batches = 0;
+
+	static void invoke(void* pCtx, const mt::JobArgs& args) {
+		auto& ctx = *(JobParallelRefProbe*)pCtx;
+		ctx.items.fetch_add(args.idxEnd - args.idxStart, std::memory_order_relaxed);
+		ctx.batches.fetch_add(1, std::memory_order_relaxed);
+	}
+};
+
 TEST_CASE("Multithreading - JobHandle") {
 	const mt::JobHandle defaultHandle;
 	CHECK(defaultHandle.id() == mt::JobHandle::IdMask);
@@ -2565,6 +2659,42 @@ TEST_CASE("Multithreading - Event") {
 
 	event.reset();
 	CHECK_FALSE(event.is_set());
+}
+
+TEST_CASE("Multithreading - ScheduleParallelRef") {
+	auto& tp = mt::ThreadPool::get();
+	CHECK(mt::ThreadPool::hw_thread_cnt() >= 1);
+	CHECK(mt::ThreadPool::hw_efficiency_cores_cnt() <= mt::ThreadPool::hw_thread_cnt());
+
+	JobParallelRefProbe ctx;
+	mt::JobParallelRef jobRef{&ctx, &JobParallelRefProbe::invoke, mt::JobPriority::High};
+
+	tp.set_max_workers(0, 0);
+	CHECK(tp.workers() == 0);
+
+	auto handle = tp.sched_par(jobRef, 7, 16);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 7);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) == 1);
+
+	ctx.items.store(0, std::memory_order_relaxed);
+	ctx.batches.store(0, std::memory_order_relaxed);
+
+	handle = tp.sched_par(jobRef, 25, 4);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 25);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) == 7);
+
+	tp.set_max_workers(2, 2);
+	CHECK(tp.workers() == 1);
+
+	ctx.items.store(0, std::memory_order_relaxed);
+	ctx.batches.store(0, std::memory_order_relaxed);
+
+	handle = tp.sched_par(jobRef, 32, 0);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 32);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) >= 1);
 }
 
 template <typename TQueue>
