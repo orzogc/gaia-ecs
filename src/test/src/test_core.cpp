@@ -308,6 +308,12 @@ TEST_CASE("bit_view") {
 		const uint8_t val = bv.get(i * BlockBits);
 		CHECK(val == i);
 	}
+
+	uint8_t mask = 0b10000010;
+	core::swap_bits(mask, 1, 4);
+	CHECK(mask == 0b10010000);
+	core::swap_bits(mask, 0, 7);
+	CHECK(mask == 0b00010001);
 }
 
 TEST_CASE("trim") {
@@ -486,6 +492,9 @@ TEST_CASE("fwd_llist") {
 
 	cnt::fwd_llist<Foo> list;
 	GAIA_FOR(N) list.link(foos[i]);
+	CHECK(list.size() == N);
+	CHECK(list.has(foos[0]));
+	CHECK(list.has(foos[N - 1]));
 
 	// Check forward pointers
 	{
@@ -510,10 +519,26 @@ TEST_CASE("fwd_llist") {
 		CHECK(idx == N);
 	}
 
+	// Check explicit iterator API
+	{
+		auto it = list.begin();
+		CHECK(it->value == N - 1);
+		const auto itPrev = it++;
+		CHECK(itPrev->value == N - 1);
+		CHECK(it->value == N - 2);
+
+		const auto& listConst = list;
+		auto cit = listConst.begin();
+		CHECK(cit->value == N - 1);
+		CHECK(listConst.cbegin() == listConst.begin());
+		CHECK(listConst.cend() == listConst.end());
+	}
+
 	// Check forward pointers after a node from the middle of the list is removed
 	{
 		list.unlink(foos[5]);
 		CHECK_FALSE(foos[5]->get_fwd_llist_link().linked());
+		CHECK_FALSE(list.has(foos[5]));
 		foos.retain([](const Foo* f) {
 			return f->value != 5;
 		});
@@ -563,6 +588,10 @@ TEST_CASE("fwd_llist") {
 		}
 		CHECK(idx == N - 3);
 	}
+
+	list.clear();
+	CHECK(list.size() == 0);
+	CHECK(list.empty());
 
 	for (auto* f: foos_backup)
 		delete f;

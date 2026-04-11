@@ -345,6 +345,61 @@ TEST_CASE("Component cache - runtime registration") {
 	}
 }
 
+TEST_CASE("Component helpers") {
+	const ecs::Component denseComp(
+			11, 0, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Table);
+	const ecs::Component sparseAosComp(
+			12, 0, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Sparse);
+	const ecs::Component sparseSoaComp(
+			13, 2, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Sparse);
+	const ecs::Component tagComp(14, 0, 0, 1, ecs::DataStorageType::Table);
+
+	CHECK(ecs::component_has_inline_data(denseComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(denseComp));
+	CHECK_FALSE(ecs::component_has_inline_data(sparseAosComp));
+	CHECK(ecs::component_has_out_of_line_data(sparseAosComp));
+	CHECK(ecs::component_has_inline_data(sparseSoaComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(sparseSoaComp));
+	CHECK_FALSE(ecs::component_has_inline_data(tagComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(tagComp));
+
+	TestWorld twld;
+	const auto pos = wld.add<Position>().entity;
+	const auto rot = wld.add<Rotation>().entity;
+	const auto scl = wld.add<Scale>().entity;
+
+	cnt::sarr<ecs::Entity, 3> comps;
+	comps[0] = pos;
+	comps[1] = rot;
+	comps[2] = scl;
+
+	const auto hashFromSpan = ecs::calc_lookup_hash(ecs::EntitySpan{comps.data(), comps.size()});
+	cnt::sarr<uint64_t, 3> compValues;
+	compValues[0] = pos.value();
+	compValues[1] = rot.value();
+	compValues[2] = scl.value();
+
+	const auto hashFromContainer = ecs::calc_lookup_hash(compValues);
+	const auto hashContainerExpected =
+			ecs::ComponentLookupHash{core::hash_combine(compValues[0], compValues[1], compValues[2])};
+	const auto hashSpanExpected = ecs::ComponentLookupHash{core::hash_combine(
+			core::calculate_hash64(pos.value()), core::calculate_hash64(rot.value()), core::calculate_hash64(scl.value()))};
+
+	CHECK(hashFromContainer == hashContainerExpected);
+	CHECK(hashFromSpan == hashSpanExpected);
+	CHECK(ecs::calc_lookup_hash(ecs::EntitySpan{}) == ecs::ComponentLookupHash{0});
+	CHECK(ecs::calc_lookup_hash<>() == ecs::ComponentLookupHash{0});
+	CHECK(ecs::calc_lookup_hash<Position>() == ecs::ComponentLookupHash{meta::type_info::hash<Position>()});
+	CHECK(
+			ecs::calc_lookup_hash<Position, Rotation>() ==
+			ecs::ComponentLookupHash{
+					core::hash_combine(meta::type_info::hash<Position>(), meta::type_info::hash<Rotation>())});
+
+	CHECK(ecs::comp_idx<3>(comps.data(), pos) == 0);
+	CHECK(ecs::comp_idx<3>(comps.data(), rot) == 1);
+	CHECK(ecs::comp_idx(ecs::EntitySpan{comps.data(), comps.size()}, scl) == 2);
+}
+
 #if GAIA_ECS_AUTO_COMPONENT_REGISTRATION
 TEST_CASE("Typed APIs - auto component registration is enabled") {
 #else
@@ -2459,6 +2514,58 @@ TEST_CASE("Serialization - world + query") {
 //------------------------------------------------------------------------------
 // Multithreading
 //------------------------------------------------------------------------------
+
+TEST_CASE("Multithreading - JobHandle") {
+	const mt::JobHandle defaultHandle;
+	CHECK(defaultHandle.id() == mt::JobHandle::IdMask);
+	CHECK(defaultHandle.gen() == mt::JobHandle::GenMask);
+	CHECK(defaultHandle.prio() == mt::JobHandle::PrioMask);
+	CHECK(defaultHandle == mt::JobNull);
+	CHECK_FALSE(defaultHandle != mt::JobNull);
+
+	const mt::JobHandle handle(123, 45, 1);
+	CHECK(handle.id() == 123);
+	CHECK(handle.gen() == 45);
+	CHECK(handle.prio() == 1);
+	CHECK(handle != defaultHandle);
+	CHECK(handle != mt::JobNull);
+	CHECK_FALSE(handle == mt::JobNull);
+
+	const mt::JobHandle handleFromValue((uint32_t)handle.value());
+	CHECK(handleFromValue == handle);
+	CHECK(handleFromValue.value() == handle.value());
+}
+
+TEST_CASE("Multithreading - Event") {
+	mt::Event event;
+	CHECK_FALSE(event.is_set());
+
+	event.set();
+	CHECK(event.is_set());
+	event.wait();
+	event.reset();
+	CHECK_FALSE(event.is_set());
+
+	std::atomic<bool> waiterStarted = false;
+	std::atomic<bool> waiterFinished = false;
+
+	std::thread waiter([&]() {
+		waiterStarted.store(true, std::memory_order_release);
+		event.wait();
+		waiterFinished.store(true, std::memory_order_release);
+	});
+
+	while (!waiterStarted.load(std::memory_order_acquire)) {
+	}
+	CHECK_FALSE(waiterFinished.load(std::memory_order_acquire));
+
+	event.set();
+	waiter.join();
+	CHECK(waiterFinished.load(std::memory_order_acquire));
+
+	event.reset();
+	CHECK_FALSE(event.is_set());
+}
 
 template <typename TQueue>
 void TestJobQueue_PushPopSteal(bool reverse) {
