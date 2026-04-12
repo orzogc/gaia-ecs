@@ -37,6 +37,14 @@ namespace {
 	volatile uintptr_t g_trackedLargeCallableGuard = 0;
 	volatile uintptr_t g_trackedHeapCallableGuard = 0;
 
+	inline void guard_add(volatile uintptr_t& guard, uintptr_t value) noexcept {
+		guard = guard + value;
+	}
+
+	inline void guard_xor(volatile uintptr_t& guard, uintptr_t value) noexcept {
+		guard = guard ^ value;
+	}
+
 	struct TrackedLargeCallable {
 		int32_t bias = 0;
 		uint8_t payload[128]{};
@@ -44,7 +52,7 @@ namespace {
 		TrackedLargeCallable() = default;
 		TrackedLargeCallable(TrackedLargeCallable&& other) noexcept: bias(other.bias) {
 			std::memcpy(payload, other.payload, sizeof(payload));
-			g_trackedLargeCallableGuard += (uintptr_t)this;
+			guard_add(g_trackedLargeCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 		TrackedLargeCallable& operator=(const TrackedLargeCallable&) = default;
 		TrackedLargeCallable& operator=(TrackedLargeCallable&&) noexcept = default;
@@ -52,11 +60,11 @@ namespace {
 
 		TrackedLargeCallable(const TrackedLargeCallable& other): bias(other.bias) {
 			std::memcpy(payload, other.payload, sizeof(payload));
-			g_trackedLargeCallableGuard += (uintptr_t)this;
+			guard_add(g_trackedLargeCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 
 		~TrackedLargeCallable() {
-			g_trackedLargeCallableGuard ^= (uintptr_t)this;
+			guard_xor(g_trackedLargeCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 
 		int32_t operator()(int32_t lhs, int32_t rhs) const noexcept {
@@ -71,7 +79,7 @@ namespace {
 		TrackedHeapCallable() = default;
 		TrackedHeapCallable(TrackedHeapCallable&& other) noexcept: bias(other.bias) {
 			std::memcpy(payload, other.payload, sizeof(payload));
-			g_trackedHeapCallableGuard += (uintptr_t)this;
+			guard_add(g_trackedHeapCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 		TrackedHeapCallable& operator=(const TrackedHeapCallable&) = default;
 		TrackedHeapCallable& operator=(TrackedHeapCallable&&) noexcept = default;
@@ -79,11 +87,11 @@ namespace {
 
 		TrackedHeapCallable(const TrackedHeapCallable& other): bias(other.bias) {
 			std::memcpy(payload, other.payload, sizeof(payload));
-			g_trackedHeapCallableGuard += (uintptr_t)this;
+			guard_add(g_trackedHeapCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 
 		~TrackedHeapCallable() {
-			g_trackedHeapCallableGuard ^= (uintptr_t)this;
+			guard_xor(g_trackedHeapCallableGuard, reinterpret_cast<uintptr_t>(this));
 		}
 
 		int32_t operator()(int32_t lhs, int32_t rhs) const noexcept {
