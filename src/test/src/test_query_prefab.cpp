@@ -2817,6 +2817,48 @@ TEST_CASE("Prefab - inherited Iter query writes local overrides") {
 	CHECK(wld.get<Position>(prefabAnimal).x == doctest::Approx(5.0f));
 }
 
+TEST_CASE("Prefab - inherited Iter query swaps inherited payload across archetypes") {
+	TestWorld twld;
+
+	const auto prefabA = wld.prefab();
+	const auto prefabB = wld.prefab();
+	const auto position = wld.add<Position>().entity;
+	wld.add<Position>(prefabA, {5, 1, 0});
+	wld.add<Position>(prefabB, {9, 2, 0});
+	wld.add(position, ecs::Pair(ecs::OnInstantiate, ecs::Inherit));
+
+	const auto instanceA = wld.instantiate(prefabA);
+	const auto instanceB = wld.instantiate(prefabB);
+
+	uint32_t batchCnt = 0;
+	uint32_t rowCnt = 0;
+	float sumX = 0.0f;
+	float sumY = 0.0f;
+	cnt::darray<int32_t> firstXs;
+	auto q = wld.query().all<Position>();
+	q.each([&](ecs::Iter& it) {
+		auto posView = it.view_any<Position>(1);
+		CHECK(posView.data() == nullptr);
+		CHECK(it.size() == 1);
+		++batchCnt;
+		firstXs.push_back((int32_t)posView[0].x);
+		GAIA_EACH(it) {
+			++rowCnt;
+			sumX += posView[i].x;
+			sumY += posView[i].y;
+		}
+	});
+
+	CHECK(batchCnt == 2);
+	CHECK(rowCnt == 2);
+	CHECK(sumX == doctest::Approx(14.0f));
+	CHECK(sumY == doctest::Approx(3.0f));
+	CHECK(core::has(firstXs, (int32_t)5));
+	CHECK(core::has(firstXs, (int32_t)9));
+	CHECK(wld.has(instanceA));
+	CHECK(wld.has(instanceB));
+}
+
 TEST_CASE("Prefab - inherited Iter SoA query writes local overrides") {
 	TestWorld twld;
 

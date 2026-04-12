@@ -658,6 +658,46 @@ TEST_CASE("Observer - write callbacks emit OnSet after callback completion") {
 		CHECK(lastPos.y == doctest::Approx(51.0f));
 		CHECK(lastPos.z == doctest::Approx(52.0f));
 	}
+
+	SUBCASE("Iter any callback") {
+		TestWorld twld;
+
+		uint32_t onSetHits = 0;
+		Position lastPos{};
+		const auto onSetObserver = wld.observer()
+																	 .event(ecs::ObserverEvent::OnSet)
+																	 .all<Position>()
+																	 .on_each([&](const Position& pos) {
+																		 ++onSetHits;
+																		 lastPos = pos;
+																	 })
+																	 .entity();
+		(void)onSetObserver;
+
+		const auto onAddObserver = wld.observer()
+																	 .event(ecs::ObserverEvent::OnAdd)
+																	 .all<Position&>()
+																	 .on_each([&](ecs::Iter& it) {
+																		 auto posView = it.view_any_mut<Position>(0);
+																		 CHECK(onSetHits == 0);
+																		 GAIA_EACH(it) {
+																			 posView[i].x = 60.0f;
+																			 posView[i].y = 61.0f;
+																			 posView[i].z = 62.0f;
+																			 CHECK(onSetHits == 0);
+																		 }
+																	 })
+																	 .entity();
+		(void)onAddObserver;
+
+		const auto e = wld.add();
+		wld.add<Position>(e, {7.0f, 8.0f, 9.0f});
+
+		CHECK(onSetHits == 1);
+		CHECK(lastPos.x == doctest::Approx(60.0f));
+		CHECK(lastPos.y == doctest::Approx(61.0f));
+		CHECK(lastPos.z == doctest::Approx(62.0f));
+	}
 }
 
 TEST_CASE("EntityBuilder single-step graph rebuild tolerates stale del edges") {
