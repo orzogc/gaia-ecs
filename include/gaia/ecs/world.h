@@ -4617,6 +4617,10 @@ namespace gaia {
 				}
 
 				EntityBuilder eb(*this, entity);
+#if GAIA_OBSERVERS_ENABLED
+				auto addDiffCtx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
+#endif
 				eb.add_inter_init(object);
 				eb.commit();
 
@@ -4625,6 +4629,9 @@ namespace gaia {
 				const auto idx = uint16_t(ec.row * (1U - (uint32_t)object.kind()));
 				ComponentSetter{*this, ec.pChunk, entity, idx}.sset(object, GAIA_FWD(value));
 				notify_add_single(entity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
+#endif
 			}
 
 			//! Attaches a new component @a T to @a entity. Also sets its value.
@@ -4662,13 +4669,23 @@ namespace gaia {
 
 				EntityBuilder builder(*this, entity);
 				auto object = builder.register_component<T>();
-				builder.add(object);
+#if GAIA_OBSERVERS_ENABLED
+				auto addDiffCtx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
+#endif
+				// Materialize the component first, write the initial value, and only then dispatch OnAdd.
+				// This keeps observer-visible state aligned with the final stored payload.
+				builder.add_inter_init(object);
 				builder.commit();
 
 				const auto& ec = m_recs.entities[entity.id()];
 				// Make sure the idx is 0 for unique entities
 				const auto idx = uint16_t(ec.row * (1U - (uint32_t)object.kind()));
 				ComponentSetter{*this, ec.pChunk, entity, idx}.sset<T>(GAIA_FWD(value));
+				notify_add_single(entity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
+#endif
 			}
 
 			//! Materializes an inherited id as directly owned storage on @a entity.
