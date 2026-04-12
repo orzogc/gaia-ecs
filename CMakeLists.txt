@@ -47,12 +47,48 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(IsClangCompiler TRUE)
 endif()
 
-# Configuration
-option(GAIA_USE_LIBCPP "Use libc++." OFF)
+# libc++ usage:
+# - on Apple Clang with libc++ found: GAIA_USE_LIBCPP auto-defaults to ON
+# - on non-Apple Clang: it auto-defaults to ON only if the -stdlib=libc++ probe succeeds
+# - if someone sets -DGAIA_USE_LIBCPP=ON and the toolchain can’t use it, it warns and falls back to OFF
+set(GAIA_HAS_LIBCPP OFF)
+set(GAIA_USE_LIBCPP_USER_DEFINED FALSE)
 
-if(IsClangCompiler)
-    set(GAIA_USE_LIBCPP ON)
+if(DEFINED GAIA_USE_LIBCPP)
+    set(GAIA_USE_LIBCPP_USER_DEFINED TRUE)
 endif()
+
+if(NOT WIN32 AND IsClangCompiler)
+    find_library(LIBCXX_LIBRARY c++)
+
+    if(LIBCXX_LIBRARY)
+        if(APPLE)
+            set(GAIA_HAS_LIBCPP ON)
+        else()
+            include(CheckCXXSourceCompiles)
+            include(CMakePushCheckState)
+
+            cmake_push_check_state()
+            set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -stdlib=libc++")
+
+            check_cxx_source_compiles(
+                "#include <type_traits>
+                int main() { return std::is_same_v<int, char>; }"
+                GAIA_HAS_LIBCPP)
+
+            cmake_pop_check_state()
+        endif()
+    endif()
+endif()
+
+set(GAIA_USE_LIBCPP_DEFAULT OFF)
+
+if(GAIA_HAS_LIBCPP)
+    set(GAIA_USE_LIBCPP_DEFAULT ON)
+endif()
+
+# Configuration
+option(GAIA_USE_LIBCPP "Use libc++." ${GAIA_USE_LIBCPP_DEFAULT})
 
 option(GAIA_BUILD_UNITTEST "Build unit test." OFF)
 option(GAIA_BUILD_BENCHMARK "Build benchmark." OFF)
@@ -85,30 +121,11 @@ else()
     set(GAIA_BUILD_SRC OFF)
 endif()
 
-# libc++
-set(GAIA_HAS_LIBCPP OFF)
+# Validate explicit libc++ opt-in
+if(NOT WIN32 AND GAIA_USE_LIBCPP AND NOT GAIA_HAS_LIBCPP)
+    set(GAIA_USE_LIBCPP OFF CACHE BOOL "Use libc++." FORCE)
 
-if(NOT WIN32 AND GAIA_USE_LIBCPP)
-    # Check for libc++ library presence
-    find_library(LIBCXX_LIBRARY c++)
-
-    if(LIBCXX_LIBRARY)
-        include(CheckCXXSourceCompiles)
-        include(CMakePushCheckState)
-
-        cmake_push_check_state()
-        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -stdlib=libc++")
-
-        check_cxx_source_compiles("
-    #include <type_traits>
-    int main() { return std::is_same_v<int, char>; }
-" GAIA_HAS_LIBCPP)
-
-        cmake_pop_check_state()
-    endif()
-
-    if(NOT GAIA_HAS_LIBCPP)
-        set(GAIA_USE_LIBCPP OFF)
+    if(GAIA_USE_LIBCPP_USER_DEFINED)
         message(WARNING "GAIA_USE_LIBCPP is ON but libc++ is not available. The flag will be ignored.")
     endif()
 endif()
