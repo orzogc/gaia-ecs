@@ -3703,11 +3703,6 @@ To validate the package locally:
 conan create pkg/conan --build=missing -s build_type=Release -s compiler.cppstd=17
 ```
 
-Public publishing is documented in [`pkg/conan/README.md`](pkg/conan/README.md), including:
-- the manual Artifactory upload workflow in [`.github/workflows/conan-publish.yml`](.github/workflows/conan-publish.yml)
-- the release-time update steps for [`pkg/conan/conandata.yml`](pkg/conan/conandata.yml)
-- the ConanCenter submission checklist
-
 # Repository structure
 
 ## Examples
