@@ -3110,6 +3110,113 @@ TEST_CASE("Relationship wildcard target traversal with many exclusive dontfragme
 	CHECK(wld.target(source, ecs::All) != ecs::EntityBad);
 }
 
+TEST_CASE("Exclusive dontfragment relation rebinding updates wildcard membership and traversal") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	wld.add(rel, ecs::Exclusive);
+	wld.add(rel, ecs::DontFragment);
+
+	const auto targetA = wld.add();
+	const auto targetB = wld.add();
+	const auto sourceA = wld.add();
+	const auto sourceB = wld.add();
+
+	wld.add(sourceA, {rel, targetA});
+	wld.add(sourceB, {rel, targetA});
+
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+
+	wld.add(sourceA, {rel, targetA});
+
+	cnt::darr<ecs::Entity> sourcesA;
+	wld.sources(rel, targetA, [&sourcesA](ecs::Entity source) {
+		sourcesA.push_back(source);
+	});
+	CHECK(sourcesA.size() == 2);
+	CHECK(core::has(sourcesA, sourceA));
+	CHECK(core::has(sourcesA, sourceB));
+
+	wld.add(sourceA, {rel, targetB});
+
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetB)));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(ecs::All, targetA)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, targetB)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.target(sourceA, rel) == targetB);
+
+	sourcesA.clear();
+	wld.sources(rel, targetA, [&sourcesA](ecs::Entity source) {
+		sourcesA.push_back(source);
+	});
+	CHECK(sourcesA.size() == 1);
+	CHECK(sourcesA[0] == sourceB);
+
+	cnt::darr<ecs::Entity> sourcesB;
+	wld.sources(rel, targetB, [&sourcesB](ecs::Entity source) {
+		sourcesB.push_back(source);
+	});
+	CHECK(sourcesB.size() == 1);
+	CHECK(sourcesB[0] == sourceA);
+
+	uint32_t visited = 0;
+	wld.sources_if(rel, targetB, [&](ecs::Entity source) {
+		++visited;
+		CHECK(source == sourceA);
+		return false;
+	});
+	CHECK(visited == 1);
+}
+
+TEST_CASE("Deleting exclusive dontfragment relation entity clears adjunct bindings") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	wld.add(rel, ecs::Exclusive);
+	wld.add(rel, ecs::DontFragment);
+
+	const auto targetA = wld.add();
+	const auto targetB = wld.add();
+	const auto sourceA = wld.add();
+	const auto sourceB = wld.add();
+
+	wld.add(sourceA, {rel, targetA});
+	wld.add(sourceB, {rel, targetB});
+
+	CHECK(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK(wld.has(sourceB, ecs::Pair(rel, targetB)));
+	CHECK(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.has(sourceB, ecs::Pair(ecs::All, ecs::All)));
+
+	wld.del(rel);
+	wld.update();
+
+	CHECK_FALSE(wld.has(rel));
+	CHECK(wld.has(sourceA));
+	CHECK(wld.has(sourceB));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(rel, targetA)));
+	CHECK_FALSE(wld.has(sourceB, ecs::Pair(rel, targetB)));
+	CHECK_FALSE(wld.has(sourceA, ecs::Pair(ecs::All, ecs::All)));
+	CHECK_FALSE(wld.has(sourceB, ecs::Pair(ecs::All, ecs::All)));
+	CHECK(wld.target(sourceA, ecs::All) == ecs::EntityBad);
+	CHECK(wld.target(sourceB, ecs::All) == ecs::EntityBad);
+
+	cnt::darr<ecs::Entity> targetsA;
+	wld.targets(sourceA, ecs::All, [&targetsA](ecs::Entity target) {
+		targetsA.push_back(target);
+	});
+	CHECK(targetsA.empty());
+
+	cnt::darr<ecs::Entity> targetsB;
+	wld.targets(sourceB, ecs::All, [&targetsB](ecs::Entity target) {
+		targetsB.push_back(target);
+	});
+	CHECK(targetsB.empty());
+}
+
 TEST_CASE("Child hierarchy traversal") {
 	TestWorld twld;
 
@@ -4088,6 +4195,160 @@ TEST_CASE("Query - delete from cache") {
 	}
 }
 
+template <typename TQuery>
+void Test_Query_CopyMoveLifecycle() {
+	constexpr bool UseCachedQuery = use_cached_query_v<TQuery>;
+
+	TestWorld twld;
+
+	const auto e0 = wld.add();
+	const auto e1 = wld.add();
+	const auto e2 = wld.add();
+
+	wld.add<Position>(e0, {1.0f, 0.0f, 0.0f});
+	wld.add<Position>(e1, {2.0f, 0.0f, 0.0f});
+	wld.add<Rotation>(e2, {3.0f, 0.0f, 0.0f, 1.0f});
+
+	auto q = make_query<UseCachedQuery>(wld).template all<Position>();
+	CHECK(q.count() == 2);
+	CHECK(q.is_cached() == UseCachedQuery);
+
+	auto qCopy(q);
+	CHECK(qCopy.count() == 2);
+	CHECK(qCopy.is_cached() == UseCachedQuery);
+
+	q.destroy();
+	CHECK(qCopy.count() == 2);
+	CHECK(qCopy.is_cached() == UseCachedQuery);
+
+	auto qMoved(GAIA_MOV(qCopy));
+	CHECK(qMoved.count() == 2);
+	CHECK(qMoved.is_cached() == UseCachedQuery);
+
+	auto qAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	CHECK(qAssigned.count() == 1);
+	qAssigned = qMoved;
+	CHECK(qAssigned.count() == 2);
+	CHECK(qAssigned.is_cached() == UseCachedQuery);
+
+	auto qMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	CHECK(qMoveAssigned.count() == 0);
+	qMoveAssigned = GAIA_MOV(qAssigned);
+	CHECK(qMoveAssigned.count() == 2);
+	CHECK(qMoveAssigned.is_cached() == UseCachedQuery);
+
+	qMoveAssigned.destroy();
+	CHECK(qMoveAssigned.count() == 2);
+	CHECK(qMoveAssigned.is_cached() == UseCachedQuery);
+}
+
+TEST_CASE("Query - copy and move lifecycle") {
+	SUBCASE("Cached query") {
+		Test_Query_CopyMoveLifecycle<ecs::Query>();
+	}
+	SUBCASE("Non-cached query") {
+		Test_Query_CopyMoveLifecycle<ecs::QueryUncached>();
+	}
+}
+
+template <typename TQuery>
+void Test_Query_CopyMovePreservesRuntimeCaches() {
+	constexpr bool UseCachedQuery = use_cached_query_v<TQuery>;
+
+	TestWorld twld;
+
+	const auto root = wld.add();
+	const auto child = wld.add();
+	const auto leaf = wld.add();
+
+	wld.child(child, root);
+	wld.child(leaf, child);
+	wld.add<Position>(root, {0.0f, 0.0f, 0.0f});
+	wld.add<Position>(child, {1.0f, 0.0f, 0.0f});
+	wld.add<Position>(leaf, {2.0f, 0.0f, 0.0f});
+
+	auto check_walk = [&](auto& query) {
+		cnt::darr<ecs::Entity> ents;
+		query.walk(ecs::ChildOf).each([&](ecs::Entity entity) {
+			ents.push_back(entity);
+		});
+
+		CHECK(ents.size() == 3);
+		if (ents.size() == 3) {
+			CHECK(ents[0] == root);
+			CHECK(ents[1] == child);
+			CHECK(ents[2] == leaf);
+		}
+		CHECK(query.is_cached() == UseCachedQuery);
+	};
+
+	auto qWalk = make_query<UseCachedQuery>(wld).template all<Position>();
+	check_walk(qWalk);
+	check_walk(qWalk);
+
+	auto qWalkCopy(qWalk);
+	check_walk(qWalkCopy);
+
+	auto qWalkMoved(GAIA_MOV(qWalkCopy));
+	check_walk(qWalkMoved);
+
+	auto qWalkAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	qWalkAssigned = qWalk;
+	check_walk(qWalkAssigned);
+
+	auto qWalkMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	qWalkMoveAssigned = GAIA_MOV(qWalkAssigned);
+	check_walk(qWalkMoveAssigned);
+
+	const auto base = wld.add();
+	const auto derived = wld.add();
+	const auto grandchild = wld.add();
+
+	wld.as(derived, base);
+	wld.as(grandchild, derived);
+	wld.add<Position>(derived, {10.0f, 0.0f, 0.0f});
+	wld.add<Position>(grandchild, {20.0f, 0.0f, 0.0f});
+
+	auto check_is = [&](auto& query) {
+		cnt::darr<ecs::Entity> ents;
+		query.each([&](ecs::Entity entity) {
+			ents.push_back(entity);
+		});
+
+		CHECK(ents.size() == 2);
+		CHECK(core::has(ents, derived));
+		CHECK(core::has(ents, grandchild));
+		CHECK(query.is_cached() == UseCachedQuery);
+	};
+
+	auto qIs = make_query<UseCachedQuery>(wld).template all<Position>().is(base);
+	check_is(qIs);
+	check_is(qIs);
+
+	auto qIsCopy(qIs);
+	check_is(qIsCopy);
+
+	auto qIsMoved(GAIA_MOV(qIsCopy));
+	check_is(qIsMoved);
+
+	auto qIsAssigned = make_query<UseCachedQuery>(wld).template all<Rotation>();
+	qIsAssigned = qIs;
+	check_is(qIsAssigned);
+
+	auto qIsMoveAssigned = make_query<UseCachedQuery>(wld).template all<Acceleration>();
+	qIsMoveAssigned = GAIA_MOV(qIsAssigned);
+	check_is(qIsMoveAssigned);
+}
+
+TEST_CASE("Query - copy and move preserve runtime caches") {
+	SUBCASE("Cached query") {
+		Test_Query_CopyMovePreservesRuntimeCaches<ecs::Query>();
+	}
+	SUBCASE("Non-cached query") {
+		Test_Query_CopyMovePreservesRuntimeCaches<ecs::QueryUncached>();
+	}
+}
+
 TEST_CASE("Query - semantic Is cached runs refresh after descendant changes") {
 	TestWorld twld;
 
@@ -4257,6 +4518,119 @@ TEST_CASE("Query - Iter direct chunk-backed SoA accessors") {
 	CHECK(p1.x == doctest::Approx(84.0f));
 	CHECK(p1.y == doctest::Approx(15.0f));
 	CHECK(p1.z == doctest::Approx(9.0f));
+}
+
+TEST_CASE("Query - Iter direct chunk-backed any accessors") {
+	SUBCASE("AoS") {
+		TestWorld twld;
+
+		auto e0 = wld.add();
+		auto e1 = wld.add();
+		wld.add<Position>(e0, {1, 2, 3});
+		wld.add<Acceleration>(e0, {10, 20, 30});
+		wld.add<Position>(e1, {4, 5, 6});
+		wld.add<Acceleration>(e1, {40, 50, 60});
+
+		float readX = 0.0f;
+		float readAx = 0.0f;
+		auto qRead = wld.query().all<Position>().all<Acceleration>();
+		qRead.each([&](ecs::Iter& it) {
+			auto posView = it.view_any<Position>();
+			auto accView = it.view_any<Acceleration>(1);
+			CHECK(posView.data() != nullptr);
+			CHECK(accView.data() != nullptr);
+			GAIA_EACH(it) {
+				readX += posView[i].x;
+				readAx += accView[i].x;
+			}
+		});
+
+		auto qWrite = wld.query().all<Position&>().all<Acceleration>();
+		qWrite.each([&](ecs::Iter& it) {
+			auto posAny = it.view_any_mut<Position>();
+			auto posAnyByTerm = it.view_any_mut<Position>(0);
+			auto accView = it.view_any<Acceleration>(1);
+			CHECK(posAny.data() != nullptr);
+			CHECK(posAnyByTerm.data() != nullptr);
+			GAIA_EACH(it) {
+				posAny[i].x += accView[i].x;
+				posAnyByTerm[i].y += accView[i].y;
+			}
+		});
+
+		CHECK(readX == doctest::Approx(5.0f));
+		CHECK(readAx == doctest::Approx(50.0f));
+
+		const auto p0 = wld.get<Position>(e0);
+		CHECK(p0.x == doctest::Approx(11.0f));
+		CHECK(p0.y == doctest::Approx(22.0f));
+		CHECK(p0.z == doctest::Approx(3.0f));
+
+		const auto p1 = wld.get<Position>(e1);
+		CHECK(p1.x == doctest::Approx(44.0f));
+		CHECK(p1.y == doctest::Approx(55.0f));
+		CHECK(p1.z == doctest::Approx(6.0f));
+	}
+
+	SUBCASE("SoA") {
+		TestWorld twld;
+
+		auto e0 = wld.add();
+		auto e1 = wld.add();
+		wld.add<PositionSoA>(e0, {1, 2, 3});
+		wld.add<RotationSoA>(e0, {10, 20, 30, 40});
+		wld.add<PositionSoA>(e1, {4, 5, 6});
+		wld.add<RotationSoA>(e1, {50, 60, 70, 80});
+
+		float readX = 0.0f;
+		float readW = 0.0f;
+		auto qRead = wld.query().all<PositionSoA>().all<RotationSoA>();
+		qRead.each([&](ecs::Iter& it) {
+			auto posView = it.view_any<PositionSoA>(0);
+			auto rotView = it.view_any<RotationSoA>(1);
+			auto xs = posView.template get<0>();
+			auto ws = rotView.template get<3>();
+			GAIA_EACH(it) {
+				readX += xs[i];
+				readW += ws[i];
+			}
+		});
+
+		auto qWriteRows = wld.query().all<PositionSoA&>().all<RotationSoA>();
+		qWriteRows.each([&](ecs::Iter& it) {
+			auto posView = it.view_any_mut<PositionSoA>();
+			auto rotView = it.view_any<RotationSoA>(1);
+			auto xs = posView.template set<0>();
+			auto zs = posView.template set<2>();
+			auto ws = rotView.template get<3>();
+			GAIA_EACH(it) {
+				xs[i] += ws[i];
+				zs[i] += 1.0f;
+			}
+		});
+
+		auto qWriteFields = wld.query().all<PositionSoA&>();
+		qWriteFields.each([&](ecs::Iter& it) {
+			auto posView = it.view_any_mut<PositionSoA>(0);
+			auto ys = posView.template set<1>();
+			GAIA_EACH(it) {
+				ys[i] += 10.0f;
+			}
+		});
+
+		CHECK(readX == doctest::Approx(5.0f));
+		CHECK(readW == doctest::Approx(120.0f));
+
+		const auto p0 = wld.get<PositionSoA>(e0);
+		CHECK(p0.x == doctest::Approx(41.0f));
+		CHECK(p0.y == doctest::Approx(12.0f));
+		CHECK(p0.z == doctest::Approx(4.0f));
+
+		const auto p1 = wld.get<PositionSoA>(e1);
+		CHECK(p1.x == doctest::Approx(84.0f));
+		CHECK(p1.y == doctest::Approx(15.0f));
+		CHECK(p1.z == doctest::Approx(7.0f));
+	}
 }
 
 TEST_CASE("Query - Iter auto view accessors") {

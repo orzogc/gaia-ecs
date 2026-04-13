@@ -4617,6 +4617,10 @@ namespace gaia {
 				}
 
 				EntityBuilder eb(*this, entity);
+#if GAIA_OBSERVERS_ENABLED
+				auto addDiffCtx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
+#endif
 				eb.add_inter_init(object);
 				eb.commit();
 
@@ -4625,6 +4629,9 @@ namespace gaia {
 				const auto idx = uint16_t(ec.row * (1U - (uint32_t)object.kind()));
 				ComponentSetter{*this, ec.pChunk, entity, idx}.sset(object, GAIA_FWD(value));
 				notify_add_single(entity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
+#endif
 			}
 
 			//! Attaches a new component @a T to @a entity. Also sets its value.
@@ -4662,13 +4669,23 @@ namespace gaia {
 
 				EntityBuilder builder(*this, entity);
 				auto object = builder.register_component<T>();
-				builder.add(object);
+#if GAIA_OBSERVERS_ENABLED
+				auto addDiffCtx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
+#endif
+				// Materialize the component first, write the initial value, and only then dispatch OnAdd.
+				// This keeps observer-visible state aligned with the final stored payload.
+				builder.add_inter_init(object);
 				builder.commit();
 
 				const auto& ec = m_recs.entities[entity.id()];
 				// Make sure the idx is 0 for unique entities
 				const auto idx = uint16_t(ec.row * (1U - (uint32_t)object.kind()));
 				ComponentSetter{*this, ec.pChunk, entity, idx}.sset<T>(GAIA_FWD(value));
+				notify_add_single(entity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
+#endif
 			}
 
 			//! Materializes an inherited id as directly owned storage on @a entity.
@@ -12626,28 +12643,24 @@ namespace gaia {
 namespace gaia {
 	namespace ecs {
 		namespace detail {
-			struct RunSystemEntity {
-				World* pWorld = nullptr;
+			//! Runs a system entity from the erased system-query callback path.
+			inline void run_system_entity_erased(void* pCtx, Entity systemEntity) {
+				auto& world = *static_cast<World*>(pCtx);
+				if (!world.valid(systemEntity) || !world.has(systemEntity, System))
+					return;
+				if (!world.enabled_hierarchy(systemEntity, ChildOf))
+					return;
 
-				void operator()(Entity systemEntity) const {
-					if (!pWorld->valid(systemEntity) || !pWorld->has(systemEntity, System))
-						return;
-					if (!pWorld->enabled_hierarchy(systemEntity, ChildOf))
-						return;
+				auto ss = world.acc_mut(systemEntity);
+				auto& sys = ss.smut<ecs::System_>();
+				sys.exec();
+			}
 
-					auto ss = pWorld->acc_mut(systemEntity);
-					auto& sys = ss.smut<ecs::System_>();
-					sys.exec();
-				}
-			};
-
-			struct CollectSystemEntity {
-				cnt::darray<Entity>* pOut = nullptr;
-
-				void operator()(Entity systemEntity) const {
-					pOut->push_back(systemEntity);
-				}
-			};
+			//! Collects a system entity from the erased system-query callback path.
+			inline void collect_system_entity_erased(void* pCtx, Entity systemEntity) {
+				auto& out = *static_cast<cnt::darray<Entity>*>(pCtx);
+				out.push_back(systemEntity);
+			}
 		} // namespace detail
 
 		inline void World::systems_init() {
@@ -12658,12 +12671,12 @@ namespace gaia {
 			if GAIA_UNLIKELY (tearing_down())
 				return;
 
-			m_systemsQuery.each(detail::RunSystemEntity{this});
+			m_systemsQuery.each_entity_enabled(this, detail::run_system_entity_erased);
 		}
 
 		inline void World::systems_done() {
 			cnt::darray<Entity> tmpEntities;
-			m_systemsQuery.each(detail::CollectSystemEntity{&tmpEntities});
+			m_systemsQuery.each_entity_enabled(&tmpEntities, detail::collect_system_entity_erased);
 
 			// Wait for every outstanding system job before mutating any system runtime state.
 			// This keeps dependency chains intact while jobs are still live.

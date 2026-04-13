@@ -345,6 +345,144 @@ TEST_CASE("Component cache - runtime registration") {
 	}
 }
 
+TEST_CASE("ArchetypeGraph") {
+	TestWorld twld;
+
+	const auto rel = wld.add();
+	const auto tgt = wld.add();
+	const auto ent = wld.add();
+	const auto pairEnt = (ecs::Entity)ecs::Pair(rel, tgt);
+
+	wld.name(rel, "Rel");
+	wld.name(tgt, "Tgt");
+	wld.name(ent, "Entity");
+
+	ecs::ArchetypeGraph graph;
+	CHECK(graph.find_edge_right(ent) == ecs::ArchetypeIdHashPairBad);
+	CHECK(graph.find_edge_left(pairEnt) == ecs::ArchetypeIdHashPairBad);
+
+	graph.add_edge_right(ent, 17, {101});
+	graph.add_edge_left(pairEnt, 23, {202});
+	graph.add_edge_right(ent, 17, {101});
+	graph.add_edge_left(pairEnt, 23, {202});
+
+	{
+		const auto edge = graph.find_edge_right(ent);
+		CHECK(edge.id == 17);
+		CHECK(edge.hash == ecs::ArchetypeIdHash{101});
+	}
+	{
+		const auto edge = graph.find_edge_left(pairEnt);
+		CHECK(edge.id == 23);
+		CHECK(edge.hash == ecs::ArchetypeIdHash{202});
+	}
+
+	CHECK(graph.right_edges().size() == 1);
+	CHECK(graph.left_edges().size() == 1);
+
+	const auto& graphConst = graph;
+	CHECK(graphConst.right_edges().size() == 1);
+	CHECK(graphConst.left_edges().size() == 1);
+
+	const auto logLevelBackup = util::g_logLevelMask;
+	util::g_logLevelMask = 0;
+	graphConst.diag(wld);
+	util::g_logLevelMask = logLevelBackup;
+
+	graph.del_edge_right(ent);
+	graph.del_edge_left(pairEnt);
+	CHECK(graph.find_edge_right(ent) == ecs::ArchetypeIdHashPairBad);
+	CHECK(graph.find_edge_left(pairEnt) == ecs::ArchetypeIdHashPairBad);
+}
+
+TEST_CASE("EntityContainer helpers") {
+	ecs::EntityContainerCtx entityCtx{true, false, ecs::EntityKind::EK_Gen};
+	auto entityContainer = ecs::EntityContainer::create(7, 3, &entityCtx);
+	CHECK(entityContainer.idx == 7);
+	CHECK(entityContainer.data.gen == 3);
+	CHECK(entityContainer.data.ent == 1);
+	CHECK(entityContainer.data.pair == 0);
+	CHECK(entityContainer.data.kind == (uint32_t)ecs::EntityKind::EK_Gen);
+	CHECK(ecs::EntityContainer::handle(entityContainer) == ecs::Entity(7, 3, true, false, ecs::EntityKind::EK_Gen));
+	CHECK(cnt::to_page_storage_id<ecs::EntityContainer>::get(entityContainer) == 7);
+
+	entityContainer.req_del();
+	CHECK((entityContainer.flags & ecs::DeleteRequested) != 0);
+
+	ecs::EntityContainers containers;
+	const auto entityHandle = containers.entities.alloc(&entityCtx);
+	auto& entityRecord = containers.entities[entityHandle.id()];
+	entityRecord.row = 11;
+
+	const auto pairHandle = (ecs::Entity)ecs::Pair(ecs::ChildOf, entityHandle);
+	ecs::EntityContainerCtx pairCtx{pairHandle.entity(), pairHandle.pair(), pairHandle.kind()};
+	auto pairRecord = ecs::EntityContainer::create(pairHandle.id(), pairHandle.gen(), &pairCtx);
+	pairRecord.row = 22;
+	(void)containers.pairs.try_emplace(ecs::EntityLookupKey(pairHandle), pairRecord);
+
+	CHECK(containers[entityHandle].row == 11);
+	CHECK(containers[pairHandle].row == 22);
+
+	const auto& containersConst = containers;
+	CHECK(containersConst[entityHandle].row == 11);
+	CHECK(containersConst[pairHandle].row == 22);
+}
+
+TEST_CASE("Component helpers") {
+	const ecs::Component denseComp(
+			11, 0, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Table);
+	const ecs::Component sparseAosComp(
+			12, 0, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Sparse);
+	const ecs::Component sparseSoaComp(
+			13, 2, (uint32_t)sizeof(Position), (uint32_t)alignof(Position), ecs::DataStorageType::Sparse);
+	const ecs::Component tagComp(14, 0, 0, 1, ecs::DataStorageType::Table);
+
+	CHECK(ecs::component_has_inline_data(denseComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(denseComp));
+	CHECK_FALSE(ecs::component_has_inline_data(sparseAosComp));
+	CHECK(ecs::component_has_out_of_line_data(sparseAosComp));
+	CHECK(ecs::component_has_inline_data(sparseSoaComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(sparseSoaComp));
+	CHECK_FALSE(ecs::component_has_inline_data(tagComp));
+	CHECK_FALSE(ecs::component_has_out_of_line_data(tagComp));
+
+	TestWorld twld;
+	const auto pos = wld.add<Position>().entity;
+	const auto rot = wld.add<Rotation>().entity;
+	const auto scl = wld.add<Scale>().entity;
+
+	cnt::sarr<ecs::Entity, 3> comps;
+	comps[0] = pos;
+	comps[1] = rot;
+	comps[2] = scl;
+
+	const auto hashFromSpan = ecs::calc_lookup_hash(ecs::EntitySpan{comps.data(), comps.size()});
+	cnt::sarr<uint64_t, 3> compValues;
+	compValues[0] = pos.value();
+	compValues[1] = rot.value();
+	compValues[2] = scl.value();
+
+	const auto hashFromContainer = ecs::calc_lookup_hash(compValues);
+	const auto hashContainerExpected =
+			ecs::ComponentLookupHash{core::hash_combine(compValues[0], compValues[1], compValues[2])};
+	const auto hashSpanExpected = ecs::ComponentLookupHash{core::hash_combine(
+			core::calculate_hash64(pos.value()), core::calculate_hash64(rot.value()), core::calculate_hash64(scl.value()))};
+
+	CHECK(hashFromContainer == hashContainerExpected);
+	CHECK(hashFromSpan == hashSpanExpected);
+	CHECK(ecs::calc_lookup_hash(ecs::EntitySpan{}) == ecs::ComponentLookupHash{0});
+	CHECK(ecs::calc_lookup_hash<>() == ecs::ComponentLookupHash{0});
+	CHECK(ecs::calc_lookup_hash<Position>() == ecs::ComponentLookupHash{meta::type_info::hash<Position>()});
+	CHECK(
+			ecs::calc_lookup_hash<Position, Rotation>() ==
+			ecs::ComponentLookupHash{
+					core::hash_combine(meta::type_info::hash<Position>(), meta::type_info::hash<Rotation>())});
+
+	CHECK(ecs::comp_idx<3>(comps.data(), pos) == 0);
+	CHECK(ecs::comp_idx<3>(comps.data(), rot) == 1);
+	CHECK(ecs::comp_idx(ecs::EntitySpan{comps.data(), comps.size()}, scl) == 2);
+}
+
 #if GAIA_ECS_AUTO_COMPONENT_REGISTRATION
 TEST_CASE("Typed APIs - auto component registration is enabled") {
 #else
@@ -2460,6 +2598,105 @@ TEST_CASE("Serialization - world + query") {
 // Multithreading
 //------------------------------------------------------------------------------
 
+struct JobParallelRefProbe {
+	std::atomic_uint32_t items = 0;
+	std::atomic_uint32_t batches = 0;
+
+	static void invoke(void* pCtx, const mt::JobArgs& args) {
+		auto& ctx = *(JobParallelRefProbe*)pCtx;
+		ctx.items.fetch_add(args.idxEnd - args.idxStart, std::memory_order_relaxed);
+		ctx.batches.fetch_add(1, std::memory_order_relaxed);
+	}
+};
+
+TEST_CASE("Multithreading - JobHandle") {
+	const mt::JobHandle defaultHandle;
+	CHECK(defaultHandle.id() == mt::JobHandle::IdMask);
+	CHECK(defaultHandle.gen() == mt::JobHandle::GenMask);
+	CHECK(defaultHandle.prio() == mt::JobHandle::PrioMask);
+	CHECK(defaultHandle == mt::JobNull);
+	CHECK_FALSE(defaultHandle != mt::JobNull);
+
+	const mt::JobHandle handle(123, 45, 1);
+	CHECK(handle.id() == 123);
+	CHECK(handle.gen() == 45);
+	CHECK(handle.prio() == 1);
+	CHECK(handle != defaultHandle);
+	CHECK(handle != mt::JobNull);
+	CHECK_FALSE(handle == mt::JobNull);
+
+	const mt::JobHandle handleFromValue((uint32_t)handle.value());
+	CHECK(handleFromValue == handle);
+	CHECK(handleFromValue.value() == handle.value());
+}
+
+TEST_CASE("Multithreading - Event") {
+	mt::Event event;
+	CHECK_FALSE(event.is_set());
+
+	event.set();
+	CHECK(event.is_set());
+	event.wait();
+	event.reset();
+	CHECK_FALSE(event.is_set());
+
+	std::atomic<bool> waiterStarted = false;
+	std::atomic<bool> waiterFinished = false;
+
+	std::thread waiter([&]() {
+		waiterStarted.store(true, std::memory_order_release);
+		event.wait();
+		waiterFinished.store(true, std::memory_order_release);
+	});
+
+	while (!waiterStarted.load(std::memory_order_acquire)) {
+	}
+	CHECK_FALSE(waiterFinished.load(std::memory_order_acquire));
+
+	event.set();
+	waiter.join();
+	CHECK(waiterFinished.load(std::memory_order_acquire));
+
+	event.reset();
+	CHECK_FALSE(event.is_set());
+}
+
+TEST_CASE("Multithreading - ScheduleParallelRef") {
+	auto& tp = mt::ThreadPool::get();
+	CHECK(mt::ThreadPool::hw_thread_cnt() >= 1);
+	CHECK(mt::ThreadPool::hw_efficiency_cores_cnt() <= mt::ThreadPool::hw_thread_cnt());
+
+	JobParallelRefProbe ctx;
+	mt::JobParallelRef jobRef{&ctx, &JobParallelRefProbe::invoke, mt::JobPriority::High};
+
+	tp.set_max_workers(0, 0);
+	CHECK(tp.workers() == 0);
+
+	auto handle = tp.sched_par(jobRef, 7, 16);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 7);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) == 1);
+
+	ctx.items.store(0, std::memory_order_relaxed);
+	ctx.batches.store(0, std::memory_order_relaxed);
+
+	handle = tp.sched_par(jobRef, 25, 4);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 25);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) == 7);
+
+	tp.set_max_workers(2, 2);
+	CHECK(tp.workers() == 1);
+
+	ctx.items.store(0, std::memory_order_relaxed);
+	ctx.batches.store(0, std::memory_order_relaxed);
+
+	handle = tp.sched_par(jobRef, 32, 0);
+	tp.wait(handle);
+	CHECK(ctx.items.load(std::memory_order_relaxed) == 32);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) >= 1);
+}
+
 template <typename TQueue>
 void TestJobQueue_PushPopSteal(bool reverse) {
 	mt::JobHandle handle;
@@ -2830,17 +3067,17 @@ void Run_Schedule_Simple(
 			pRes[i] += func({pArr + idxStart, idxEnd - idxStart});
 			cnt.fetch_add(1, std::memory_order_relaxed);
 		};
-		pHandles[i] = tp.add(job);
+		pHandles[i] = tp.add(GAIA_MOV(job));
 	}
 
-	mt::Job dependencyJob;
-	dependencyJob.func = [&]() {
-		const bool isLast = cnt.load(std::memory_order_acquire) == jobCnt;
-		CHECK(isLast);
-	};
 	auto* pDepHandles = (mt::JobHandle*)alloca(sizeof(mt::JobHandle) * depCnt);
 	GAIA_FOR(depCnt) {
-		pDepHandles[i] = tp.add(dependencyJob);
+		mt::Job dependencyJob;
+		dependencyJob.func = [&]() {
+			const bool isLast = cnt.load(std::memory_order_acquire) == jobCnt;
+			CHECK(isLast);
+		};
+		pDepHandles[i] = tp.add(GAIA_MOV(dependencyJob));
 		tp.dep(std::span(pHandles, jobCnt), pDepHandles[i]);
 		tp.submit(pDepHandles[i]);
 	}
@@ -2934,13 +3171,14 @@ TEST_CASE("Multithreading - ScheduleParallel") {
 	GAIA_EACH(arr) arr[i] = 1;
 
 	std::atomic_uint32_t sum1 = 0;
-	mt::JobParallel j1;
-	j1.func = [&arr, &sum1](const mt::JobArgs& args) {
-		sum1 += JobSystemFunc({arr.data() + args.idxStart, args.idxEnd - args.idxStart});
-	};
 
 	auto work = [&]() {
-		auto jobHandle = tp.sched_par(j1, N, ItemsPerJob);
+		mt::JobParallel j;
+		j.func = [&arr, &sum1](const mt::JobArgs& args) {
+			sum1 += JobSystemFunc({arr.data() + args.idxStart, args.idxEnd - args.idxStart});
+		};
+
+		auto jobHandle = tp.sched_par(GAIA_MOV(j), N, ItemsPerJob);
 		tp.wait(jobHandle);
 		CHECK(sum1 == N);
 	};
@@ -2981,7 +3219,7 @@ TEST_CASE("Multithreading - complete") {
 				res[i] = i;
 				++cnt;
 			};
-			handles[i] = tp.add(job);
+			handles[i] = tp.add(GAIA_MOV(job));
 		}
 
 		tp.submit(std::span(handles.data(), handles.size()));
@@ -3028,7 +3266,7 @@ TEST_CASE("Multithreading - CompleteMany") {
 				res /= (i + 1); // we add +1 everywhere to avoid division by zero at i==0
 			}};
 
-			const mt::JobHandle jobHandle[] = {tp.add(job0), tp.add(job1), tp.add(job2)};
+			const mt::JobHandle jobHandle[] = {tp.add(GAIA_MOV(job0)), tp.add(GAIA_MOV(job1)), tp.add(GAIA_MOV(job2))};
 
 			tp.dep(jobHandle[0], jobHandle[1]);
 			tp.dep(jobHandle[1], jobHandle[2]);
@@ -3086,8 +3324,8 @@ TEST_CASE("Multithreading - Reset reusable handles") {
 		secondCnt.fetch_add(1, std::memory_order_relaxed);
 	};
 
-	auto handle1 = tp.add(job1);
-	auto handle2 = tp.add(job2);
+	auto handle1 = tp.add(GAIA_MOV(job1));
+	auto handle2 = tp.add(GAIA_MOV(job2));
 	mt::JobHandle handles[] = {handle1, handle2};
 
 	tp.dep(handle1, handle2);
@@ -3220,7 +3458,7 @@ TEST_CASE("Multithreading - Update auto-delete job") {
 			executed.fetch_add(1, std::memory_order_relaxed);
 		};
 
-		const auto handle = tp.add(job);
+		const auto handle = tp.add(GAIA_MOV(job));
 		tp.submit(handle);
 		tp.update();
 	}
@@ -3244,12 +3482,12 @@ TEST_CASE("Multithreading - Update auto-delete with workers") {
 		job.func = [&]() {
 			executed.fetch_add(1, std::memory_order_relaxed);
 		};
-		handles[i] = tp.add(job);
+		handles[i] = tp.add(GAIA_MOV(job));
 	}
 
 	mt::Job sync;
 	sync.flags = mt::JobCreationFlags::ManualDelete;
-	const auto syncHandle = tp.add(sync);
+	const auto syncHandle = tp.add(GAIA_MOV(sync));
 	tp.dep(std::span(handles.data(), handles.size()), syncHandle);
 
 	tp.submit(syncHandle);
@@ -3287,8 +3525,8 @@ TEST_CASE("Multithreading - Handle reuse mixed delete modes") {
 			manualCnt.fetch_add(1, std::memory_order_relaxed);
 		};
 
-		const auto autoHandle = tp.add(autoJob);
-		const auto manualHandle = tp.add(manualJob);
+		const auto autoHandle = tp.add(GAIA_MOV(autoJob));
+		const auto manualHandle = tp.add(GAIA_MOV(manualJob));
 
 		tp.submit(autoHandle);
 		tp.submit(manualHandle);

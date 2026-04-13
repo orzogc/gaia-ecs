@@ -617,6 +617,10 @@ TEST_CASE("Observer - write callbacks emit OnSet after callback completion") {
 		CHECK(lastPos.x == doctest::Approx(40.0f));
 		CHECK(lastPos.y == doctest::Approx(41.0f));
 		CHECK(lastPos.z == doctest::Approx(42.0f));
+		const auto pos = wld.get<Position>(e);
+		CHECK(pos.x == doctest::Approx(40.0f));
+		CHECK(pos.y == doctest::Approx(41.0f));
+		CHECK(pos.z == doctest::Approx(42.0f));
 	}
 
 	SUBCASE("Iter callback") {
@@ -657,6 +661,165 @@ TEST_CASE("Observer - write callbacks emit OnSet after callback completion") {
 		CHECK(lastPos.x == doctest::Approx(50.0f));
 		CHECK(lastPos.y == doctest::Approx(51.0f));
 		CHECK(lastPos.z == doctest::Approx(52.0f));
+		const auto pos = wld.get<Position>(e);
+		CHECK(pos.x == doctest::Approx(50.0f));
+		CHECK(pos.y == doctest::Approx(51.0f));
+		CHECK(pos.z == doctest::Approx(52.0f));
+	}
+
+	SUBCASE("Iter any callback") {
+		TestWorld twld;
+
+		uint32_t onSetHits = 0;
+		Position lastPos{};
+		const auto onSetObserver = wld.observer()
+																	 .event(ecs::ObserverEvent::OnSet)
+																	 .all<Position>()
+																	 .on_each([&](const Position& pos) {
+																		 ++onSetHits;
+																		 lastPos = pos;
+																	 })
+																	 .entity();
+		(void)onSetObserver;
+
+		const auto onAddObserver = wld.observer()
+																	 .event(ecs::ObserverEvent::OnAdd)
+																	 .all<Position&>()
+																	 .on_each([&](ecs::Iter& it) {
+																		 auto posView = it.view_any_mut<Position>(0);
+																		 CHECK(onSetHits == 0);
+																		 GAIA_EACH(it) {
+																			 posView[i].x = 60.0f;
+																			 posView[i].y = 61.0f;
+																			 posView[i].z = 62.0f;
+																			 CHECK(onSetHits == 0);
+																		 }
+																	 })
+																	 .entity();
+		(void)onAddObserver;
+
+		const auto e = wld.add();
+		wld.add<Position>(e, {7.0f, 8.0f, 9.0f});
+
+		CHECK(onSetHits == 1);
+		CHECK(lastPos.x == doctest::Approx(60.0f));
+		CHECK(lastPos.y == doctest::Approx(61.0f));
+		CHECK(lastPos.z == doctest::Approx(62.0f));
+		const auto pos = wld.get<Position>(e);
+		CHECK(pos.x == doctest::Approx(60.0f));
+		CHECK(pos.y == doctest::Approx(61.0f));
+		CHECK(pos.z == doctest::Approx(62.0f));
+	}
+}
+
+TEST_CASE("Observer - SoA callbacks materialize direct payloads correctly") {
+	SUBCASE("typed OnSet callback") {
+		TestWorld twld;
+
+		uint32_t hits = 0;
+		PositionSoA lastPos{};
+		const auto observer = wld.observer()
+															 .event(ecs::ObserverEvent::OnSet)
+															 .all<PositionSoA>()
+															 .on_each([&](const PositionSoA& pos) {
+																 ++hits;
+																 lastPos = pos;
+															 })
+															 .entity();
+		(void)observer;
+
+		const auto e = wld.add();
+		wld.add<PositionSoA>(e, {1.0f, 2.0f, 3.0f});
+		hits = 0;
+
+		wld.set<PositionSoA>(e) = PositionSoA{4.0f, 5.0f, 6.0f};
+
+		CHECK(hits == 1);
+		CHECK(lastPos.x == doctest::Approx(4.0f));
+		CHECK(lastPos.y == doctest::Approx(5.0f));
+		CHECK(lastPos.z == doctest::Approx(6.0f));
+	}
+
+	SUBCASE("Iter callback can read direct SoA payload") {
+		TestWorld twld;
+
+		uint32_t hits = 0;
+		float lastX = 0.0f;
+		float lastY = 0.0f;
+		float lastZ = 0.0f;
+		const auto observer = wld.observer()
+															 .event(ecs::ObserverEvent::OnSet)
+															 .all<PositionSoA>()
+															 .on_each([&](ecs::Iter& it) {
+																 ++hits;
+																 auto posView = it.view_any<PositionSoA>(0);
+																 auto xs = posView.template get<0>();
+																 auto ys = posView.template get<1>();
+																 auto zs = posView.template get<2>();
+																 CHECK(it.size() == 1);
+																 lastX = xs[0];
+																 lastY = ys[0];
+																 lastZ = zs[0];
+															 })
+															 .entity();
+		(void)observer;
+
+		const auto e = wld.add();
+		wld.add<PositionSoA>(e, {7.0f, 8.0f, 9.0f});
+		hits = 0;
+
+		wld.set<PositionSoA>(e) = PositionSoA{10.0f, 11.0f, 12.0f};
+
+		CHECK(hits == 1);
+		CHECK(lastX == doctest::Approx(10.0f));
+		CHECK(lastY == doctest::Approx(11.0f));
+		CHECK(lastZ == doctest::Approx(12.0f));
+	}
+
+	SUBCASE("Iter any write callback emits SoA OnSet after callback completion") {
+		TestWorld twld;
+
+		uint32_t onSetHits = 0;
+		PositionSoA lastPos{};
+		const auto onSetObserver = wld.observer()
+															 .event(ecs::ObserverEvent::OnSet)
+															 .all<PositionSoA>()
+															 .on_each([&](const PositionSoA& pos) {
+																 ++onSetHits;
+																 lastPos = pos;
+															 })
+															 .entity();
+		(void)onSetObserver;
+
+		const auto onAddObserver = wld.observer()
+															 .event(ecs::ObserverEvent::OnAdd)
+															 .all<PositionSoA&>()
+															 .on_each([&](ecs::Iter& it) {
+																 auto posView = it.view_any_mut<PositionSoA>(0);
+																 auto xs = posView.template set<0>();
+																 auto ys = posView.template set<1>();
+																 auto zs = posView.template set<2>();
+																 CHECK(onSetHits == 0);
+																 CHECK(it.size() == 1);
+																 xs[0] = 13.0f;
+																 ys[0] = 14.0f;
+																 zs[0] = 15.0f;
+																 CHECK(onSetHits == 0);
+															 })
+															 .entity();
+		(void)onAddObserver;
+
+		const auto e = wld.add();
+		wld.add<PositionSoA>(e, {1.0f, 2.0f, 3.0f});
+
+		CHECK(onSetHits == 1);
+		CHECK(lastPos.x == doctest::Approx(13.0f));
+		CHECK(lastPos.y == doctest::Approx(14.0f));
+		CHECK(lastPos.z == doctest::Approx(15.0f));
+		const auto pos = wld.get<PositionSoA>(e);
+		CHECK(pos.x == doctest::Approx(13.0f));
+		CHECK(pos.y == doctest::Approx(14.0f));
+		CHECK(pos.z == doctest::Approx(15.0f));
 	}
 }
 

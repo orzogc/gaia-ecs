@@ -23,6 +23,7 @@ function(gaia_configure_test_target target_name)
 
 	# Project files
 	target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+	target_compile_definitions(${target_name} PRIVATE GAIA_ECS_TEST_HOOKS=1)
 endfunction()
 
 set(PROJ_NAME "gaia_test")
