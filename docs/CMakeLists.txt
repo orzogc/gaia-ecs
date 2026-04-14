@@ -21,8 +21,59 @@ set(DOXY_HTML_DIRECTORY ${DOXY_OUTPUT_DIRECTORY}/html)
 set(DOXY_HEADER ${DOXY_OUTPUT_DIRECTORY}/header.html)
 set(DOXY_VERSIONS_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/write_versions_json.cmake)
 
+# Older distro-packaged Doxygen releases do not understand a subset of the newer
+# config tags and HTML template markers used by the current docs theme. When that
+# happens, the warnings are noisy but harmless for most tags; the problem is that
+# unsupported header markers such as PROJECT_ICON and COPY_CLIPBOARD are left
+# unexpanded in header.html and Doxygen aborts the docs build.
+#
+# To keep the docs target working across both newer local installs and older CI
+# packages, we configure the full template first and then strip only the known
+# incompatible pieces for legacy Doxygen versions.
+set(GAIA_DOXYGEN_COMPAT_TAGS
+  PROJECT_ICON
+  MARKDOWN_STRICT
+  AUTOLINK_IGNORE_WORDS
+  HIDE_UNDOC_NAMESPACES
+  EXTERNAL_TOOL_PATH
+  WARN_LAYOUT_FILE
+  IMPLICIT_DIR_DOCS
+  HTML_COPY_CLIPBOARD
+  HTML_PROJECT_COOKIE
+  PAGE_OUTLINE_PANEL
+  SHOW_ENUM_VALUES
+  RTF_EXTRA_FILES
+  UML_MAX_EDGE_LABELS
+  PLANTUMLFILE_DIRS
+)
+
+set(GAIA_DOXYGEN_LEGACY_COMPAT OFF)
+if(DOXYGEN_VERSION VERSION_LESS "1.10.0")
+  set(GAIA_DOXYGEN_LEGACY_COMPAT ON)
+  message(STATUS "Doxygen ${DOXYGEN_VERSION} detected, enabling legacy docs compatibility sanitization.")
+endif()
+
 configure_file(Doxyfile ${DOXY_OUTPUT_DIRECTORY}/Doxyfile @ONLY)
 configure_file(header.html.in ${DOXY_HEADER} @ONLY)
+
+if(GAIA_DOXYGEN_LEGACY_COMPAT)
+  file(READ ${DOXY_OUTPUT_DIRECTORY}/Doxyfile _gaia_doxyfile)
+  foreach(_gaia_tag IN LISTS GAIA_DOXYGEN_COMPAT_TAGS)
+    string(REGEX REPLACE "(^|[\r\n])${_gaia_tag}[ \t]*=[^\r\n]*" "\\1" _gaia_doxyfile "${_gaia_doxyfile}")
+  endforeach()
+  file(WRITE ${DOXY_OUTPUT_DIRECTORY}/Doxyfile "${_gaia_doxyfile}")
+
+  file(READ ${DOXY_HEADER} _gaia_header)
+  string(REPLACE "<!--BEGIN PROJECT_ICON-->
+<link rel=\"icon\" href=\"$relpath^$projecticon\" type=\"image/x-icon\" />
+<!--END PROJECT_ICON-->
+" "" _gaia_header "${_gaia_header}")
+  string(REPLACE "<!--BEGIN COPY_CLIPBOARD-->
+<script type=\"text/javascript\" src=\"$relpath^clipboard.js\"></script>
+<!--END COPY_CLIPBOARD-->
+" "" _gaia_header "${_gaia_header}")
+  file(WRITE ${DOXY_HEADER} "${_gaia_header}")
+endif()
 
 file(WRITE ${DOXY_VERSIONS_SCRIPT} [=[
 if(NOT DEFINED HTML_ROOT)
