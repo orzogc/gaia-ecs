@@ -107,32 +107,33 @@ namespace gaia {
 #if GAIA_FUNC_WRAPPER_SMALLBLOCK
 					if constexpr (sizeof(Fn) <= mem::SmallBlockMaxSize) {
 						m_func = &op_smallblock<Fn>;
-						return;
-					}
+					} else
 #endif
-					m_func = [](Op op, SmallFunc* dst, SmallFunc* src) {
-						auto*& pFn = *reinterpret_cast<Fn**>(dst->m_storage);
+					{
+						m_func = [](Op op, SmallFunc* dst, SmallFunc* src) {
+							auto*& pFn = *reinterpret_cast<Fn**>(dst->m_storage);
 
-						switch (op) {
-							case Op::Invoke:
-								GAIA_ASSERT(pFn != nullptr);
-								(*pFn)();
-								break;
-							case Op::Destroy:
-								GAIA_ASSERT(pFn != nullptr);
-								pFn->~Fn();
-								mem::AllocHelper::free(pFn);
-								pFn = nullptr;
-								break;
-							case Op::Move:
-								GAIA_ASSERT(src != nullptr);
-								*reinterpret_cast<Fn**>(dst->m_storage) = *reinterpret_cast<Fn**>(src->m_storage);
-								dst->m_func = src->m_func;
-								*reinterpret_cast<Fn**>(src->m_storage) = nullptr;
-								src->m_func = nullptr;
-								break;
-						}
-					};
+							switch (op) {
+								case Op::Invoke:
+									GAIA_ASSERT(pFn != nullptr);
+									(*pFn)();
+									break;
+								case Op::Destroy:
+									GAIA_ASSERT(pFn != nullptr);
+									pFn->~Fn();
+									mem::AllocHelper::free(pFn);
+									pFn = nullptr;
+									break;
+								case Op::Move:
+									GAIA_ASSERT(src != nullptr);
+									*reinterpret_cast<Fn**>(dst->m_storage) = *reinterpret_cast<Fn**>(src->m_storage);
+									dst->m_func = src->m_func;
+									*reinterpret_cast<Fn**>(src->m_storage) = nullptr;
+									src->m_func = nullptr;
+									break;
+							}
+						};
+					}
 				}
 			}
 
