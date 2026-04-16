@@ -1,7 +1,6 @@
 #include "gaia/config/config.h"
 
 #include <cinttypes>
-// TODO: Currently necessary due to std::function. Replace them!
 #include <functional>
 
 #include "gaia/ecs/chunk_iterator.h"
@@ -314,8 +313,10 @@ namespace gaia {
 				validate();
 
 				auto& ctx = data();
-				ctx.on_each_func = [func](Query& query, QueryExecType execType) {
-					query.each(func, execType);
+				ctx.on_each_func = [func](Query& query, QueryExecType execType) mutable {
+					query.each_runtime_erased(
+							execType, static_cast<void*>(&func), &detail::QueryImpl::template invoke_runtime_iter<Func, Iter>,
+							Constraints::EnabledOnly);
 				};
 
 				return (SystemBuilder&)*this;

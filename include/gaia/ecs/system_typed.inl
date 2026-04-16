@@ -100,36 +100,15 @@ namespace gaia {
 			const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
 			const bool hasInheritedTerms = execState.hasInheritedTerms;
 			if (hasInheritedTerms) {
-				ctx.on_each_func = [func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk, invokeInherited](
-										 Query& query, QueryExecType execType) mutable {
-					auto& queryInfo = query.fetch();
-					query.match_all(queryInfo);
-					switch (execType) {
-						case QueryExecType::Parallel:
-							query.each_inter<QueryExecType::Parallel>(
-									queryInfo, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
-									execState.needsInheritedArgIds, invokeInherited);
-							break;
-						case QueryExecType::ParallelPerf:
-							query.each_inter<QueryExecType::ParallelPerf>(
-									queryInfo, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
-									execState.needsInheritedArgIds, invokeInherited);
-							break;
-						case QueryExecType::ParallelEff:
-							query.each_inter<QueryExecType::ParallelEff>(
-									queryInfo, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
-									execState.needsInheritedArgIds, invokeInherited);
-							break;
-						default:
-							query.each_inter<QueryExecType::Default>(
-									queryInfo, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
-									execState.needsInheritedArgIds, invokeInherited);
-							break;
-					}
+				ctx.on_each_func = [func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
+														invokeInherited](Query& query, QueryExecType execType) mutable {
+					query.each_typed_erased(
+							execType, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
+							execState.needsInheritedArgIds, invokeInherited);
 				};
 			} else {
-				ctx.on_each_func = [func, execState, runDirectFastChunk, runMappedChunk](Query& query,
-																												 QueryExecType execType) mutable {
+				ctx.on_each_func = [func, execState, runDirectFastChunk,
+														runMappedChunk](Query& query, QueryExecType execType) mutable {
 					query.each_iter_erased(execType, &func, execState, runDirectFastChunk, runMappedChunk);
 				};
 			}

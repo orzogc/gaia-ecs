@@ -2768,6 +2768,13 @@ namespace gaia {
 						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
 						bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*));
 
+				void each_typed_erased(
+						QueryExecType execType, void* pFunc, const TypedQueryExecState& state,
+						void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
+						void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
+						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
+						bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*));
+
 				template <QueryExecType ExecType, typename Func>
 				void each_typed_inter(QueryInfo& queryInfo, Func func);
 

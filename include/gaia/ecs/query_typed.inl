@@ -673,6 +673,39 @@ namespace gaia {
 						invokeInherited);
 			}
 
+			inline void QueryImpl::each_typed_erased(
+					QueryExecType execType, void* pFunc, const TypedQueryExecState& state,
+					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
+					void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
+					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
+					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
+				auto& queryInfo = fetch();
+				match_all(queryInfo);
+
+				switch (execType) {
+					case QueryExecType::Parallel:
+						each_inter<QueryExecType::Parallel>(
+								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								invokeInherited);
+						break;
+					case QueryExecType::ParallelPerf:
+						each_inter<QueryExecType::ParallelPerf>(
+								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								invokeInherited);
+						break;
+					case QueryExecType::ParallelEff:
+						each_inter<QueryExecType::ParallelEff>(
+								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								invokeInherited);
+						break;
+					default:
+						each_inter<QueryExecType::Default>(
+								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								invokeInherited);
+						break;
+				}
+			}
+
 			template <typename Func, std::enable_if_t<!detail::is_query_iter_callback_v<Func>, int>>
 			inline void QueryImpl::each(Func func) {
 				each(func, QueryExecType::Default);
