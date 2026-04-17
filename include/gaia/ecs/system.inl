@@ -1,7 +1,6 @@
 #include "gaia/config/config.h"
 
 #include <cinttypes>
-#include <functional>
 
 #include "gaia/ecs/chunk_iterator.h"
 #include "gaia/ecs/id.h"
@@ -18,12 +17,8 @@ namespace gaia {
 	#endif
 
 		struct System_ {
-			using TSystemExecFunc = std::function<void(Query&, QueryExecType)>;
-
 			//! Entity identifying the system
 			Entity entity = EntityBad;
-			//! Called every time system is allowed to tick
-			TSystemExecFunc on_each_func;
 			//! Query associated with the system
 			Query query;
 			//! Execution type
@@ -44,7 +39,7 @@ namespace gaia {
 				}
 			}
 
-			void exec() {
+			void exec(World& world) {
 				[[maybe_unused]] auto& queryInfo = query.fetch();
 
 	#if GAIA_PROFILER_CPU
@@ -53,16 +48,21 @@ namespace gaia {
 				GAIA_PROF_SCOPE2(pScopeName);
 	#endif
 
-				on_each_func(query, execType);
+				auto* pRuntime = world.systems().data_try(entity);
+				GAIA_ASSERT(pRuntime != nullptr);
+				if (pRuntime == nullptr)
+					return;
+
+				pRuntime->on_each_func(query, execType);
 			}
 
 			//! Returns the job handle associated with the system
-			GAIA_NODISCARD mt::JobHandle job_handle() {
+			GAIA_NODISCARD mt::JobHandle job_handle(World& world) {
 				if (jobHandle == (mt::JobHandle)mt::JobNull_t{}) {
 					auto& tp = mt::ThreadPool::get();
 					mt::Job syncJob;
-					syncJob.func = [&]() {
-						exec();
+					syncJob.func = [this, &world]() {
+						exec(world);
 					};
 					syncJob.flags = mt::JobCreationFlags::ManualDelete;
 					jobHandle = tp.add(GAIA_MOV(syncJob));
@@ -100,6 +100,14 @@ namespace gaia {
 				auto ss = m_world.acc(m_entity);
 				const auto& sys = ss.get<System_>();
 				return sys;
+			}
+
+			SystemRuntimeData& runtime_data() {
+				return m_world.systems().data(m_entity);
+			}
+
+			const SystemRuntimeData& runtime_data() const {
+				return m_world.systems().data(m_entity);
 			}
 
 		public:
@@ -312,8 +320,8 @@ namespace gaia {
 			SystemBuilder& on_each(Func func) {
 				validate();
 
-				auto& ctx = data();
-				ctx.on_each_func = [func](Query& query, QueryExecType execType) mutable {
+				auto& runtime = runtime_data();
+				runtime.on_each_func = [func](Query& query, QueryExecType execType) mutable {
 					query.each_runtime_erased(
 							execType, static_cast<void*>(&func), &detail::QueryImpl::template invoke_runtime_iter<Func, Iter>,
 							Constraints::EnabledOnly);
@@ -331,12 +339,12 @@ namespace gaia {
 
 			void exec() {
 				auto& ctx = data();
-				ctx.exec();
+				ctx.exec(m_world);
 			}
 
 			GAIA_NODISCARD mt::JobHandle job_handle() {
 				auto& ctx = data();
-				return ctx.job_handle();
+				return ctx.job_handle(m_world);
 			}
 		};
 

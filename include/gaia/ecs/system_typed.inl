@@ -89,6 +89,7 @@ namespace gaia {
 			validate();
 
 			auto& ctx = data();
+			auto& runtime = runtime_data();
 			using InputArgs = decltype(core::func_args(&Func::operator()));
 			auto& queryInfo = ctx.query.fetch();
 			TypedQueryArgMeta metas[MAX_ITEMS_IN_QUERY]{};
@@ -100,15 +101,15 @@ namespace gaia {
 			const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
 			const bool hasInheritedTerms = execState.hasInheritedTerms;
 			if (hasInheritedTerms) {
-				ctx.on_each_func = [func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
-														invokeInherited](Query& query, QueryExecType execType) mutable {
+				runtime.on_each_func = [func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
+														 invokeInherited](Query& query, QueryExecType execType) mutable {
 					query.each_typed_erased(
 							execType, &func, execState, runDirectFastChunk, runDirectChunk, runMappedChunk,
 							execState.needsInheritedArgIds, invokeInherited);
 				};
 			} else {
-				ctx.on_each_func = [func, execState, runDirectFastChunk,
-														runMappedChunk](Query& query, QueryExecType execType) mutable {
+				runtime.on_each_func = [func, execState, runDirectFastChunk,
+														 runMappedChunk](Query& query, QueryExecType execType) mutable {
 					query.each_iter_erased(execType, &func, execState, runDirectFastChunk, runMappedChunk);
 				};
 			}

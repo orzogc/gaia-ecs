@@ -41,6 +41,7 @@
 #include "gaia/ecs/query_cache.h"
 #include "gaia/ecs/query_common.h"
 #include "gaia/ecs/query_info.h"
+#include "gaia/ecs/system.h"
 #include "gaia/mem/mem_alloc.h"
 #include "gaia/ser/ser_binary.h"
 #include "gaia/ser/ser_json.h"
@@ -2193,6 +2194,11 @@ namespace gaia {
 #if GAIA_OBSERVERS_ENABLED
 			//! Observers
 			ObserverRegistry m_observers;
+#endif
+
+#if GAIA_SYSTEMS_ENABLED
+			//! System runtime payload kept out-of-line from ECS component storage.
+			SystemRegistry m_systems;
 #endif
 
 			//! Command buffer for commands executed from a locked world. Not thread-safe
@@ -8357,6 +8363,16 @@ namespace gaia {
 			//! \return System builder bound to the new system entity.
 			SystemBuilder system();
 
+			//! Returns the system runtime registry owned by the world.
+			SystemRegistry& systems() {
+				return m_systems;
+			}
+
+			//! Returns the system runtime registry owned by the world.
+			const SystemRegistry& systems() const {
+				return m_systems;
+			}
+
 #endif
 
 #if GAIA_OBSERVERS_ENABLED
@@ -8588,6 +8604,7 @@ namespace gaia {
 
 #if GAIA_SYSTEMS_ENABLED
 				systems_done();
+				m_systems.teardown();
 #endif
 
 #if GAIA_OBSERVERS_ENABLED
@@ -11389,6 +11406,9 @@ namespace gaia {
 #if GAIA_OBSERVERS_ENABLED
 					observers().del(*this, entity);
 #endif
+#if GAIA_SYSTEMS_ENABLED
+					systems().del(entity);
+#endif
 
 					if ((ec.flags & EntityContainerFlags::OnDelete_Delete) != 0) {
 						// Delete all references to the entity
@@ -11459,6 +11479,9 @@ namespace gaia {
 
 #if GAIA_OBSERVERS_ENABLED
 					observers().del(*this, entity);
+#endif
+#if GAIA_SYSTEMS_ENABLED
+					systems().del(entity);
 #endif
 
 					if ((ec.flags & EntityContainerFlags::OnDelete_Delete) != 0) {
@@ -12653,7 +12676,7 @@ namespace gaia {
 
 				auto ss = world.acc_mut(systemEntity);
 				auto& sys = ss.smut<ecs::System_>();
-				sys.exec();
+				sys.exec(world);
 			}
 
 			//! Collects a system entity from the erased system-query callback path.
@@ -12704,7 +12727,6 @@ namespace gaia {
 					tp.del(sys.jobHandle);
 					sys.jobHandle = mt::JobNull;
 				}
-				sys.on_each_func = {};
 				sys.query = {};
 			}
 
@@ -12720,9 +12742,11 @@ namespace gaia {
 
 			auto ss = acc_mut(e);
 			auto& sys = ss.smut<System_>();
+			auto& sysRuntime = systems().data_add(e);
 			{
 				sys.entity = e;
 				sys.query = query();
+				sysRuntime.on_each_func = {};
 			}
 			return SystemBuilder(*this, e);
 		}
