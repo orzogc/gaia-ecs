@@ -1,5 +1,4 @@
 #pragma once
-
 #include "gaia/config/config.h"
 
 #include "gaia/cnt/map.h"
