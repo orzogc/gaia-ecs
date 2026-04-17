@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 // Amalgamated single-header build of Gaia-ECS.
-=======
-// Amalgamated single-header build of Gaia-ECS
->>>>>>> 210cb50cb8483a8b84e7656622c7638901511dd2
 // The file is generated. Do not edit it.
 #pragma once
 
@@ -50441,7 +50437,6 @@ namespace gaia {
 #if GAIA_SYSTEMS_ENABLED
 namespace gaia {
 	namespace ecs {
-
 		//! Runtime payload for systems kept out-of-line from ECS component storage.
 		struct SystemRuntimeData {
 			using TSystemExecFunc = util::MoveFunc<void(Query&, QueryExecType)>;
