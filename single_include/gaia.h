@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 // Amalgamated single-header build of Gaia-ECS.
+=======
+// Amalgamated single-header build of Gaia-ECS
+>>>>>>> 210cb50cb8483a8b84e7656622c7638901511dd2
 // The file is generated. Do not edit it.
 #pragma once
 
@@ -20402,32 +20406,33 @@ namespace gaia {
 #if GAIA_FUNC_WRAPPER_SMALLBLOCK
 					if constexpr (sizeof(Fn) <= mem::SmallBlockMaxSize) {
 						m_func = &op_smallblock<Fn>;
-						return;
-					}
+					} else
 #endif
-					m_func = [](Op op, SmallFunc* dst, SmallFunc* src) {
-						auto*& pFn = *reinterpret_cast<Fn**>(dst->m_storage);
+					{
+						m_func = [](Op op, SmallFunc* dst, SmallFunc* src) {
+							auto*& pFn = *reinterpret_cast<Fn**>(dst->m_storage);
 
-						switch (op) {
-							case Op::Invoke:
-								GAIA_ASSERT(pFn != nullptr);
-								(*pFn)();
-								break;
-							case Op::Destroy:
-								GAIA_ASSERT(pFn != nullptr);
-								pFn->~Fn();
-								mem::AllocHelper::free(pFn);
-								pFn = nullptr;
-								break;
-							case Op::Move:
-								GAIA_ASSERT(src != nullptr);
-								*reinterpret_cast<Fn**>(dst->m_storage) = *reinterpret_cast<Fn**>(src->m_storage);
-								dst->m_func = src->m_func;
-								*reinterpret_cast<Fn**>(src->m_storage) = nullptr;
-								src->m_func = nullptr;
-								break;
-						}
-					};
+							switch (op) {
+								case Op::Invoke:
+									GAIA_ASSERT(pFn != nullptr);
+									(*pFn)();
+									break;
+								case Op::Destroy:
+									GAIA_ASSERT(pFn != nullptr);
+									pFn->~Fn();
+									mem::AllocHelper::free(pFn);
+									pFn = nullptr;
+									break;
+								case Op::Move:
+									GAIA_ASSERT(src != nullptr);
+									*reinterpret_cast<Fn**>(dst->m_storage) = *reinterpret_cast<Fn**>(src->m_storage);
+									dst->m_func = src->m_func;
+									*reinterpret_cast<Fn**>(src->m_storage) = nullptr;
+									src->m_func = nullptr;
+									break;
+							}
+						};
+					}
 				}
 			}
 
@@ -48703,13 +48708,13 @@ namespace gaia {
 			const bool isWrite =
 					std::is_lvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>> && !std::is_same_v<Arg, Entity>;
 			if constexpr (std::is_same_v<Arg, Entity>)
-				return {.termId = EntityBad, .isWrite = isWrite, .isEntity = true, .isPair = false};
+				return TypedQueryArgMeta{EntityBad, isWrite, true, false};
 			else {
 				using FT = typename component_type_t<Arg>::TypeFull;
 				if constexpr (is_pair<FT>::value)
-					return {.termId = EntityBad, .isWrite = isWrite, .isEntity = false, .isPair = true};
+					return TypedQueryArgMeta{EntityBad, isWrite, false, true};
 				else
-					return {.termId = world_query_arg_id<Arg>(world), .isWrite = isWrite, .isEntity = false, .isPair = false};
+					return TypedQueryArgMeta{world_query_arg_id<Arg>(world), isWrite, false, false};
 			}
 		}
 
@@ -48787,7 +48792,7 @@ namespace gaia {
 	namespace ecs {
 		namespace detail {
 			inline TypedQueryExecState build_typed_query_exec_state(
-					QueryImpl& query, World& world, const QueryInfo& queryInfo, const TypedQueryArgMeta* pMetas,
+					[[maybe_unused]] QueryImpl& query, World& world, const QueryInfo& queryInfo, const TypedQueryArgMeta* pMetas,
 					uint32_t argCount) {
 				TypedQueryExecState state{};
 				QueryImpl::DirectChunkArgEvalDesc directChunkDescs[MAX_ITEMS_IN_QUERY]{};
@@ -48797,7 +48802,7 @@ namespace gaia {
 					state.writeFlags[i] = pMetas[i].isWrite;
 					state.hasWriteArgs = state.hasWriteArgs || pMetas[i].isWrite;
 					state.needsInheritedArgIds = state.needsInheritedArgIds || !pMetas[i].isEntity;
-					directChunkDescs[i] = {.id = pMetas[i].termId, .isEntity = pMetas[i].isEntity, .isPair = pMetas[i].isPair};
+					directChunkDescs[i] = {pMetas[i].termId, pMetas[i].isEntity, pMetas[i].isPair};
 				}
 
 				state.canUseDirectChunkEval =
@@ -49738,7 +49743,7 @@ namespace gaia {
 
 				auto& world = *queryInfo.world();
 				const auto meta = typed_query_arg_meta<ContainerItemType>(world);
-				const DirectChunkArgEvalDesc desc = {.id = meta.termId, .isEntity = meta.isEntity, .isPair = meta.isPair};
+				const DirectChunkArgEvalDesc desc{meta.termId, meta.isEntity, meta.isPair};
 				Iter it;
 				it.set_world(queryInfo.world());
 				it.set_constraints(constraints);

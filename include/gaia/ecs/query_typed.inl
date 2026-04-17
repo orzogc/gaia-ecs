@@ -6,7 +6,7 @@ namespace gaia {
 	namespace ecs {
 		namespace detail {
 			inline TypedQueryExecState build_typed_query_exec_state(
-					QueryImpl& query, World& world, const QueryInfo& queryInfo, const TypedQueryArgMeta* pMetas,
+					[[maybe_unused]] QueryImpl& query, World& world, const QueryInfo& queryInfo, const TypedQueryArgMeta* pMetas,
 					uint32_t argCount) {
 				TypedQueryExecState state{};
 				QueryImpl::DirectChunkArgEvalDesc directChunkDescs[MAX_ITEMS_IN_QUERY]{};
@@ -16,7 +16,7 @@ namespace gaia {
 					state.writeFlags[i] = pMetas[i].isWrite;
 					state.hasWriteArgs = state.hasWriteArgs || pMetas[i].isWrite;
 					state.needsInheritedArgIds = state.needsInheritedArgIds || !pMetas[i].isEntity;
-					directChunkDescs[i] = {.id = pMetas[i].termId, .isEntity = pMetas[i].isEntity, .isPair = pMetas[i].isPair};
+					directChunkDescs[i] = {pMetas[i].termId, pMetas[i].isEntity, pMetas[i].isPair};
 				}
 
 				state.canUseDirectChunkEval =
@@ -957,7 +957,7 @@ namespace gaia {
 
 				auto& world = *queryInfo.world();
 				const auto meta = typed_query_arg_meta<ContainerItemType>(world);
-				const DirectChunkArgEvalDesc desc = {.id = meta.termId, .isEntity = meta.isEntity, .isPair = meta.isPair};
+				const DirectChunkArgEvalDesc desc{meta.termId, meta.isEntity, meta.isPair};
 				Iter it;
 				it.set_world(queryInfo.world());
 				it.set_constraints(constraints);

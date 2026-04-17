@@ -25,13 +25,13 @@ namespace gaia {
 			const bool isWrite =
 					std::is_lvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>> && !std::is_same_v<Arg, Entity>;
 			if constexpr (std::is_same_v<Arg, Entity>)
-				return {.termId = EntityBad, .isWrite = isWrite, .isEntity = true, .isPair = false};
+				return TypedQueryArgMeta{EntityBad, isWrite, true, false};
 			else {
 				using FT = typename component_type_t<Arg>::TypeFull;
 				if constexpr (is_pair<FT>::value)
-					return {.termId = EntityBad, .isWrite = isWrite, .isEntity = false, .isPair = true};
+					return TypedQueryArgMeta{EntityBad, isWrite, false, true};
 				else
-					return {.termId = world_query_arg_id<Arg>(world), .isWrite = isWrite, .isEntity = false, .isPair = false};
+					return TypedQueryArgMeta{world_query_arg_id<Arg>(world), isWrite, false, false};
 			}
 		}
 
