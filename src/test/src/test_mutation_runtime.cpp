@@ -1,6 +1,9 @@
 #include "test_common.h"
 
 namespace {
+	//! Marker type used by tests to request World::uquery().
+	struct QueryUncached {};
+
 	struct PagedAllocatorProbe {
 		uint32_t value = 0;
 	};
@@ -2646,7 +2649,7 @@ TEST_CASE("Query Filter - changed order no systems") {
 		Test_Query_Filter_Changed_Order_NoSystems<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Filter_Changed_Order_NoSystems<ecs::QueryUncached>();
+		Test_Query_Filter_Changed_Order_NoSystems<QueryUncached>();
 	}
 }
 
@@ -2700,7 +2703,7 @@ TEST_CASE("Query Filter - changed OR terms") {
 		Test_Query_Filter_Changed_Or_Missing_Component<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Filter_Changed_Or_Missing_Component<ecs::QueryUncached>();
+		Test_Query_Filter_Changed_Or_Missing_Component<QueryUncached>();
 	}
 }
 

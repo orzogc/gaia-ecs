@@ -5573,8 +5573,6 @@ namespace gaia {
 		} // namespace detail
 
 		using Query = detail::QueryImpl;
-		//! Marker type used by tests to request World::uquery().
-		struct QueryUncached {};
 	} // namespace ecs
 } // namespace gaia
 

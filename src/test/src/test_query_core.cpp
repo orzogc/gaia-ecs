@@ -1,11 +1,16 @@
 #include "test_common.h"
 
+namespace {
+	//! Marker type used by tests to request World::uquery().
+	struct QueryUncached {};
+} // namespace
+
 TEST_CASE("Query - QueryResult") {
 	SUBCASE("Cached query") {
 		Test_Query_QueryResult<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_QueryResult<ecs::QueryUncached>();
+		Test_Query_QueryResult<QueryUncached>();
 	}
 	SUBCASE("Caching") {
 		struct Player {};
@@ -254,7 +259,7 @@ TEST_CASE("Query - source lookup") {
 		Test_Query_SourceLookup<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_SourceLookup<ecs::QueryUncached>();
+		Test_Query_SourceLookup<QueryUncached>();
 	}
 }
 
@@ -330,7 +335,7 @@ TEST_CASE("Query - all/any/or semantics") {
 		Test_Query_All_Any_Or_Semantics<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_All_Any_Or_Semantics<ecs::QueryUncached>();
+		Test_Query_All_Any_Or_Semantics<QueryUncached>();
 	}
 }
 
@@ -368,7 +373,7 @@ TEST_CASE("Query - local short-name ambiguity") {
 		Test_Query_Local_Short_Name_Ambiguity<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Local_Short_Name_Ambiguity<ecs::QueryUncached>();
+		Test_Query_Local_Short_Name_Ambiguity<QueryUncached>();
 	}
 }
 
@@ -415,7 +420,7 @@ TEST_CASE("Query - variables") {
 		Test_Query_Variables<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variables<ecs::QueryUncached>();
+		Test_Query_Variables<QueryUncached>();
 	}
 }
 
@@ -480,7 +485,7 @@ TEST_CASE("Query - source or and variable or interaction") {
 		Test_Query_SourceOr_VariableOr_Interaction<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_SourceOr_VariableOr_Interaction<ecs::QueryUncached>();
+		Test_Query_SourceOr_VariableOr_Interaction<QueryUncached>();
 	}
 }
 
@@ -526,7 +531,7 @@ TEST_CASE("Query - variable or backtracking skip branch") {
 		Test_Query_VariableOr_Backtracking_SkipBranch<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_VariableOr_Backtracking_SkipBranch<ecs::QueryUncached>();
+		Test_Query_VariableOr_Backtracking_SkipBranch<QueryUncached>();
 	}
 }
 
@@ -793,7 +798,7 @@ TEST_CASE("Query - variables advanced") {
 		Test_Query_Variables_Advanced<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variables_Advanced<ecs::QueryUncached>();
+		Test_Query_Variables_Advanced<QueryUncached>();
 	}
 }
 
@@ -1030,7 +1035,7 @@ TEST_CASE("Query - variables multivar") {
 		Test_Query_Variables_MultiVar<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variables_MultiVar<ecs::QueryUncached>();
+		Test_Query_Variables_MultiVar<QueryUncached>();
 	}
 }
 
@@ -1157,7 +1162,7 @@ TEST_CASE("Query - runtime params") {
 		Test_Query_RuntimeParams<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_RuntimeParams<ecs::QueryUncached>();
+		Test_Query_RuntimeParams<QueryUncached>();
 	}
 }
 
@@ -1239,7 +1244,7 @@ TEST_CASE("Query - bytecode dump") {
 		Test_Query_Bytecode_Dump<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Bytecode_Dump<ecs::QueryUncached>();
+		Test_Query_Bytecode_Dump<QueryUncached>();
 	}
 }
 
@@ -1810,7 +1815,8 @@ void Test_Query_Variable_Opcode_Paths() {
 		expect_exact_entities(q, {cableA, cableB});
 	}
 
-	// Single-variable OR query without a source-gated ALL anchor should stay on the shared single-variable program path.
+	// Single-variable OR query without a source-gated ALL anchor should stay on the shared single-variable program
+	// path.
 	{
 		TestWorld twld;
 		const auto connectedTo = wld.add<ConnectedTo>().entity;
@@ -1964,7 +1970,7 @@ TEST_CASE("Query - variable opcode paths") {
 		Test_Query_Variable_Opcode_Paths<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variable_Opcode_Paths<ecs::QueryUncached>();
+		Test_Query_Variable_Opcode_Paths<QueryUncached>();
 	}
 }
 
@@ -2034,7 +2040,7 @@ TEST_CASE("Query - variable opcode selection is structural") {
 		Test_Query_Variable_Opcode_Selection_IsStructural<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variable_Opcode_Selection_IsStructural<ecs::QueryUncached>();
+		Test_Query_Variable_Opcode_Selection_IsStructural<QueryUncached>();
 	}
 }
 
@@ -2123,7 +2129,7 @@ TEST_CASE("Query - variable program recompile") {
 		Test_Query_Variable_Program_Recompile<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Variable_Program_Recompile<ecs::QueryUncached>();
+		Test_Query_Variable_Program_Recompile<QueryUncached>();
 	}
 }
 
@@ -2184,7 +2190,7 @@ TEST_CASE("Query - single or canonicalized to all") {
 		Test_Query_SingleOr_CanonicalizedToAll<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_SingleOr_CanonicalizedToAll<ecs::QueryUncached>();
+		Test_Query_SingleOr_CanonicalizedToAll<QueryUncached>();
 	}
 }
 
@@ -2236,7 +2242,7 @@ TEST_CASE("Query - string optional regression") {
 		Test_Query_String_Optional_Regression<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_String_Optional_Regression<ecs::QueryUncached>();
+		Test_Query_String_Optional_Regression<QueryUncached>();
 	}
 }
 
@@ -2268,7 +2274,7 @@ TEST_CASE("Query - or dedup") {
 		Test_Query_Or_Dedup<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Or_Dedup<ecs::QueryUncached>();
+		Test_Query_Or_Dedup<QueryUncached>();
 	}
 }
 
@@ -2469,7 +2475,7 @@ TEST_CASE("Query - QueryResult complex") {
 		Test_Query_QueryResult_Complex<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_QueryResult_Complex<ecs::QueryUncached>();
+		Test_Query_QueryResult_Complex<QueryUncached>();
 	}
 }
 
@@ -4107,7 +4113,7 @@ TEST_CASE("Query - equality") {
 		Test_Query_Equality<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_Equality<ecs::QueryUncached>();
+		Test_Query_Equality<QueryUncached>();
 	}
 }
 
@@ -4153,7 +4159,7 @@ TEST_CASE("Query - delete") {
 		Test_Query_Reset<ecs::Query>();
 	}
 	SUBCASE("Cached query") {
-		Test_Query_Reset<ecs::QueryUncached>();
+		Test_Query_Reset<QueryUncached>();
 	}
 }
 
@@ -4247,7 +4253,7 @@ TEST_CASE("Query - copy and move lifecycle") {
 		Test_Query_CopyMoveLifecycle<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_CopyMoveLifecycle<ecs::QueryUncached>();
+		Test_Query_CopyMoveLifecycle<QueryUncached>();
 	}
 }
 
@@ -4345,7 +4351,7 @@ TEST_CASE("Query - copy and move preserve runtime caches") {
 		Test_Query_CopyMovePreservesRuntimeCaches<ecs::Query>();
 	}
 	SUBCASE("Non-cached query") {
-		Test_Query_CopyMovePreservesRuntimeCaches<ecs::QueryUncached>();
+		Test_Query_CopyMovePreservesRuntimeCaches<QueryUncached>();
 	}
 }
 
