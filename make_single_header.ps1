@@ -88,7 +88,7 @@ else {
 $visited = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $builder = [System.Text.StringBuilder]::new()
 
-[void]$builder.AppendLine('// Amalgamated single-header build of Gaia-ECS')
+[void]$builder.AppendLine('// Amalgamated single-header build of Gaia-ECS.')
 [void]$builder.AppendLine('// The file is generated. Do not edit it.')
 [void]$builder.AppendLine('#pragma once')
 [void]$builder.AppendLine('')
