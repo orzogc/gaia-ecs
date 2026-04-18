@@ -28449,6 +28449,35 @@ namespace gaia {
 				rebuild_resolved_name_maps();
 			}
 
+			//! Stores a newly created component item and updates all lookup tables.
+			//! \param pItem Component cache item to store.
+			//! \param scopePath Optional world-provided scope prefix used for default path generation.
+			//! \return Stored component item.
+			const ComponentCacheItem& register_item(const ComponentCacheItem* pItem, util::str_view scopePath) {
+				GAIA_ASSERT(pItem != nullptr);
+				const auto compDescId = pItem->comp.id();
+
+				if (compDescId < FastComponentCacheSize) {
+					if GAIA_UNLIKELY (compDescId >= m_itemArr.size()) {
+						const auto newSize = compDescId + 1U;
+
+						// Increase the capacity by multiples of CapacityIncreaseSize.
+						constexpr uint32_t CapacityIncreaseSize = 128;
+						const auto newCapacity = ((newSize / CapacityIncreaseSize) * CapacityIncreaseSize) + CapacityIncreaseSize;
+						m_itemArr.reserve(newCapacity);
+						m_itemArr.resize(newSize, nullptr);
+					}
+
+					m_itemArr[compDescId] = pItem;
+				} else {
+					m_itemByDescId.emplace(compDescId, pItem);
+				}
+
+				add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
+				m_compByEntity.emplace(pItem->entity, pItem);
+				return *pItem;
+			}
+
 		public:
 			ComponentCache() {
 				// Reserve enough storage space for most use-cases
@@ -28473,55 +28502,13 @@ namespace gaia {
 
 				const auto compDescId = detail::ComponentDesc<T>::id();
 
-				// Fast path for small component ids - use the array storage
-				if (compDescId < FastComponentCacheSize) {
-					auto createDesc = [&]() -> const ComponentCacheItem& {
-						const auto* pItem = ComponentCacheItem::create<T>(entity);
-						GAIA_ASSERT(compDescId == pItem->comp.id());
-						m_itemArr[compDescId] = pItem;
-						add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
-						m_compByEntity.emplace(pItem->entity, pItem);
-						return *pItem;
-					};
+				const auto* pItem = find(compDescId);
+				if (pItem != nullptr)
+					return *pItem;
 
-					if GAIA_UNLIKELY (compDescId >= m_itemArr.size()) {
-						const auto newSize = compDescId + 1U;
-
-						// Increase the capacity by multiples of CapacityIncreaseSize
-						constexpr uint32_t CapacityIncreaseSize = 128;
-						const auto newCapacity = ((newSize / CapacityIncreaseSize) * CapacityIncreaseSize) + CapacityIncreaseSize;
-						m_itemArr.reserve(newCapacity);
-
-						// Update the size
-						m_itemArr.resize(newSize, nullptr);
-
-						return createDesc();
-					}
-
-					if GAIA_UNLIKELY (m_itemArr[compDescId] == nullptr) {
-						return createDesc();
-					}
-
-					return *m_itemArr[compDescId];
-				}
-
-				// Generic path for large component ids - use the map storage
-				{
-					auto createDesc = [&]() -> const ComponentCacheItem& {
-						const auto* pItem = ComponentCacheItem::create<T>(entity);
-						GAIA_ASSERT(compDescId == pItem->comp.id());
-						m_itemByDescId.emplace(compDescId, pItem);
-						add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
-						m_compByEntity.emplace(pItem->entity, pItem);
-						return *pItem;
-					};
-
-					const auto it = m_itemByDescId.find(compDescId);
-					if (it == m_itemByDescId.end())
-						return createDesc();
-
-					return *it->second;
-				}
+				const auto* pNewItem = ComponentCacheItem::create<T>(entity);
+				GAIA_ASSERT(compDescId == pNewItem->comp.id());
+				return register_item(pNewItem, scopePath);
 			}
 
 			//! Registers a runtime-defined component.
@@ -28553,9 +28540,8 @@ namespace gaia {
 				}
 
 				detail::ComponentDescId compDescId = m_nextRuntimeCompDescId;
-				while (find(compDescId) != nullptr) {
+				while (find(compDescId) != nullptr)
 					++compDescId;
-				}
 				m_nextRuntimeCompDescId = compDescId + 1;
 
 				ComponentCacheItem::ComponentCacheItemCtx ctx{};
@@ -28570,17 +28556,8 @@ namespace gaia {
 				ctx.hashLookup = hashLookup;
 
 				const auto* pItem = ComponentCacheItem::create(entity, ctx);
-				if (compDescId < FastComponentCacheSize) {
-					if (compDescId >= m_itemArr.size())
-						m_itemArr.resize(compDescId + 1U);
-					m_itemArr[compDescId] = pItem;
-				} else {
-					m_itemByDescId.emplace(compDescId, pItem);
-				}
-
-				add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
-				m_compByEntity.emplace(pItem->entity, pItem);
-				return *pItem;
+				GAIA_ASSERT(compDescId == pItem->comp.id());
+				return register_item(pItem, scopePath);
 			}
 
 			//! Searches for the component cache item given the @a compDescId.

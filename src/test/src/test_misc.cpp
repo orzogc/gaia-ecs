@@ -359,6 +359,21 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(b.comp.id() == a.comp.id() + 1);
 		CHECK(c.comp.id() == b.comp.id() + 1);
 	}
+
+	SUBCASE("runtime registration uses the shared map-backed storage path") {
+		TestWorld twld;
+		auto& cc = wld.comp_cache_mut();
+
+		const auto entity = wld.add();
+		const auto& item = cc.add(entity, "Runtime_Component_Map_Path", 0, 12, ecs::DataStorageType::Table, 4);
+
+		CHECK(item.comp.id() >= 0x80000000u);
+		CHECK(cc.find(item.comp.id()) == &item);
+		CHECK(cc.get(item.comp.id()).entity == item.entity);
+		CHECK(cc.find(item.entity) == &item);
+		CHECK(wld.symbol("Runtime_Component_Map_Path") == item.entity);
+		CHECK(wld.get("Runtime_Component_Map_Path") == item.entity);
+	}
 }
 
 TEST_CASE("ArchetypeGraph") {
