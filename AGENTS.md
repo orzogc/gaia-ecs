@@ -80,6 +80,8 @@ This repository is Gaia-ECS. All changes, examples, benchmarks, tests, documenta
 - Code comments must use Doxygen format.
 - Public APIs, important internals, and non-obvious behavior must be documented clearly.
 - The README must be updated whenever changes affect usage, behavior, architecture, build steps, performance characteristics, or developer workflow.
+- Building with `GAIA_GENERATE_SINGLE_HEADER` is not necessary for normal work in this repository.
+- Do not spend time updating or validating `single_include/gaia.h` unless the task explicitly requires single-header generation.
 
 ## Debug vs Release
 
