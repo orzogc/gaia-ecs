@@ -42,4 +42,4 @@ enable_testing()
 add_test(NAME ${PROJ_NAME} COMMAND ${PROJ_NAME})
 add_test(
 	NAME ${PROJ_NAME_NO_AUTOREG}
-	COMMAND ${PROJ_NAME_NO_AUTOREG} --test-case=*component registration*)
+	COMMAND ${PROJ_NAME_NO_AUTOREG} "--test-case=*component registration*")
