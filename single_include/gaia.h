@@ -28673,30 +28673,6 @@ namespace gaia {
 				return item.path.view();
 			}
 
-			//! Returns the preferred user-facing component name for diagnostics, logs and other pretty output.
-			//! Path name is preferred when unique and not shadowed by a registered symbol.
-			//! Otherwise the registered symbol name is returned.
-			//! \param item Component cache item to inspect.
-			//! \return Display name as a non-owning string view.
-			//! \warning This is not a stable identity key.
-			GAIA_NODISCARD util::str_view display_name(const ComponentCacheItem& item) const noexcept {
-				const auto symbol = symbol_name(item);
-				if (is_internal_symbol(symbol))
-					return symbol;
-
-				const auto path = path_name(item);
-				if (!path.empty()) {
-					const auto pathIt = m_compByPath.find(lookup_key(path));
-					const auto symbolIt = m_compBySymbol.find(lookup_key(path));
-					const bool pathIsUnique = pathIt != m_compByPath.end() && pathIt->second == &item;
-					const bool pathShadowed = symbolIt != m_compBySymbol.end() && symbolIt->second != &item;
-					if (pathIsUnique && !pathShadowed)
-						return path;
-				}
-
-				return symbol;
-			}
-
 			//! Assigns a component path name used by path lookup and display_name().
 			//! Passing nullptr or an empty string clears the path.
 			//! \param item Component cache item to modify.
@@ -28760,100 +28736,6 @@ namespace gaia {
 
 				const auto it = m_compByShortSymbol.find(ComponentCacheItem::SymbolLookupKey(name, l, 0));
 				return it != m_compByShortSymbol.end() ? it->second : nullptr;
-			}
-
-			GAIA_NODISCARD ComponentCacheItem* symbol(const char* name, uint32_t len = 0) noexcept {
-				return const_cast<ComponentCacheItem*>(const_cast<const ComponentCache*>(this)->symbol(name, len));
-			}
-
-			GAIA_NODISCARD ComponentCacheItem* path(const char* name, uint32_t len = 0) noexcept {
-				return const_cast<ComponentCacheItem*>(const_cast<const ComponentCache*>(this)->path(name, len));
-			}
-
-			GAIA_NODISCARD ComponentCacheItem* short_symbol(const char* name, uint32_t len = 0) noexcept {
-				return const_cast<ComponentCacheItem*>(const_cast<const ComponentCache*>(this)->short_symbol(name, len));
-			}
-
-			//! Resolves a component name within component metadata lookup only.
-			//! Exact registered symbol lookup is attempted first, then exact path lookup,
-			//! then unique short-symbol lookup.
-			//! \param name A null-terminated string.
-			//! \param len String length. If zero, the length is calculated.
-			//! \return Component cache item if found, nullptr otherwise.
-			//! \warning World entity-name lookup and active world scope rules are not considered here.
-			GAIA_NODISCARD const ComponentCacheItem* resolve(const char* name, uint32_t len = 0) const noexcept {
-				if (const auto* pItem = symbol(name, len); pItem != nullptr)
-					return pItem;
-				if (const auto* pItem = path(name, len); pItem != nullptr)
-					return pItem;
-				if (const auto* pItem = short_symbol(name, len); pItem != nullptr)
-					return pItem;
-				return nullptr;
-			}
-
-			GAIA_NODISCARD ComponentCacheItem* resolve(const char* name, uint32_t len = 0) noexcept {
-				return const_cast<ComponentCacheItem*>(const_cast<const ComponentCache*>(this)->resolve(name, len));
-			}
-
-			//! Collects all component items that match @a name as an exact symbol, exact path or short symbol.
-			//! This is primarily useful for low-level component metadata diagnostics.
-			//! \param name Lookup string.
-			//! \param[out] out Output array cleared and then filled with unique matching component items.
-			//! \param len String length. If zero, the length is calculated.
-			//! \warning World entity-name lookup and active world scope rules are not considered here.
-			void resolve(cnt::darray<const ComponentCacheItem*>& out, const char* name, uint32_t len = 0) const {
-				GAIA_ASSERT(name != nullptr);
-				out.clear();
-
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				GAIA_ASSERT(l < ComponentCacheItem::MaxNameLength);
-				const auto needle = util::str_view(name, l);
-
-				auto push_unique = [&](const ComponentCacheItem* pItem) {
-					if (pItem == nullptr)
-						return;
-					for (const auto* pExisting: out) {
-						if (pExisting == pItem)
-							return;
-					}
-					out.push_back(pItem);
-				};
-
-				push_unique(symbol(name, l));
-				push_unique(short_symbol(name, l));
-
-				if (const auto* pItem = path(name, l); pItem != nullptr) {
-					push_unique(pItem);
-				} else {
-					for_each_item([&](const ComponentCacheItem& item) {
-						if (item.path.view() == needle)
-							push_unique(&item);
-					});
-				}
-			}
-
-			//! Returns the component cache item using resolved lookup.
-			//! Exact registered symbol lookup is attempted first, followed by path lookup and alias lookup.
-			//! \param name A null-terminated string
-			//! \param len String length. If zero, the length is calculated
-			//! \return Component info.
-			//! \warning It is expected the component item with the given name/length exists! Undefined behavior otherwise.
-			GAIA_NODISCARD const ComponentCacheItem& get(const char* name, uint32_t len = 0) const noexcept {
-				const auto* pItem = resolve(name, len);
-				GAIA_ASSERT(pItem != nullptr);
-				return *pItem;
-			}
-
-			//! Returns the component cache item using resolved lookup.
-			//! Exact registered symbol lookup is attempted first, followed by path lookup and alias lookup.
-			//! \param name A null-terminated string
-			//! \param len String length. If zero, the length is calculated
-			//! \return Component info.
-			//! \warning It is expected the component item with the given name/length exists! Undefined behavior otherwise.
-			GAIA_NODISCARD ComponentCacheItem& get(const char* name, uint32_t len = 0) noexcept {
-				auto* pItem = resolve(name, len);
-				GAIA_ASSERT(pItem != nullptr);
-				return *pItem;
 			}
 
 		public:

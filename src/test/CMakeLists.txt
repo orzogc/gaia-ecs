@@ -7,6 +7,7 @@ set(GAIA_TEST_SOURCES
 	src/test_mutation_runtime.cpp
 	src/test_system.cpp
 	src/test_observer.cpp
+	src/test_component_cache.cpp
 	src/test_misc.cpp
 )
 
