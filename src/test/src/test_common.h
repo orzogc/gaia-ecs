@@ -142,6 +142,12 @@ struct Acceleration {
 struct Rotation {
 	float x, y, z, w;
 };
+
+uint32_t test_position_type_id_from_query_core();
+uint32_t test_position_type_id_from_system();
+uint32_t test_acceleration_type_id_from_query_core();
+uint32_t test_acceleration_type_id_from_system();
+
 struct DummySoA {
 	GAIA_LAYOUT(SoA);
 	float x, y;

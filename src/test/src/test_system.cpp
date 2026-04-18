@@ -2,6 +2,14 @@
 
 #define TestWorld SparseTestWorld
 
+uint32_t test_position_type_id_from_system() {
+	return gaia::meta::type_info::id<Position>();
+}
+
+uint32_t test_acceleration_type_id_from_system() {
+	return gaia::meta::type_info::id<Acceleration>();
+}
+
 TEST_CASE("System - simple") {
 	uint32_t sys1_cnt = 0;
 	uint32_t sys2_cnt = 0;

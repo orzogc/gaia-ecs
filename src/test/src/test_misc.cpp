@@ -1,5 +1,7 @@
 #include "test_common.h"
 
+#include <utility>
+
 struct AutoRegQueryProbe {
 	int value = 0;
 };
@@ -11,6 +13,20 @@ struct AutoRegSystemProbe {
 struct AutoRegObserverProbe {
 	int value = 0;
 };
+
+template <uint32_t I>
+struct TypeInfoConcurrentProbe {};
+
+template <uint32_t I>
+uint32_t type_info_concurrent_probe_id() {
+	return gaia::meta::type_info::id<TypeInfoConcurrentProbe<I>>();
+}
+
+template <size_t... Is>
+auto make_type_info_concurrent_probe_table(std::index_sequence<Is...>) {
+	using ProbeIdFunc = uint32_t (*)();
+	return cnt::sarr<ProbeIdFunc, sizeof...(Is)>{&type_info_concurrent_probe_id<(uint32_t)Is>...};
+}
 
 TEST_CASE("DataLayout SoA - ECS") {
 	TestDataLayoutSoA_ECS<PositionSoA>();
@@ -481,6 +497,63 @@ TEST_CASE("Component helpers") {
 	CHECK(ecs::comp_idx<3>(comps.data(), pos) == 0);
 	CHECK(ecs::comp_idx<3>(comps.data(), rot) == 1);
 	CHECK(ecs::comp_idx(ecs::EntitySpan{comps.data(), comps.size()}, scl) == 2);
+}
+
+TEST_CASE("TypeInfo - component ids are stable across translation units") {
+	CHECK(gaia::meta::type_info::id<Position>() == test_position_type_id_from_query_core());
+	CHECK(gaia::meta::type_info::id<Position>() == test_position_type_id_from_system());
+	CHECK(gaia::meta::type_info::id<Acceleration>() == test_acceleration_type_id_from_query_core());
+	CHECK(gaia::meta::type_info::id<Acceleration>() == test_acceleration_type_id_from_system());
+}
+
+TEST_CASE("TypeInfo - ids stay unique under concurrent first touch") {
+	constexpr uint32_t ThreadCnt = 32;
+	constexpr uint32_t RoundCnt = 4;
+	constexpr uint32_t ProbeCnt = ThreadCnt * RoundCnt;
+	const auto probeTable = make_type_info_concurrent_probe_table(std::make_index_sequence<ProbeCnt>{});
+
+	cnt::darray<uint32_t> ids;
+	ids.resize(ProbeCnt, 0);
+
+	for (uint32_t round = 0; round < RoundCnt; ++round) {
+		const uint32_t probeOffset = round * ThreadCnt;
+		std::atomic_uint32_t ready = 0;
+		std::atomic_bool start = false;
+		cnt::darray<std::thread> threads;
+		threads.reserve(ThreadCnt);
+
+		for (uint32_t threadIdx = 0; threadIdx < ThreadCnt; ++threadIdx) {
+			const uint32_t probeIdx = probeOffset + threadIdx;
+			threads.emplace_back([&ids, &probeTable, &ready, &start, probeIdx]() {
+				ready.fetch_add(1, std::memory_order_relaxed);
+				while (!start.load(std::memory_order_acquire))
+					std::this_thread::yield();
+
+				ids[probeIdx] = probeTable[probeIdx]();
+			});
+		}
+
+		while (ready.load(std::memory_order_acquire) != ThreadCnt)
+			std::this_thread::yield();
+
+		start.store(true, std::memory_order_release);
+
+		for (auto& thread: threads)
+			thread.join();
+	}
+
+	cnt::darray<uint32_t> sortedIds;
+	sortedIds.reserve(ProbeCnt);
+	for (uint32_t probeIdx = 0; probeIdx < ProbeCnt; ++probeIdx)
+		sortedIds.push_back(ids[probeIdx]);
+	std::sort(sortedIds.begin(), sortedIds.end());
+
+	for (uint32_t probeIdx = 0; probeIdx < ProbeCnt; ++probeIdx) {
+		CHECK(ids[probeIdx] != 0);
+		CHECK(ids[probeIdx] == probeTable[probeIdx]());
+		if (probeIdx > 0)
+			CHECK(sortedIds[probeIdx - 1] != sortedIds[probeIdx]);
+	}
 }
 
 #if GAIA_ECS_AUTO_COMPONENT_REGISTRATION

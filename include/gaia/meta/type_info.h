@@ -1,6 +1,8 @@
 #pragma once
 #include "gaia/config/config.h"
 
+#include <atomic>
+
 #include "gaia/core/hashing_policy.h"
 #include "gaia/core/span.h"
 
@@ -10,11 +12,27 @@ namespace gaia {
 		//! Provides statically generated unique identifier for a given group of types.
 		template <typename...>
 		class type_group {
-			inline static uint32_t s_identifier{};
+			inline static std::atomic_uint32_t s_identifier{};
 
 		public:
 			template <typename... Type>
-			inline static const uint32_t id = s_identifier++;
+			static uint32_t id() noexcept {
+				// Assign ids lazily on first use so all translation units observe the same
+				// value without relying on global dynamic initialization order.
+				//
+				// Atomic is needed because we use one shared counter for all types. If two
+				// threads ask for two previously unseen types at the same time, both code
+				// paths can hit the shared s_identifier. Without atomic, that increment is
+				// a data race and the behavior is undefined.
+				//
+				// Technically we could get by without atomic if we can guarantee that only
+				// one thread calls id() for previously unseen types. However, that is a fragile
+				// guarantee and would be easy to break.
+				// E.g., two different worlds simulated from different threads could call id()
+				// for different previously unseen types concurrently.
+				static const uint32_t value = s_identifier.fetch_add(1, std::memory_order_relaxed);
+				return value;
+			}
 		};
 
 		template <>
@@ -46,7 +64,7 @@ namespace gaia {
 		public:
 			template <typename T>
 			static uint32_t id() noexcept {
-				return type_group<type_info>::id<T>;
+				return type_group<type_info>::template id<T>();
 			}
 
 			template <typename T>
