@@ -641,15 +641,11 @@ namespace gaia {
 							return;
 						}
 					}
-					run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, [&](Iter& it) {
-						GAIA_PROF_SCOPE(query_func);
-						runDirectChunk(*this, it, pFunc, state);
-					});
+					TypedDirectChunkCallback cb{this, pFunc, &state, runDirectChunk};
+					run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, cb);
 				} else {
-					run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, [&](Iter& it) {
-						GAIA_PROF_SCOPE(query_func);
-						runMappedChunk(*this, queryInfo, it, pFunc, state);
-					});
+					TypedMappedChunkCallback cb{this, &queryInfo, pFunc, &state, runMappedChunk};
+					run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, cb);
 				}
 			}
 
@@ -737,18 +733,14 @@ namespace gaia {
 					QueryInfo& queryInfo, void* pFunc, const TypedQueryExecState& state,
 					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
+				TypedIterErasedCallback cb{this, pFunc, &state, runDirectFastChunk, runMappedChunk};
+
 				if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
-					GAIA_PROF_SCOPE(query_func);
-					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, [&](Iter& it) {
-						each_iter_erased(it, pFunc, state, runDirectFastChunk, runMappedChunk);
-					});
+					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, cb);
 					return;
 				}
 
-				run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, [&](Iter& it) {
-					GAIA_PROF_SCOPE(query_func);
-					each_iter_erased(it, pFunc, state, runDirectFastChunk, runMappedChunk);
-				});
+				run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, cb);
 			}
 
 			inline void QueryImpl::each_iter_erased(

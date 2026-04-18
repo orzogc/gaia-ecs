@@ -2810,6 +2810,44 @@ namespace gaia {
 					}
 				};
 
+				struct TypedDirectChunkCallback {
+					QueryImpl* pSelf;
+					void* pFunc;
+					const TypedQueryExecState* pState;
+					void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&);
+
+					void operator()(Iter& it) const {
+						GAIA_PROF_SCOPE(query_func);
+						runChunk(*pSelf, it, pFunc, *pState);
+					}
+				};
+
+				struct TypedMappedChunkCallback {
+					QueryImpl* pSelf;
+					const QueryInfo* pQueryInfo;
+					void* pFunc;
+					const TypedQueryExecState* pState;
+					void (*runChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&);
+
+					void operator()(Iter& it) const {
+						GAIA_PROF_SCOPE(query_func);
+						runChunk(*pSelf, *pQueryInfo, it, pFunc, *pState);
+					}
+				};
+
+				struct TypedIterErasedCallback {
+					QueryImpl* pSelf;
+					void* pFunc;
+					const TypedQueryExecState* pState;
+					void (*runDirect)(QueryImpl&, Iter&, void*, const TypedQueryExecState&);
+					void (*runChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&);
+
+					void operator()(Iter& it) const {
+						GAIA_PROF_SCOPE(query_func);
+						pSelf->each_iter_erased(it, pFunc, *pState, runDirect, runChunk);
+					}
+				};
+
 				void each_runtime_erased(
 						QueryExecType execType, void* pFunc, void (*invoke)(void*, Iter&), Constraints constraints) {
 					auto& queryInfo = fetch();
