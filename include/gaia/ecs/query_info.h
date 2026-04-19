@@ -1492,8 +1492,11 @@ namespace gaia {
 					const auto fieldIdx = term.fieldIndex;
 					const auto queryId = term.id;
 					if (!queryId.pair() && world_is_out_of_line_component(*world(), queryId)) {
+#if GAIA_ASSERT_ENABLED
+						// Verify that the component is indeed not present on the archetype, otherwise our matching logic is flawed.
 						const auto compIdx = core::get_index_unsafe(pArchetype->ids_view(), queryId);
 						GAIA_ASSERT(compIdx != BadIndex);
+#endif
 						cacheData.indices[fieldIdx] = 0xFF;
 						continue;
 					}

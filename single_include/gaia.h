@@ -7082,10 +7082,12 @@ namespace gaia {
 				const auto blckAddr = (uintptr_t)pMemoryBlock;
 				GAIA_ASSERT(blckAddr % SmallBlockAlignment == 0);
 				const auto dataAddr = (uintptr_t)m_data;
-				const auto blockStride = (uintptr_t)block_stride();
-				const auto pageSize = blockStride * NBlocks;
 				GAIA_ASSERT(blckAddr >= dataAddr);
+				const auto blockStride = (uintptr_t)block_stride();
+#if GAIA_ASSERT_ENABLED
+				const auto pageSize = blockStride * NBlocks;
 				GAIA_ASSERT(blckAddr < dataAddr + pageSize);
+#endif
 				GAIA_ASSERT((blckAddr - dataAddr) % blockStride == 0);
 				const auto blockIdx = (uint32_t)((blckAddr - dataAddr) / blockStride);
 				GAIA_ASSERT(blockIdx < m_blockCnt);
@@ -7445,8 +7447,11 @@ namespace gaia {
 				page_list(container, toState).link(pPage);
 			}
 
-			static void
-			verify_page_membership(const SmallBlockPage& page, uint32_t sizeType, SmallBlockPageState expectedState) {
+			[[maybe_unused]] static void verify_page_membership(
+					[[maybe_unused]] const SmallBlockPage& page, //
+					[[maybe_unused]] uint32_t sizeType, //
+					[[maybe_unused]] SmallBlockPageState expectedState //
+			) {
 				GAIA_ASSERT(page.m_sizeType == sizeType);
 				GAIA_ASSERT(state_for(page) == expectedState);
 				GAIA_ASSERT(page.get_fwd_llist_link().linked());
@@ -14527,8 +14532,10 @@ namespace gaia {
 				auto ReadBlockAddress = [&](void* pMemory) {
 					// Offset the chunk memory so we get the real block address
 					const auto* pMemoryBlock = (uint8_t*)pMemory - MemoryBlockUsableOffset;
+#if GAIA_ASSERT_ENABLED
 					const auto pageAddr = (uintptr_t)mem::unaligned_ref<uintptr_t>{(void*)pMemoryBlock};
 					GAIA_ASSERT(pageAddr == (uintptr_t)this);
+#endif
 					const auto blckAddr = (uintptr_t)pMemoryBlock;
 					GAIA_ASSERT(blckAddr % 16 == 0);
 					const auto dataAddr = (uintptr_t)m_data;
@@ -26843,10 +26850,12 @@ namespace gaia {
 					const auto blckAddr = (uintptr_t)pMemoryBlock;
 					GAIA_ASSERT(blckAddr % MemoryBlockAlignment == 0);
 					const auto dataAddr = (uintptr_t)m_data;
-					const auto blockSize = (uintptr_t)mem_block_size(m_sizeType);
-					const auto pageSize = blockSize * NBlocks;
 					GAIA_ASSERT(blckAddr >= dataAddr);
+					const auto blockSize = (uintptr_t)mem_block_size(m_sizeType);
+	#if GAIA_ASSERT_ENABLED
+					const auto pageSize = blockSize * NBlocks;
 					GAIA_ASSERT(blckAddr < dataAddr + pageSize);
+	#endif
 					GAIA_ASSERT((blckAddr - dataAddr) % blockSize == 0);
 					const auto blockIdx = (uint32_t)((blckAddr - dataAddr) / blockSize);
 					GAIA_ASSERT(blockIdx < m_blockCnt);
@@ -27234,8 +27243,11 @@ namespace gaia {
 					page_list(container, toState).link(pPage);
 				}
 
-				static void verify_page_membership(
-						const MemoryPageContainer& container, const MemoryPage& page, MemoryPageState expectedState) {
+				[[maybe_unused]] static void verify_page_membership(
+						[[maybe_unused]] const MemoryPageContainer& container, //
+						[[maybe_unused]] const MemoryPage& page, //
+						[[maybe_unused]] MemoryPageState expectedState //
+				) {
 					(void)container;
 					GAIA_ASSERT(state_for(page) == expectedState);
 					GAIA_ASSERT(page.get_fwd_llist_link().linked());
@@ -29337,9 +29349,11 @@ namespace gaia {
 					const auto tgt = m_header.cc->get<typename T::tgt>().entity;
 					return view_inter_idx<T>(comp_idx((Entity)Pair(rel, tgt)), from, to);
 				} else {
-					constexpr auto kind = entity_kind_v<T>;
 					const auto comp = m_header.cc->get<T>().entity;
+#if GAIA_ASSERT_ENABLED
+					constexpr auto kind = entity_kind_v<T>;
 					GAIA_ASSERT(comp.kind() == kind);
+#endif
 					return view_inter_idx<T>(comp_idx(comp), from, to);
 				}
 			}
@@ -29426,9 +29440,11 @@ namespace gaia {
 					const auto tgt = m_header.cc->get<typename T::tgt>().entity;
 					return view_mut_inter_idx<T, WorldVersionUpdateWanted>(comp_idx((Entity)Pair(rel, tgt)), from, to);
 				} else {
-					constexpr auto kind = entity_kind_v<T>;
 					const auto comp = m_header.cc->get<T>().entity;
+#if GAIA_ASSERT_ENABLED
+					constexpr auto kind = entity_kind_v<T>;
 					GAIA_ASSERT(comp.kind() == kind);
+#endif
 					return view_mut_inter_idx<T, WorldVersionUpdateWanted>(comp_idx(comp), from, to);
 				}
 			}
@@ -41534,8 +41550,11 @@ namespace gaia {
 					const auto fieldIdx = term.fieldIndex;
 					const auto queryId = term.id;
 					if (!queryId.pair() && world_is_out_of_line_component(*world(), queryId)) {
+#if GAIA_ASSERT_ENABLED
+						// Verify that the component is indeed not present on the archetype, otherwise our matching logic is flawed.
 						const auto compIdx = core::get_index_unsafe(pArchetype->ids_view(), queryId);
 						GAIA_ASSERT(compIdx != BadIndex);
+#endif
 						cacheData.indices[fieldIdx] = 0xFF;
 						continue;
 					}
@@ -46759,8 +46778,10 @@ namespace gaia {
 								continue;
 							}
 							if (!queryId.pair() && world_is_out_of_line_component(world, queryId)) {
+#if GAIA_ASSERT_ENABLED
 								const auto compIdx = core::get_index_unsafe(ec.pArchetype->ids_view(), queryId);
 								GAIA_ASSERT(compIdx != BadIndex);
+#endif
 								pIndices[fieldIdx] = 0xFF;
 								continue;
 							}
@@ -55017,9 +55038,11 @@ namespace gaia {
 				if constexpr (supports_out_of_line_component<T>()) {
 					const auto* pItem = comp_cache().template find<T>();
 					if (pItem != nullptr && is_out_of_line_component(pItem->entity)) {
+#if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<typename component_type_t<T>::TypeFull>(pItem->entity);
 						GAIA_ASSERT(pStore != nullptr);
 						GAIA_ASSERT(pStore->has(entity));
+#endif
 
 						::gaia::ecs::update_version(m_worldVersion);
 
@@ -55076,9 +55099,11 @@ namespace gaia {
 				using FT = typename component_type_t<T>::TypeFull;
 				if constexpr (supports_out_of_line_component<FT>()) {
 					if (can_use_out_of_line_component<FT>(object)) {
+#if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<FT>(object);
 						GAIA_ASSERT(pStore != nullptr);
 						GAIA_ASSERT(pStore->has(entity));
+#endif
 
 						::gaia::ecs::update_version(m_worldVersion);
 

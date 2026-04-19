@@ -200,10 +200,12 @@ namespace gaia {
 				const auto blckAddr = (uintptr_t)pMemoryBlock;
 				GAIA_ASSERT(blckAddr % SmallBlockAlignment == 0);
 				const auto dataAddr = (uintptr_t)m_data;
-				const auto blockStride = (uintptr_t)block_stride();
-				const auto pageSize = blockStride * NBlocks;
 				GAIA_ASSERT(blckAddr >= dataAddr);
+				const auto blockStride = (uintptr_t)block_stride();
+#if GAIA_ASSERT_ENABLED
+				const auto pageSize = blockStride * NBlocks;
 				GAIA_ASSERT(blckAddr < dataAddr + pageSize);
+#endif
 				GAIA_ASSERT((blckAddr - dataAddr) % blockStride == 0);
 				const auto blockIdx = (uint32_t)((blckAddr - dataAddr) / blockStride);
 				GAIA_ASSERT(blockIdx < m_blockCnt);
@@ -563,8 +565,11 @@ namespace gaia {
 				page_list(container, toState).link(pPage);
 			}
 
-			static void
-			verify_page_membership(const SmallBlockPage& page, uint32_t sizeType, SmallBlockPageState expectedState) {
+			[[maybe_unused]] static void verify_page_membership(
+					[[maybe_unused]] const SmallBlockPage& page, //
+					[[maybe_unused]] uint32_t sizeType, //
+					[[maybe_unused]] SmallBlockPageState expectedState //
+			) {
 				GAIA_ASSERT(page.m_sizeType == sizeType);
 				GAIA_ASSERT(state_for(page) == expectedState);
 				GAIA_ASSERT(page.get_fwd_llist_link().linked());

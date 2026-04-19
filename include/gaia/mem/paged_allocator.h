@@ -136,8 +136,10 @@ namespace gaia {
 				auto ReadBlockAddress = [&](void* pMemory) {
 					// Offset the chunk memory so we get the real block address
 					const auto* pMemoryBlock = (uint8_t*)pMemory - MemoryBlockUsableOffset;
+#if GAIA_ASSERT_ENABLED
 					const auto pageAddr = (uintptr_t)mem::unaligned_ref<uintptr_t>{(void*)pMemoryBlock};
 					GAIA_ASSERT(pageAddr == (uintptr_t)this);
+#endif
 					const auto blckAddr = (uintptr_t)pMemoryBlock;
 					GAIA_ASSERT(blckAddr % 16 == 0);
 					const auto dataAddr = (uintptr_t)m_data;

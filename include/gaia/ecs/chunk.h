@@ -228,9 +228,11 @@ namespace gaia {
 					const auto tgt = m_header.cc->get<typename T::tgt>().entity;
 					return view_inter_idx<T>(comp_idx((Entity)Pair(rel, tgt)), from, to);
 				} else {
-					constexpr auto kind = entity_kind_v<T>;
 					const auto comp = m_header.cc->get<T>().entity;
+#if GAIA_ASSERT_ENABLED
+					constexpr auto kind = entity_kind_v<T>;
 					GAIA_ASSERT(comp.kind() == kind);
+#endif
 					return view_inter_idx<T>(comp_idx(comp), from, to);
 				}
 			}
@@ -317,9 +319,11 @@ namespace gaia {
 					const auto tgt = m_header.cc->get<typename T::tgt>().entity;
 					return view_mut_inter_idx<T, WorldVersionUpdateWanted>(comp_idx((Entity)Pair(rel, tgt)), from, to);
 				} else {
-					constexpr auto kind = entity_kind_v<T>;
 					const auto comp = m_header.cc->get<T>().entity;
+#if GAIA_ASSERT_ENABLED
+					constexpr auto kind = entity_kind_v<T>;
 					GAIA_ASSERT(comp.kind() == kind);
+#endif
 					return view_mut_inter_idx<T, WorldVersionUpdateWanted>(comp_idx(comp), from, to);
 				}
 			}

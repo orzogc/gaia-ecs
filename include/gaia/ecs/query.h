@@ -3988,8 +3988,10 @@ namespace gaia {
 								continue;
 							}
 							if (!queryId.pair() && world_is_out_of_line_component(world, queryId)) {
+#if GAIA_ASSERT_ENABLED
 								const auto compIdx = core::get_index_unsafe(ec.pArchetype->ids_view(), queryId);
 								GAIA_ASSERT(compIdx != BadIndex);
+#endif
 								pIndices[fieldIdx] = 0xFF;
 								continue;
 							}

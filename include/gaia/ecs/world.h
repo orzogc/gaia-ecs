@@ -4736,9 +4736,11 @@ namespace gaia {
 				if constexpr (supports_out_of_line_component<T>()) {
 					const auto* pItem = comp_cache().template find<T>();
 					if (pItem != nullptr && is_out_of_line_component(pItem->entity)) {
+#if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<typename component_type_t<T>::TypeFull>(pItem->entity);
 						GAIA_ASSERT(pStore != nullptr);
 						GAIA_ASSERT(pStore->has(entity));
+#endif
 
 						::gaia::ecs::update_version(m_worldVersion);
 
@@ -4795,9 +4797,11 @@ namespace gaia {
 				using FT = typename component_type_t<T>::TypeFull;
 				if constexpr (supports_out_of_line_component<FT>()) {
 					if (can_use_out_of_line_component<FT>(object)) {
+#if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<FT>(object);
 						GAIA_ASSERT(pStore != nullptr);
 						GAIA_ASSERT(pStore->has(entity));
+#endif
 
 						::gaia::ecs::update_version(m_worldVersion);
 
