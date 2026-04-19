@@ -28312,10 +28312,23 @@ namespace gaia {
 					const auto idx = i - 1;
 					if (pName[idx] != ':' || pName[idx - 1] != ':')
 						continue;
+
 					return ComponentCacheItem::SymbolLookupKey(pName + idx + 1, len - idx - 1, 0);
 				}
 
 				return ComponentCacheItem::SymbolLookupKey();
+			}
+
+			GAIA_NODISCARD static util::str_view short_symbol_view(const ComponentCacheItem& item) noexcept {
+				const auto symbol = util::str_view{item.name.str(), item.name.len()};
+				if (is_internal_symbol(symbol))
+					return {};
+
+				const auto shortName = short_name_key(item);
+				if (shortName.str() == nullptr || shortName.len() == 0)
+					return {};
+
+				return util::str_view(shortName.str(), shortName.len());
 			}
 
 			GAIA_NODISCARD static ComponentCacheItem::SymbolLookupKey lookup_key(util::str_view value) noexcept {
@@ -28388,42 +28401,30 @@ namespace gaia {
 					(void)build_default_path(item.path, symbol);
 			}
 
-			template <typename ViewFunc>
-			void rebuild_lookup_map(
-					cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*>& map, ViewFunc&& getView) {
-				map.clear();
+			static void add_lookup_mapping(
+					cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*>& map, util::str_view view,
+					const ComponentCacheItem& item) {
+				if (view.empty())
+					return;
+
+				const auto key = lookup_key(view);
+				const auto it = map.find(key);
+				if (it == map.end()) {
+					map.emplace(key, &item);
+					return;
+				}
+
+				if (it->second != &item)
+					it->second = nullptr;
+			}
+
+			void rebuild_path_map() {
+				m_compByPath.clear();
 				for (const auto& [entityId, pItem]: m_compByEntityId) {
 					(void)entityId;
 					GAIA_ASSERT(pItem != nullptr);
-					const auto& item = *pItem;
-					const auto view = getView(item);
-					if (view.empty())
-						continue;
-
-					const auto key = lookup_key(view);
-					const auto it = map.find(key);
-					if (it == map.end()) {
-						map.emplace(key, &item);
-						continue;
-					}
-
-					if (it->second != &item)
-						it->second = nullptr;
+					add_lookup_mapping(m_compByPath, pItem->path.view(), *pItem);
 				}
-			}
-
-			void rebuild_resolved_name_maps() {
-				rebuild_lookup_map(m_compByPath, [](const ComponentCacheItem& item) {
-					return item.path.view();
-				});
-				rebuild_lookup_map(m_compByShortSymbol, [&](const ComponentCacheItem& item) {
-					if (is_internal_symbol(symbol_name(item)))
-						return util::str_view{};
-
-					const auto shortName = short_name_key(item);
-					return shortName.str() != nullptr && shortName.len() != 0 ? util::str_view(shortName.str(), shortName.len())
-																																		: util::str_view{};
-				});
 			}
 
 			//! Adds all name-based lookup mappings for a component item.
@@ -28432,7 +28433,8 @@ namespace gaia {
 			void add_name_mappings(ComponentCacheItem& item, util::str_view scopePath) {
 				m_compBySymbol.emplace(item.name, &item);
 				initialize_names(item, scopePath);
-				rebuild_resolved_name_maps();
+				add_lookup_mapping(m_compByPath, item.path.view(), item);
+				add_lookup_mapping(m_compByShortSymbol, short_symbol_view(item), item);
 			}
 
 			//! Stores a newly created component item and updates all lookup tables.
@@ -28586,7 +28588,7 @@ namespace gaia {
 			bool path(ComponentCacheItem& item, util::str_view name) noexcept {
 				if (name.empty()) {
 					item.path.clear();
-					rebuild_resolved_name_maps();
+					rebuild_path_map();
 					return true;
 				}
 
@@ -28594,7 +28596,7 @@ namespace gaia {
 					return false;
 
 				item.path.assign(name);
-				rebuild_resolved_name_maps();
+				rebuild_path_map();
 				return true;
 			}
 

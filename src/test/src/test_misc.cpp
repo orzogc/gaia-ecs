@@ -221,6 +221,8 @@ TEST_CASE("Component cache - runtime registration") {
 		auto entityA = wld.add();
 		(void)add_runtime_component(cc, entityA, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1);
 		auto& itemA = cc.get(entityA);
+		CHECK(wld.get("Device") == itemA.entity);
+		CHECK(wld.display_name(itemA.entity) == "Gameplay.Device");
 
 		auto entityB = wld.add();
 		(void)add_runtime_component(cc, entityB, "Debug::Device", 0, ecs::DataStorageType::Table, 1);
