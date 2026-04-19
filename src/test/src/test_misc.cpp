@@ -279,6 +279,28 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(out[0] == entityA);
 	}
 
+	SUBCASE("path ambiguity resolves when one component leaves the shared path") {
+		TestWorld twld;
+		auto& cc = wld.comp_cache_mut();
+
+		const auto entityA = wld.add();
+		(void)add_runtime_component(cc, entityA, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1);
+
+		const auto entityB = wld.add();
+		(void)add_runtime_component(cc, entityB, "Debug::Device", 0, ecs::DataStorageType::Table, 1);
+
+		CHECK(wld.path(entityA, "shared.Device"));
+		CHECK(wld.path("shared.Device") == entityA);
+
+		CHECK(wld.path(entityB, "shared.Device"));
+		CHECK(wld.path("shared.Device") == ecs::EntityBad);
+		CHECK(wld.get("shared.Device") == ecs::EntityBad);
+
+		CHECK(wld.path(entityB, "debug.Device"));
+		CHECK(wld.path("shared.Device") == entityA);
+		CHECK(wld.get("shared.Device") == entityA);
+	}
+
 	SUBCASE("schema field registration supports add update and clear") {
 		TestWorld twld;
 		auto& cc = wld.comp_cache_mut();

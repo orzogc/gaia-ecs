@@ -176,13 +176,58 @@ namespace gaia {
 					it->second = nullptr;
 			}
 
-			void rebuild_path_map() {
-				m_compByPath.clear();
+			void add_path_mapping(const ComponentCacheItem& item) {
+				add_lookup_mapping(m_compByPath, item.path.view(), item);
+			}
+
+			void refresh_path_mapping(util::str_view pathValue, const ComponentCacheItem* pIgnore = nullptr) {
+				if (pathValue.empty())
+					return;
+
+				const ComponentCacheItem* pMatch = nullptr;
 				for (const auto& [entityId, pItem]: m_compByEntityId) {
 					(void)entityId;
 					GAIA_ASSERT(pItem != nullptr);
-					add_lookup_mapping(m_compByPath, pItem->path.view(), *pItem);
+					if (pItem == pIgnore)
+						continue;
+
+					if (pItem->path.view() != pathValue)
+						continue;
+
+					if (pMatch == nullptr) {
+						pMatch = pItem;
+						continue;
+					}
+
+					m_compByPath[lookup_key(pathValue)] = nullptr;
+					return;
 				}
+
+				if (pMatch == nullptr) {
+					m_compByPath.erase(lookup_key(pathValue));
+					return;
+				}
+
+				m_compByPath[lookup_key(pathValue)] = pMatch;
+			}
+
+			void remove_path_mapping(const ComponentCacheItem& item) {
+				const auto pathValue = item.path.view();
+				if (pathValue.empty())
+					return;
+
+				const auto key = lookup_key(pathValue);
+				const auto it = m_compByPath.find(key);
+				if (it == m_compByPath.end())
+					return;
+
+				if (it->second == &item) {
+					m_compByPath.erase(it);
+					return;
+				}
+
+				GAIA_ASSERT(it->second == nullptr);
+				refresh_path_mapping(pathValue, &item);
 			}
 
 			//! Adds all name-based lookup mappings for a component item.
@@ -191,7 +236,7 @@ namespace gaia {
 			void add_name_mappings(ComponentCacheItem& item, util::str_view scopePath) {
 				m_compBySymbol.emplace(item.name, &item);
 				initialize_names(item, scopePath);
-				add_lookup_mapping(m_compByPath, item.path.view(), item);
+				add_path_mapping(item);
 				add_lookup_mapping(m_compByShortSymbol, short_symbol_view(item), item);
 			}
 
@@ -344,17 +389,21 @@ namespace gaia {
 			//! \param name Path name.
 			//! \return True when the path metadata was updated, false if validation failed.
 			bool path(ComponentCacheItem& item, util::str_view name) noexcept {
+				if (path_name(item) == name)
+					return true;
+
 				if (name.empty()) {
+					remove_path_mapping(item);
 					item.path.clear();
-					rebuild_path_map();
 					return true;
 				}
 
 				if (name.size() >= ComponentCacheItem::MaxNameLength)
 					return false;
 
+				remove_path_mapping(item);
 				item.path.assign(name);
-				rebuild_path_map();
+				add_path_mapping(item);
 				return true;
 			}
 
