@@ -1252,7 +1252,6 @@ TEST_CASE("SmallBlockAllocator") {
 		alloc.verify();
 
 		ecs::ComponentCacheItem::ComponentCacheItemCtx ctx{};
-		ctx.compDescId = 1;
 		ctx.nameStr = "TestComponent";
 		ctx.nameLen = 13;
 		ctx.size = 4;

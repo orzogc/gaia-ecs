@@ -2922,7 +2922,7 @@ namespace gaia {
 						return false;
 
 					const auto id = term.id;
-					return (id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+					return (id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 				}
 
@@ -3353,7 +3353,7 @@ namespace gaia {
 					if (evalPlan.pSingleAllTerm != nullptr && uses_non_direct_is_matching(*pSeedTerm) &&
 							(uses_non_direct_is_matching(*evalPlan.pSingleAllTerm) ||
 							 uses_inherited_id_matching(world, *evalPlan.pSingleAllTerm))) {
-						const auto seedTarget = entity_from_id(world, (EntityId)pSeedTerm->id.gen());
+						const auto seedTarget = pair_tgt(world, pSeedTerm->id);
 						if (seedTarget != EntityBad)
 							seedImpliesSingleAllTerm = match_entity_term(world, seedTarget, *evalPlan.pSingleAllTerm);
 					}
@@ -3759,7 +3759,7 @@ namespace gaia {
 						const bool isDirectIsTerm = uses_non_direct_is_matching(term);
 						const bool isInheritedTerm = uses_inherited_id_matching(world, term);
 						const bool isAdjunctTerm =
-								(id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+								(id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 								(!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 						const bool needsEntityFilter = isAdjunctTerm || isDirectIsTerm || isInheritedTerm ||
 																					 (hasEntityFilterTerms && term.op == QueryOpKind::Or);

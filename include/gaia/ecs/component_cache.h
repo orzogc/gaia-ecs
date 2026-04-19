@@ -6,7 +6,6 @@
 #include <cstring>
 #include <type_traits>
 
-#include "gaia/cnt/darray.h"
 #include "gaia/cnt/map.h"
 #include "gaia/core/hashing_string.h"
 #include "gaia/ecs/component.h"
@@ -25,12 +24,10 @@ namespace gaia {
 		class GAIA_API ComponentCache final {
 			friend class World;
 
-			static constexpr uint32_t FastComponentCacheSize = 512;
-
-			//! Fast-lookup cache for the first FastComponentCacheSize components
-			cnt::darray<const ComponentCacheItem*> m_itemArr;
-			//! Slower but more memory-friendly lookup cache for components with ids beyond FastComponentCacheSize
-			cnt::map<detail::ComponentDescId, const ComponentCacheItem*> m_itemByDescId;
+			//! Lookup of component items by component entity index.
+			cnt::map<uint32_t, const ComponentCacheItem*> m_compByEntityId;
+			//! World-local component lookup keyed by compile-time metadata hash.
+			cnt::map<ComponentLookupHash, const ComponentCacheItem*> m_compByTypeHash;
 
 			//! Lookup of component items by their exact registered symbol name.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compBySymbol;
@@ -40,10 +37,6 @@ namespace gaia {
 			//! Lookup of component items by their unique short symbol name (leaf after the last `::`).
 			//! Ambiguous short names are stored with nullptr and treated as lookup misses.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByShortSymbol;
-			//! Lookup of component items by their entity.
-			cnt::map<EntityLookupKey, const ComponentCacheItem*> m_compByEntity;
-			//! Runtime component descriptor id generator.
-			detail::ComponentDescId m_nextRuntimeCompDescId = 0x80000000u;
 
 			//! Clears the contents of the component cache
 			//! \warning Should be used only after worlds are cleared because it invalidates all currently
@@ -52,41 +45,32 @@ namespace gaia {
 			//!       would lose connection to it and effectively become dangling. This means that a new
 			//!       component of type T could be added with a new entity id.
 			void clear() {
-				for (const auto* pItem: m_itemArr)
+				for (auto [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
 					ComponentCacheItem::destroy(const_cast<ComponentCacheItem*>(pItem));
-				for (auto [componentId, pItem]: m_itemByDescId)
-					ComponentCacheItem::destroy(const_cast<ComponentCacheItem*>(pItem));
+				}
 
-				m_itemArr.clear();
-				m_itemByDescId.clear();
+				m_compByEntityId.clear();
+				m_compByTypeHash.clear();
 				m_compBySymbol.clear();
 				m_compByPath.clear();
 				m_compByShortSymbol.clear();
-				m_compByEntity.clear();
 			}
 
 			template <typename Func>
 			void for_each_item(Func&& func) {
-				for (auto* pItem: m_itemArr) {
-					if (pItem != nullptr)
-						func(*const_cast<ComponentCacheItem*>(pItem));
-				}
-
-				for (auto& [componentId, pItem]: m_itemByDescId) {
-					(void)componentId;
+				for (auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
 					func(*const_cast<ComponentCacheItem*>(pItem));
 				}
 			}
 
 			template <typename Func>
 			void for_each_item(Func&& func) const {
-				for (const auto* pItem: m_itemArr) {
-					if (pItem != nullptr)
-						func(*pItem);
-				}
-
-				for (const auto& [componentId, pItem]: m_itemByDescId) {
-					(void)componentId;
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
 					func(*pItem);
 				}
 			}
@@ -219,36 +203,40 @@ namespace gaia {
 			//! \param pItem Component cache item to store.
 			//! \param scopePath Optional world-provided scope prefix used for default path generation.
 			//! \return Stored component item.
-			const ComponentCacheItem& register_item(const ComponentCacheItem* pItem, util::str_view scopePath) {
+			const ComponentCacheItem& add_item(const ComponentCacheItem* pItem, util::str_view scopePath) {
 				GAIA_ASSERT(pItem != nullptr);
-				const auto compDescId = pItem->comp.id();
-
-				if (compDescId < FastComponentCacheSize) {
-					if GAIA_UNLIKELY (compDescId >= m_itemArr.size()) {
-						const auto newSize = compDescId + 1U;
-
-						// Increase the capacity by multiples of CapacityIncreaseSize.
-						constexpr uint32_t CapacityIncreaseSize = 128;
-						const auto newCapacity = ((newSize / CapacityIncreaseSize) * CapacityIncreaseSize) + CapacityIncreaseSize;
-						m_itemArr.reserve(newCapacity);
-						m_itemArr.resize(newSize, nullptr);
-					}
-
-					m_itemArr[compDescId] = pItem;
-				} else {
-					m_itemByDescId.emplace(compDescId, pItem);
-				}
+				GAIA_ASSERT(pItem->entity.id() == pItem->comp.id());
+				m_compByEntityId.emplace(pItem->entity.id(), pItem);
 
 				add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
-				m_compByEntity.emplace(pItem->entity, pItem);
 				return *pItem;
 			}
 
-		public:
-			ComponentCache() {
-				// Reserve enough storage space for most use-cases
-				m_itemArr.reserve(FastComponentCacheSize);
+			//! Searches for the component cache item given the compile-time metadata hash.
+			//! \param hash Compile-time metadata hash.
+			//! \return Component info or nullptr when not found.
+			GAIA_NODISCARD const ComponentCacheItem* find_item(ComponentLookupHash hash) const noexcept {
+				const auto it = m_compByTypeHash.find(hash);
+				return it != m_compByTypeHash.end() ? it->second : nullptr;
 			}
+
+			//! Registers the compile-time metadata-hash mapping for a component item.
+			//! \tparam T Component type.
+			//! \param item Registered component cache item.
+			template <typename T>
+			void add_hash_mapping(const ComponentCacheItem& item) {
+				const auto hash = detail::ComponentDesc<T>::hash_lookup();
+				const auto it = m_compByTypeHash.find(hash);
+				if (it == m_compByTypeHash.end()) {
+					m_compByTypeHash.emplace(hash, &item);
+					return;
+				}
+
+				GAIA_ASSERT(it->second == &item);
+			}
+
+		public:
+			ComponentCache() = default;
 
 			~ComponentCache() {
 				clear();
@@ -266,15 +254,15 @@ namespace gaia {
 				static_assert(!is_pair<T>::value);
 				GAIA_ASSERT(!entity.pair());
 
-				const auto compDescId = detail::ComponentDesc<T>::id();
-
-				const auto* pItem = find(compDescId);
+				const auto* pItem = find_item(detail::ComponentDesc<T>::hash_lookup());
 				if (pItem != nullptr)
 					return *pItem;
 
 				const auto* pNewItem = ComponentCacheItem::create<T>(entity);
-				GAIA_ASSERT(compDescId == pNewItem->comp.id());
-				return register_item(pNewItem, scopePath);
+				GAIA_ASSERT(entity.id() == pNewItem->comp.id());
+				const auto& item = add_item(pNewItem, scopePath);
+				add_hash_mapping<T>(item);
+				return item;
 			}
 
 			//! Registers a runtime-defined component.
@@ -305,13 +293,7 @@ namespace gaia {
 						return *pExisting;
 				}
 
-				detail::ComponentDescId compDescId = m_nextRuntimeCompDescId;
-				while (find(compDescId) != nullptr)
-					++compDescId;
-				m_nextRuntimeCompDescId = compDescId + 1;
-
 				ComponentCacheItem::ComponentCacheItemCtx ctx{};
-				ctx.compDescId = compDescId;
 				ctx.nameStr = name;
 				ctx.nameLen = l;
 				ctx.size = size;
@@ -322,41 +304,8 @@ namespace gaia {
 				ctx.hashLookup = hashLookup;
 
 				const auto* pItem = ComponentCacheItem::create(entity, ctx);
-				GAIA_ASSERT(compDescId == pItem->comp.id());
-				return register_item(pItem, scopePath);
-			}
-
-			//! Searches for the component cache item given the @a compDescId.
-			//! \param compDescId Component descriptor id
-			//! \return Component info or nullptr it not found.
-			GAIA_NODISCARD const ComponentCacheItem* find(detail::ComponentDescId compDescId) const noexcept {
-				// Fast path - array storage
-				if (compDescId < FastComponentCacheSize) {
-					if (compDescId >= m_itemArr.size())
-						return nullptr;
-
-					return m_itemArr[compDescId];
-				}
-
-				// Generic path - map storage
-				const auto it = m_itemByDescId.find(compDescId);
-				return it != m_itemByDescId.end() ? it->second : nullptr;
-			}
-
-			//! Returns the component cache item given the @a compDescId.
-			//! \param compDescId Component descriptor id
-			//! \return Component info
-			//! \warning It is expected the component item with the given id exists! Undefined behavior otherwise.
-			GAIA_NODISCARD const ComponentCacheItem& get(detail::ComponentDescId compDescId) const noexcept {
-				// Fast path - array storage
-				if (compDescId < FastComponentCacheSize) {
-					GAIA_ASSERT(compDescId < m_itemArr.size());
-					return *m_itemArr[compDescId];
-				}
-
-				// Generic path - map storage
-				GAIA_ASSERT(m_itemByDescId.contains(compDescId));
-				return *m_itemByDescId.find(compDescId)->second;
+				GAIA_ASSERT(entity.id() == pItem->comp.id());
+				return add_item(pItem, scopePath);
 			}
 
 			//! Searches for the component cache item.
@@ -366,11 +315,8 @@ namespace gaia {
 				if (entity.pair())
 					return nullptr;
 
-				const auto it = m_compByEntity.find(EntityLookupKey(entity));
-				if (it != m_compByEntity.end())
-					return it->second;
-
-				return nullptr;
+				const auto it = m_compByEntityId.find(entity.id());
+				return it != m_compByEntityId.end() ? it->second : nullptr;
 			}
 
 			//! Searches for the component cache item.
@@ -488,8 +434,7 @@ namespace gaia {
 			template <typename T>
 			GAIA_NODISCARD const ComponentCacheItem* find() const noexcept {
 				static_assert(!is_pair<T>::value);
-				const auto compDescId = detail::ComponentDesc<T>::id();
-				return find(compDescId);
+				return find_item(detail::ComponentDesc<T>::hash_lookup());
 			}
 
 			//! Returns the component item for \tparam T.
@@ -498,8 +443,9 @@ namespace gaia {
 			template <typename T>
 			GAIA_NODISCARD const ComponentCacheItem& get() const noexcept {
 				static_assert(!is_pair<T>::value);
-				const auto compDescId = detail::ComponentDesc<T>::id();
-				return get(compDescId);
+				const auto* pItem = find<T>();
+				GAIA_ASSERT(pItem != nullptr);
+				return *pItem;
 			}
 
 #if GAIA_ENABLE_HOOKS
@@ -514,7 +460,7 @@ namespace gaia {
 #endif
 
 			void diag() const {
-				const auto registeredTypes = m_itemArr.size();
+				const auto registeredTypes = m_compByEntityId.size();
 				GAIA_LOG_N("Registered components: %u", registeredTypes);
 
 				auto logDesc = [](const ComponentCacheItem& item) {
@@ -523,13 +469,9 @@ namespace gaia {
 							item.comp.size(), item.comp.alig(), item.entity.id(), item.entity.gen(), item.name.str(),
 							EntityKindString[item.entity.kind()]);
 				};
-				for (const auto* pItem: m_itemArr) {
-					if (pItem == nullptr)
-						continue;
-					logDesc(*pItem);
-				}
-				for (auto [componentId, pItem]: m_itemByDescId)
-					logDesc(*pItem);
+				for_each_item([&](const ComponentCacheItem& item) {
+					logDesc(item);
+				});
 			}
 		};
 	} // namespace ecs

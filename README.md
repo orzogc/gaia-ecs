@@ -3287,10 +3287,9 @@ const bool parsed = worldOut.load_json(json, diagnostics);
 
 `load_json` first consumes the embedded `"binary"` snapshot payload when present. If `"binary"` is omitted, it falls back to semantic JSON loading from `"archetypes"` / `"entities"` / `"components"` data.
 
-Semantic loading is best-effort: components must already be registered, unknown/unsupported fields are skipped, and the function returns `false` when unsupported content is encountered (for example tag-only components or SoA raw payloads).
+Semantic JSON loading is best-effort: components should already be registered, and unknown or unsupported content is skipped and reported through `JsonDiagnostics`.
 
-Note that for this feature to work correctly, components must be registered in a fixed order. If you called `World::save` and registered Position, Rotation, and Foo in that order, the same order must be used when calling `World::load`.
-This usually isn’t an issue when loading data within the same program on the same world, but it matters when loading data saved by a different world or program.
+Binary snapshot loading stores `Component` ids using the component entity id path. This applies to `World::save` / `World::load` and to `load_json` when it consumes the embedded `"binary"` payload. For those binary snapshot paths, `World::load` remaps loaded ids when the target world has a different core-component layout, including component ids stored in `Component` values, and component registration order does not need to match exactly between the saving and loading worlds.
 
 ```cpp
 ecs::World world0;

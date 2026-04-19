@@ -1,7 +1,5 @@
 #include "test_common.h"
 
-#include <utility>
-
 struct AutoRegQueryProbe {
 	int value = 0;
 };
@@ -13,20 +11,6 @@ struct AutoRegSystemProbe {
 struct AutoRegObserverProbe {
 	int value = 0;
 };
-
-template <uint32_t I>
-struct TypeInfoConcurrentProbe {};
-
-template <uint32_t I>
-uint32_t type_info_concurrent_probe_id() {
-	return gaia::meta::type_info::id<TypeInfoConcurrentProbe<I>>();
-}
-
-template <size_t... Is>
-auto make_type_info_concurrent_probe_table(std::index_sequence<Is...>) {
-	using ProbeIdFunc = uint32_t (*)();
-	return cnt::sarr<ProbeIdFunc, sizeof...(Is)>{&type_info_concurrent_probe_id<(uint32_t)Is>...};
-}
 
 TEST_CASE("DataLayout SoA - ECS") {
 	TestDataLayoutSoA_ECS<PositionSoA>();
@@ -52,6 +36,7 @@ void comp_cache_verify(ecs::World& w, const ecs::ComponentCacheItem& other) {
 	const auto& d = w.add<const Position>();
 	CHECK(other.entity == d.entity);
 	CHECK(other.comp == d.comp);
+	CHECK(other.comp.id() == other.entity.id());
 }
 
 TEST_CASE("Component cache") {
@@ -153,7 +138,7 @@ TEST_CASE("Component cache - runtime registration") {
 
 		const auto nameLen = (uint32_t)GAIA_STRLEN(RuntimeCompName, ecs::ComponentCacheItem::MaxNameLength);
 		CHECK(item.entity == entity);
-		CHECK(item.comp.id() >= 0x80000000u);
+		CHECK(item.comp.id() == item.entity.id());
 		CHECK(item.comp.size() == (uint32_t)sizeof(Position));
 		CHECK(item.comp.alig() == (uint32_t)alignof(Position));
 		CHECK(item.comp.soa() == 0);
@@ -161,7 +146,6 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(strcmp(item.name.str(), RuntimeCompName) == 0);
 		CHECK(item.hashLookup.hash == core::calculate_hash64(RuntimeCompName, nameLen));
 
-		CHECK(cc.find(item.comp.id()) == &item);
 		CHECK(cc.find(item.entity) == &item);
 		CHECK(wld.symbol(RuntimeCompName) == item.entity);
 		CHECK(wld.symbol(RuntimeCompName, nameLen) == item.entity);
@@ -229,7 +213,7 @@ TEST_CASE("Component cache - runtime registration") {
 
 		const auto nameLen = (uint32_t)GAIA_STRLEN(RuntimeCompName, ecs::ComponentCacheItem::MaxNameLength);
 		CHECK(wld.symbol(RuntimeCompName, nameLen) == item.entity);
-		CHECK(cc.get(item.comp.id()).entity == item.entity);
+		CHECK(cc.get(item.entity).entity == item.entity);
 	}
 
 	SUBCASE("symbol path alias and display name each have explicit behavior") {
@@ -347,29 +331,15 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(item.schema.size() == 0);
 	}
 
-	SUBCASE("runtime descriptor ids are monotonic") {
-		TestWorld twld;
-		auto& cc = wld.comp_cache_mut();
-
-		const auto& a = cc.add(wld.add(), "Runtime_Component_A", 0, 1, ecs::DataStorageType::Table, 1);
-		const auto& b = cc.add(wld.add(), "Runtime_Component_B", 0, 2, ecs::DataStorageType::Table, 1);
-		const auto& c = cc.add(wld.add(), "Runtime_Component_C", 0, 3, ecs::DataStorageType::Table, 1);
-
-		CHECK(a.comp.id() >= 0x80000000u);
-		CHECK(b.comp.id() == a.comp.id() + 1);
-		CHECK(c.comp.id() == b.comp.id() + 1);
-	}
-
-	SUBCASE("runtime registration uses the shared map-backed storage path") {
+	SUBCASE("runtime registration uses entity-backed lookups") {
 		TestWorld twld;
 		auto& cc = wld.comp_cache_mut();
 
 		const auto entity = wld.add();
 		const auto& item = cc.add(entity, "Runtime_Component_Map_Path", 0, 12, ecs::DataStorageType::Table, 4);
 
-		CHECK(item.comp.id() >= 0x80000000u);
-		CHECK(cc.find(item.comp.id()) == &item);
-		CHECK(cc.get(item.comp.id()).entity == item.entity);
+		CHECK(item.comp.id() == item.entity.id());
+		CHECK(cc.get(item.entity).entity == item.entity);
 		CHECK(cc.find(item.entity) == &item);
 		CHECK(wld.symbol("Runtime_Component_Map_Path") == item.entity);
 		CHECK(wld.get("Runtime_Component_Map_Path") == item.entity);
@@ -512,63 +482,6 @@ TEST_CASE("Component helpers") {
 	CHECK(ecs::comp_idx<3>(comps.data(), pos) == 0);
 	CHECK(ecs::comp_idx<3>(comps.data(), rot) == 1);
 	CHECK(ecs::comp_idx(ecs::EntitySpan{comps.data(), comps.size()}, scl) == 2);
-}
-
-TEST_CASE("TypeInfo - component ids are stable across translation units") {
-	CHECK(gaia::meta::type_info::id<Position>() == test_position_type_id_from_query_core());
-	CHECK(gaia::meta::type_info::id<Position>() == test_position_type_id_from_system());
-	CHECK(gaia::meta::type_info::id<Acceleration>() == test_acceleration_type_id_from_query_core());
-	CHECK(gaia::meta::type_info::id<Acceleration>() == test_acceleration_type_id_from_system());
-}
-
-TEST_CASE("TypeInfo - ids stay unique under concurrent first touch") {
-	constexpr uint32_t ThreadCnt = 32;
-	constexpr uint32_t RoundCnt = 4;
-	constexpr uint32_t ProbeCnt = ThreadCnt * RoundCnt;
-	const auto probeTable = make_type_info_concurrent_probe_table(std::make_index_sequence<ProbeCnt>{});
-
-	cnt::darray<uint32_t> ids;
-	ids.resize(ProbeCnt, 0);
-
-	for (uint32_t round = 0; round < RoundCnt; ++round) {
-		const uint32_t probeOffset = round * ThreadCnt;
-		std::atomic_uint32_t ready = 0;
-		std::atomic_bool start = false;
-		cnt::darray<std::thread> threads;
-		threads.reserve(ThreadCnt);
-
-		for (uint32_t threadIdx = 0; threadIdx < ThreadCnt; ++threadIdx) {
-			const uint32_t probeIdx = probeOffset + threadIdx;
-			threads.emplace_back([&ids, &probeTable, &ready, &start, probeIdx]() {
-				ready.fetch_add(1, std::memory_order_relaxed);
-				while (!start.load(std::memory_order_acquire))
-					std::this_thread::yield();
-
-				ids[probeIdx] = probeTable[probeIdx]();
-			});
-		}
-
-		while (ready.load(std::memory_order_acquire) != ThreadCnt)
-			std::this_thread::yield();
-
-		start.store(true, std::memory_order_release);
-
-		for (auto& thread: threads)
-			thread.join();
-	}
-
-	cnt::darray<uint32_t> sortedIds;
-	sortedIds.reserve(ProbeCnt);
-	for (uint32_t probeIdx = 0; probeIdx < ProbeCnt; ++probeIdx)
-		sortedIds.push_back(ids[probeIdx]);
-	std::sort(sortedIds.begin(), sortedIds.end());
-
-	for (uint32_t probeIdx = 0; probeIdx < ProbeCnt; ++probeIdx) {
-		CHECK(ids[probeIdx] != 0);
-		CHECK(ids[probeIdx] == probeTable[probeIdx]());
-		if (probeIdx > 0)
-			CHECK(sortedIds[probeIdx - 1] != sortedIds[probeIdx]);
-	}
 }
 
 #if GAIA_ECS_AUTO_COMPONENT_REGISTRATION

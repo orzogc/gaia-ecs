@@ -383,17 +383,33 @@ namespace gaia {
 			//! Estimates whether another entity still fits in the chunk described by @a comps.
 			//! \param cc Component metadata cache.
 			//! \param offs Current byte offset inside the chunk payload.
+			//! \param ids Entitiies laid out in the chunk.
 			//! \param comps Components laid out in the chunk.
 			//! \param cap Candidate entity count used for the estimate.
 			//! \param maxDataOffset Maximum byte offset available for component payloads.
 			//! \return True if the chunk can still fit the candidate entity count. False otherwise.
 			static bool est_max_entities_per_chunk(
-					const ComponentCache& cc, uint32_t offs, ComponentSpan comps, uint32_t cap, uint32_t maxDataOffset) {
-				for (const auto comp: comps) {
+					const World& world, const ComponentCache& cc, uint32_t offs, EntitySpan ids, ComponentSpan comps, uint32_t cap,
+					uint32_t maxDataOffset) {
+				GAIA_ASSERT(ids.size() == comps.size());
+				GAIA_FOR(comps.size()) {
+					const auto comp = comps[i];
 					if (!component_has_inline_data(comp))
 						continue;
 
-					const auto& desc = cc.get(comp.id());
+					Entity storageEntity = ids[i];
+					if (storageEntity.pair()) {
+						Entity pairEntities[] = {pair_rel(world, storageEntity), pair_tgt(world, storageEntity)};
+						const auto* pRelItem = cc.find(pairEntities[0]);
+						const auto* pTgtItem = cc.find(pairEntities[1]);
+						Component pairComponents[] = {
+								pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
+								pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
+						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
+						storageEntity = pairEntities[idx];
+					}
+
+					const auto& desc = cc.get(storageEntity);
 
 					// If we're beyond what the chunk could take, subtract one entity
 					offs = desc.calc_new_mem_offset(offs, cap);
@@ -518,7 +534,7 @@ namespace gaia {
 					if (ids[i].pair()) {
 						// When using pairs we need to decode the storage type from them.
 						// This is what pair<Rel, Tgt>::type actually does to determine what type to use at compile-time.
-						Entity pairEntities[] = {entity_from_id(world, ids[i].id()), entity_from_id(world, ids[i].gen())};
+						Entity pairEntities[] = {pair_rel(world, ids[i]), pair_tgt(world, ids[i])};
 						Component pairComponents[] = {as_comp(pairEntities[0]), as_comp(pairEntities[1])};
 						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
 						comps[i] = pairComponents[idx];
@@ -564,9 +580,11 @@ namespace gaia {
 					auto try_fit = [&](uint32_t count) -> bool {
 						const uint32_t currOff = offs.firstByte_EntityData + (count * sizeof(Entity));
 
-						if (!est_max_entities_per_chunk(cc, currOff, comps.subspan(0, entsGeneric), count, dataLimit))
+						if (!est_max_entities_per_chunk(
+										world, cc, currOff, ids.subspan(0, entsGeneric), comps.subspan(0, entsGeneric), count, dataLimit))
 							return false;
-						if (!est_max_entities_per_chunk(cc, currOff, comps.subspan(entsGeneric), 1, dataLimit))
+						if (!est_max_entities_per_chunk(
+										world, cc, currOff, ids.subspan(entsGeneric), comps.subspan(entsGeneric), 1, dataLimit))
 							return false;
 
 						return true;

@@ -807,7 +807,7 @@ namespace gaia {
 						const bool isInheritedTerm = isPotentialInheritedTerm && world_term_uses_inherit_policy(*w, id);
 						const bool isAdjunctTerm =
 								term.src == EntityBad && term.entTrav == EntityBad && !term_has_variables(term) &&
-								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, entity_from_id(*w, id.id()))) ||
+								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, pair_rel(*w, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(*w, id)));
 						hasEntityFilterTerms |= isAdjunctTerm || isDirectIsTerm || isInheritedTerm;
 					}
@@ -851,7 +851,7 @@ namespace gaia {
 						const bool isCachedInheritedDataTerm = isInheritedTerm && !world_is_out_of_line_component(*w, id);
 						const bool isAdjunctTerm =
 								term.src == EntityBad && term.entTrav == EntityBad && !term_has_variables(term) &&
-								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, entity_from_id(*w, id.id()))) ||
+								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, pair_rel(*w, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(*w, id)));
 						canDirectCreateArchetypeMatch &= term.src == EntityBad;
 						if (id.pair() && (is_wildcard(id.id()) || is_wildcard(id.gen())))
@@ -859,7 +859,7 @@ namespace gaia {
 						const bool hasDynamicRelationUsage =
 								term.entTrav != EntityBad || term.src != EntityBad || term_has_variables(term);
 						if (id.pair() && hasDynamicRelationUsage && !is_wildcard(id.id()) && !is_variable((EntityId)id.id()))
-							data.deps.add_rel(entity_from_id(*w, id.id()));
+							data.deps.add_rel(pair_rel(*w, id));
 						if (term.entTrav != EntityBad) {
 							data.deps.add_rel(term.entTrav);
 							data.deps.set_dep_flag(DependencyHasTraversalTerms);
@@ -887,7 +887,7 @@ namespace gaia {
 							if (isCachedInheritedDataTerm)
 								data.deps.set_dep_flag(DependencyHasInheritedDataTerms);
 							if (id.pair() && !is_wildcard(id.id()) && !is_variable((EntityId)id.id()))
-								data.deps.add_rel(entity_from_id(*w, id.id()));
+								data.deps.add_rel(pair_rel(*w, id));
 							continue;
 						}
 
@@ -935,14 +935,14 @@ namespace gaia {
 
 							if (!idIsWildcard) {
 								const auto j = (uint32_t)i;
-								const auto e = entity_from_id(*w, id.id());
+								const auto e = pair_rel(*w, id);
 								const auto has_as = allowSemanticIs ? (uint32_t)is_base(*w, e) : 0U;
 								as_mask_0 |= (has_as << j);
 							}
 
 							if (!isGenWildcard) {
 								const auto j = (uint32_t)i;
-								const auto e = entity_from_id(*w, id.gen());
+								const auto e = pair_tgt(*w, id);
 								const auto has_as = allowSemanticIs ? (uint32_t)is_base(*w, e) : 0U;
 								as_mask_1 |= (has_as << j);
 							}

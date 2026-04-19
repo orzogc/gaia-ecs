@@ -3793,39 +3793,8 @@ namespace gaia {
 	} // namespace meta
 } // namespace gaia
 
-#include <atomic>
-
 namespace gaia {
 	namespace meta {
-
-		//! Provides statically generated unique identifier for a given group of types.
-		template <typename...>
-		class type_group {
-			inline static std::atomic_uint32_t s_identifier{};
-
-		public:
-			template <typename... Type>
-			static uint32_t id() noexcept {
-				// Assign ids lazily on first use so all translation units observe the same
-				// value without relying on global dynamic initialization order.
-				//
-				// Atomic is needed because we use one shared counter for all types. If two
-				// threads ask for two previously unseen types at the same time, both code
-				// paths can hit the shared s_identifier. Without atomic, that increment is
-				// a data race and the behavior is undefined.
-				//
-				// Technically we could get by without atomic if we can guarantee that only
-				// one thread calls id() for previously unseen types. However, that is a fragile
-				// guarantee and would be easy to break.
-				// E.g., two different worlds simulated from different threads could call id()
-				// for different previously unseen types concurrently.
-				static const uint32_t value = s_identifier.fetch_add(1, std::memory_order_relaxed);
-				return value;
-			}
-		};
-
-		template <>
-		class type_group<void>;
 
 		//----------------------------------------------------------------------
 		// Type meta data
@@ -3851,11 +3820,6 @@ namespace gaia {
 			}
 
 		public:
-			template <typename T>
-			static uint32_t id() noexcept {
-				return type_group<type_info>::template id<T>();
-			}
-
 			template <typename T>
 			GAIA_NODISCARD static constexpr const char* full_name() noexcept {
 				return GAIA_PRETTY_FUNCTION;
@@ -25508,6 +25472,9 @@ namespace gaia {
 		void del(World& world, Entity entity);
 
 		Entity entity_from_id(const World& world, EntityId id);
+		Entity id_entity(const World& world, Entity id);
+		Entity pair_rel(const World& world, Entity pair);
+		Entity pair_tgt(const World& world, Entity pair);
 
 		//! Returns whether @a entity currently exists and its generation matches the world's record.
 		bool valid(const World& world, Entity entity);
@@ -25703,8 +25670,7 @@ namespace gaia {
 			static constexpr uint32_t MaxAlignment = MaxComponentSizeInBytes;
 
 			struct InternalData {
-				//! Index in the entity array
-				// detail::ComponentDescId id;
+				//! Component entity index
 				uint32_t id;
 				//! Component size
 				IdentifierData size: MaxComponentSize_Bits;
@@ -25770,6 +25736,12 @@ namespace gaia {
 			GAIA_NODISCARD constexpr bool operator<(Component other) const noexcept {
 				return id() < other.id();
 			}
+
+			template <typename Serializer>
+			void save(Serializer& s) const;
+
+			template <typename Serializer>
+			void load(Serializer& s);
 		};
 
 		//----------------------------------------------------------------------
@@ -26022,6 +25994,7 @@ namespace gaia {
 			struct EntityLoadRemapState {
 				uint32_t savedLastCoreComponentId = 0;
 				uint32_t currLastCoreComponentId = 0;
+				bool remapComponentIds = false;
 				bool active = false;
 			};
 
@@ -26034,10 +26007,12 @@ namespace gaia {
 			struct EntityLoadRemapGuard {
 				EntityLoadRemapState prev;
 
-				EntityLoadRemapGuard(uint32_t savedLastCoreComponentId, uint32_t currLastCoreComponentId) noexcept:
+				EntityLoadRemapGuard(
+						uint32_t savedLastCoreComponentId, uint32_t currLastCoreComponentId, bool remapComponentIds) noexcept:
 						prev(g_entityLoadRemapState) {
 					g_entityLoadRemapState.savedLastCoreComponentId = savedLastCoreComponentId;
 					g_entityLoadRemapState.currLastCoreComponentId = currLastCoreComponentId;
+					g_entityLoadRemapState.remapComponentIds = remapComponentIds;
 					g_entityLoadRemapState.active = true;
 				}
 
@@ -26060,6 +26035,14 @@ namespace gaia {
 					return id;
 
 				return id + (currLastCoreComponentId - savedLastCoreComponentId);
+			}
+
+			GAIA_NODISCARD inline uint32_t remap_loaded_entity_id(uint32_t id) noexcept {
+				const auto& state = g_entityLoadRemapState;
+				if (!state.active)
+					return id;
+
+				return remap_loaded_entity_id(id, state.savedLastCoreComponentId, state.currLastCoreComponentId);
 			}
 
 			GAIA_NODISCARD inline Entity
@@ -26097,6 +26080,18 @@ namespace gaia {
 		inline void Entity::load(Serializer& s) {
 			s.load(val);
 			*this = detail::remap_loaded_entity(*this);
+		}
+
+		template <typename Serializer>
+		inline void Component::save(Serializer& s) const {
+			s.save(val);
+		}
+
+		template <typename Serializer>
+		inline void Component::load(Serializer& s) {
+			s.load(val);
+			if (detail::g_entityLoadRemapState.active && detail::g_entityLoadRemapState.remapComponentIds)
+				data.id = detail::remap_loaded_entity_id(data.id);
 		}
 
 		//! Hashmap lookup structure used for Entity
@@ -27588,17 +27583,11 @@ namespace gaia {
 namespace gaia {
 	namespace ecs {
 		namespace detail {
-			using ComponentDescId = uint32_t;
-
 			template <typename T>
 			struct ComponentDesc final {
 				using CT = component_type_t<T>;
 				using U = typename component_type_t<T>::Type;
 				using DescU = typename CT::TypeFull;
-
-				static ComponentDescId id() {
-					return meta::type_info::id<DescU>();
-				}
 
 				static constexpr ComponentLookupHash hash_lookup() {
 					return {meta::type_info::hash<DescU>()};
@@ -27806,7 +27795,6 @@ namespace gaia {
 			};
 
 			struct ComponentCacheItemCtx {
-				uint32_t compDescId = 0;
 				const char* nameStr = nullptr;
 				uint32_t nameLen = 0;
 				uint32_t size = 0;
@@ -28180,7 +28168,6 @@ namespace gaia {
 				const auto nameTmpLen = init_type_name<T>(nameTmp);
 
 				ComponentCacheItemCtx ctx{};
-				ctx.compDescId = detail::ComponentDesc<T>::id();
 				ctx.nameStr = nameTmp;
 				ctx.nameLen = nameTmpLen;
 				ctx.size = componentSize;
@@ -28211,7 +28198,7 @@ namespace gaia {
 
 				auto* cci = new ComponentCacheItem();
 				cci->entity = entity;
-				cci->comp = Component(ctx.compDescId, ctx.soa, ctx.size, ctx.alig, ctx.storageType);
+				cci->comp = Component(entity.id(), ctx.soa, ctx.size, ctx.alig, ctx.storageType);
 				cci->hashLookup = ctx.hashLookup.hash != 0
 															? ctx.hashLookup
 															: ComponentLookupHash{core::calculate_hash64(ctx.nameStr, ctx.nameLen)};
@@ -28259,12 +28246,10 @@ namespace gaia {
 		class GAIA_API ComponentCache final {
 			friend class World;
 
-			static constexpr uint32_t FastComponentCacheSize = 512;
-
-			//! Fast-lookup cache for the first FastComponentCacheSize components
-			cnt::darray<const ComponentCacheItem*> m_itemArr;
-			//! Slower but more memory-friendly lookup cache for components with ids beyond FastComponentCacheSize
-			cnt::map<detail::ComponentDescId, const ComponentCacheItem*> m_itemByDescId;
+			//! Lookup of component items by component entity index.
+			cnt::map<uint32_t, const ComponentCacheItem*> m_compByEntityId;
+			//! World-local component lookup keyed by compile-time metadata hash.
+			cnt::map<ComponentLookupHash, const ComponentCacheItem*> m_compByTypeHash;
 
 			//! Lookup of component items by their exact registered symbol name.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compBySymbol;
@@ -28274,10 +28259,6 @@ namespace gaia {
 			//! Lookup of component items by their unique short symbol name (leaf after the last `::`).
 			//! Ambiguous short names are stored with nullptr and treated as lookup misses.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByShortSymbol;
-			//! Lookup of component items by their entity.
-			cnt::map<EntityLookupKey, const ComponentCacheItem*> m_compByEntity;
-			//! Runtime component descriptor id generator.
-			detail::ComponentDescId m_nextRuntimeCompDescId = 0x80000000u;
 
 			//! Clears the contents of the component cache
 			//! \warning Should be used only after worlds are cleared because it invalidates all currently
@@ -28286,41 +28267,32 @@ namespace gaia {
 			//!       would lose connection to it and effectively become dangling. This means that a new
 			//!       component of type T could be added with a new entity id.
 			void clear() {
-				for (const auto* pItem: m_itemArr)
+				for (auto [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
 					ComponentCacheItem::destroy(const_cast<ComponentCacheItem*>(pItem));
-				for (auto [componentId, pItem]: m_itemByDescId)
-					ComponentCacheItem::destroy(const_cast<ComponentCacheItem*>(pItem));
+				}
 
-				m_itemArr.clear();
-				m_itemByDescId.clear();
+				m_compByEntityId.clear();
+				m_compByTypeHash.clear();
 				m_compBySymbol.clear();
 				m_compByPath.clear();
 				m_compByShortSymbol.clear();
-				m_compByEntity.clear();
 			}
 
 			template <typename Func>
 			void for_each_item(Func&& func) {
-				for (auto* pItem: m_itemArr) {
-					if (pItem != nullptr)
-						func(*const_cast<ComponentCacheItem*>(pItem));
-				}
-
-				for (auto& [componentId, pItem]: m_itemByDescId) {
-					(void)componentId;
+				for (auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
 					func(*const_cast<ComponentCacheItem*>(pItem));
 				}
 			}
 
 			template <typename Func>
 			void for_each_item(Func&& func) const {
-				for (const auto* pItem: m_itemArr) {
-					if (pItem != nullptr)
-						func(*pItem);
-				}
-
-				for (const auto& [componentId, pItem]: m_itemByDescId) {
-					(void)componentId;
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
 					func(*pItem);
 				}
 			}
@@ -28453,36 +28425,40 @@ namespace gaia {
 			//! \param pItem Component cache item to store.
 			//! \param scopePath Optional world-provided scope prefix used for default path generation.
 			//! \return Stored component item.
-			const ComponentCacheItem& register_item(const ComponentCacheItem* pItem, util::str_view scopePath) {
+			const ComponentCacheItem& add_item(const ComponentCacheItem* pItem, util::str_view scopePath) {
 				GAIA_ASSERT(pItem != nullptr);
-				const auto compDescId = pItem->comp.id();
-
-				if (compDescId < FastComponentCacheSize) {
-					if GAIA_UNLIKELY (compDescId >= m_itemArr.size()) {
-						const auto newSize = compDescId + 1U;
-
-						// Increase the capacity by multiples of CapacityIncreaseSize.
-						constexpr uint32_t CapacityIncreaseSize = 128;
-						const auto newCapacity = ((newSize / CapacityIncreaseSize) * CapacityIncreaseSize) + CapacityIncreaseSize;
-						m_itemArr.reserve(newCapacity);
-						m_itemArr.resize(newSize, nullptr);
-					}
-
-					m_itemArr[compDescId] = pItem;
-				} else {
-					m_itemByDescId.emplace(compDescId, pItem);
-				}
+				GAIA_ASSERT(pItem->entity.id() == pItem->comp.id());
+				m_compByEntityId.emplace(pItem->entity.id(), pItem);
 
 				add_name_mappings(*const_cast<ComponentCacheItem*>(pItem), scopePath);
-				m_compByEntity.emplace(pItem->entity, pItem);
 				return *pItem;
 			}
 
-		public:
-			ComponentCache() {
-				// Reserve enough storage space for most use-cases
-				m_itemArr.reserve(FastComponentCacheSize);
+			//! Searches for the component cache item given the compile-time metadata hash.
+			//! \param hash Compile-time metadata hash.
+			//! \return Component info or nullptr when not found.
+			GAIA_NODISCARD const ComponentCacheItem* find_item(ComponentLookupHash hash) const noexcept {
+				const auto it = m_compByTypeHash.find(hash);
+				return it != m_compByTypeHash.end() ? it->second : nullptr;
 			}
+
+			//! Registers the compile-time metadata-hash mapping for a component item.
+			//! \tparam T Component type.
+			//! \param item Registered component cache item.
+			template <typename T>
+			void add_hash_mapping(const ComponentCacheItem& item) {
+				const auto hash = detail::ComponentDesc<T>::hash_lookup();
+				const auto it = m_compByTypeHash.find(hash);
+				if (it == m_compByTypeHash.end()) {
+					m_compByTypeHash.emplace(hash, &item);
+					return;
+				}
+
+				GAIA_ASSERT(it->second == &item);
+			}
+
+		public:
+			ComponentCache() = default;
 
 			~ComponentCache() {
 				clear();
@@ -28500,15 +28476,15 @@ namespace gaia {
 				static_assert(!is_pair<T>::value);
 				GAIA_ASSERT(!entity.pair());
 
-				const auto compDescId = detail::ComponentDesc<T>::id();
-
-				const auto* pItem = find(compDescId);
+				const auto* pItem = find_item(detail::ComponentDesc<T>::hash_lookup());
 				if (pItem != nullptr)
 					return *pItem;
 
 				const auto* pNewItem = ComponentCacheItem::create<T>(entity);
-				GAIA_ASSERT(compDescId == pNewItem->comp.id());
-				return register_item(pNewItem, scopePath);
+				GAIA_ASSERT(entity.id() == pNewItem->comp.id());
+				const auto& item = add_item(pNewItem, scopePath);
+				add_hash_mapping<T>(item);
+				return item;
 			}
 
 			//! Registers a runtime-defined component.
@@ -28539,13 +28515,7 @@ namespace gaia {
 						return *pExisting;
 				}
 
-				detail::ComponentDescId compDescId = m_nextRuntimeCompDescId;
-				while (find(compDescId) != nullptr)
-					++compDescId;
-				m_nextRuntimeCompDescId = compDescId + 1;
-
 				ComponentCacheItem::ComponentCacheItemCtx ctx{};
-				ctx.compDescId = compDescId;
 				ctx.nameStr = name;
 				ctx.nameLen = l;
 				ctx.size = size;
@@ -28556,41 +28526,8 @@ namespace gaia {
 				ctx.hashLookup = hashLookup;
 
 				const auto* pItem = ComponentCacheItem::create(entity, ctx);
-				GAIA_ASSERT(compDescId == pItem->comp.id());
-				return register_item(pItem, scopePath);
-			}
-
-			//! Searches for the component cache item given the @a compDescId.
-			//! \param compDescId Component descriptor id
-			//! \return Component info or nullptr it not found.
-			GAIA_NODISCARD const ComponentCacheItem* find(detail::ComponentDescId compDescId) const noexcept {
-				// Fast path - array storage
-				if (compDescId < FastComponentCacheSize) {
-					if (compDescId >= m_itemArr.size())
-						return nullptr;
-
-					return m_itemArr[compDescId];
-				}
-
-				// Generic path - map storage
-				const auto it = m_itemByDescId.find(compDescId);
-				return it != m_itemByDescId.end() ? it->second : nullptr;
-			}
-
-			//! Returns the component cache item given the @a compDescId.
-			//! \param compDescId Component descriptor id
-			//! \return Component info
-			//! \warning It is expected the component item with the given id exists! Undefined behavior otherwise.
-			GAIA_NODISCARD const ComponentCacheItem& get(detail::ComponentDescId compDescId) const noexcept {
-				// Fast path - array storage
-				if (compDescId < FastComponentCacheSize) {
-					GAIA_ASSERT(compDescId < m_itemArr.size());
-					return *m_itemArr[compDescId];
-				}
-
-				// Generic path - map storage
-				GAIA_ASSERT(m_itemByDescId.contains(compDescId));
-				return *m_itemByDescId.find(compDescId)->second;
+				GAIA_ASSERT(entity.id() == pItem->comp.id());
+				return add_item(pItem, scopePath);
 			}
 
 			//! Searches for the component cache item.
@@ -28600,11 +28537,8 @@ namespace gaia {
 				if (entity.pair())
 					return nullptr;
 
-				const auto it = m_compByEntity.find(EntityLookupKey(entity));
-				if (it != m_compByEntity.end())
-					return it->second;
-
-				return nullptr;
+				const auto it = m_compByEntityId.find(entity.id());
+				return it != m_compByEntityId.end() ? it->second : nullptr;
 			}
 
 			//! Searches for the component cache item.
@@ -28722,8 +28656,7 @@ namespace gaia {
 			template <typename T>
 			GAIA_NODISCARD const ComponentCacheItem* find() const noexcept {
 				static_assert(!is_pair<T>::value);
-				const auto compDescId = detail::ComponentDesc<T>::id();
-				return find(compDescId);
+				return find_item(detail::ComponentDesc<T>::hash_lookup());
 			}
 
 			//! Returns the component item for \tparam T.
@@ -28732,8 +28665,9 @@ namespace gaia {
 			template <typename T>
 			GAIA_NODISCARD const ComponentCacheItem& get() const noexcept {
 				static_assert(!is_pair<T>::value);
-				const auto compDescId = detail::ComponentDesc<T>::id();
-				return get(compDescId);
+				const auto* pItem = find<T>();
+				GAIA_ASSERT(pItem != nullptr);
+				return *pItem;
 			}
 
 #if GAIA_ENABLE_HOOKS
@@ -28748,7 +28682,7 @@ namespace gaia {
 #endif
 
 			void diag() const {
-				const auto registeredTypes = m_itemArr.size();
+				const auto registeredTypes = m_compByEntityId.size();
 				GAIA_LOG_N("Registered components: %u", registeredTypes);
 
 				auto logDesc = [](const ComponentCacheItem& item) {
@@ -28757,13 +28691,9 @@ namespace gaia {
 							item.comp.size(), item.comp.alig(), item.entity.id(), item.entity.gen(), item.name.str(),
 							EntityKindString[item.entity.kind()]);
 				};
-				for (const auto* pItem: m_itemArr) {
-					if (pItem == nullptr)
-						continue;
-					logDesc(*pItem);
-				}
-				for (auto [componentId, pItem]: m_itemByDescId)
-					logDesc(*pItem);
+				for_each_item([&](const ComponentCacheItem& item) {
+					logDesc(item);
+				});
 			}
 		};
 	} // namespace ecs
@@ -29280,7 +29210,20 @@ namespace gaia {
 					GAIA_FOR_(cntEntities, j) {
 						dst[j].comp = comps[j];
 						dst[j].pData = &data(compOffs[j]);
-						dst[j].pItem = m_header.cc->find(comps[j].id());
+						Entity storageEntity = ids[j];
+						if (storageEntity.pair()) {
+							Entity pairEntities[] = {
+									pair_rel(*m_header.world, storageEntity), pair_tgt(*m_header.world, storageEntity)};
+							const auto* pRelItem = m_header.cc->find(pairEntities[0]);
+							const auto* pTgtItem = m_header.cc->find(pairEntities[1]);
+							Component pairComponents[] = {
+									pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
+									pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
+							const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
+							storageEntity = pairEntities[idx];
+						}
+
+						dst[j].pItem = m_header.cc->find(storageEntity);
 					}
 				}
 
@@ -31519,17 +31462,33 @@ namespace gaia {
 			//! Estimates whether another entity still fits in the chunk described by @a comps.
 			//! \param cc Component metadata cache.
 			//! \param offs Current byte offset inside the chunk payload.
+			//! \param ids Entitiies laid out in the chunk.
 			//! \param comps Components laid out in the chunk.
 			//! \param cap Candidate entity count used for the estimate.
 			//! \param maxDataOffset Maximum byte offset available for component payloads.
 			//! \return True if the chunk can still fit the candidate entity count. False otherwise.
 			static bool est_max_entities_per_chunk(
-					const ComponentCache& cc, uint32_t offs, ComponentSpan comps, uint32_t cap, uint32_t maxDataOffset) {
-				for (const auto comp: comps) {
+					const World& world, const ComponentCache& cc, uint32_t offs, EntitySpan ids, ComponentSpan comps,
+					uint32_t cap, uint32_t maxDataOffset) {
+				GAIA_ASSERT(ids.size() == comps.size());
+				GAIA_FOR(comps.size()) {
+					const auto comp = comps[i];
 					if (!component_has_inline_data(comp))
 						continue;
 
-					const auto& desc = cc.get(comp.id());
+					Entity storageEntity = ids[i];
+					if (storageEntity.pair()) {
+						Entity pairEntities[] = {pair_rel(world, storageEntity), pair_tgt(world, storageEntity)};
+						const auto* pRelItem = cc.find(pairEntities[0]);
+						const auto* pTgtItem = cc.find(pairEntities[1]);
+						Component pairComponents[] = {
+								pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
+								pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
+						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
+						storageEntity = pairEntities[idx];
+					}
+
+					const auto& desc = cc.get(storageEntity);
 
 					// If we're beyond what the chunk could take, subtract one entity
 					offs = desc.calc_new_mem_offset(offs, cap);
@@ -31654,7 +31613,7 @@ namespace gaia {
 					if (ids[i].pair()) {
 						// When using pairs we need to decode the storage type from them.
 						// This is what pair<Rel, Tgt>::type actually does to determine what type to use at compile-time.
-						Entity pairEntities[] = {entity_from_id(world, ids[i].id()), entity_from_id(world, ids[i].gen())};
+						Entity pairEntities[] = {pair_rel(world, ids[i]), pair_tgt(world, ids[i])};
 						Component pairComponents[] = {as_comp(pairEntities[0]), as_comp(pairEntities[1])};
 						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
 						comps[i] = pairComponents[idx];
@@ -31700,9 +31659,11 @@ namespace gaia {
 					auto try_fit = [&](uint32_t count) -> bool {
 						const uint32_t currOff = offs.firstByte_EntityData + (count * sizeof(Entity));
 
-						if (!est_max_entities_per_chunk(cc, currOff, comps.subspan(0, entsGeneric), count, dataLimit))
+						if (!est_max_entities_per_chunk(
+										world, cc, currOff, ids.subspan(0, entsGeneric), comps.subspan(0, entsGeneric), count, dataLimit))
 							return false;
-						if (!est_max_entities_per_chunk(cc, currOff, comps.subspan(entsGeneric), 1, dataLimit))
+						if (!est_max_entities_per_chunk(
+										world, cc, currOff, ids.subspan(entsGeneric), comps.subspan(entsGeneric), 1, dataLimit))
 							return false;
 
 						return true;
@@ -33303,7 +33264,7 @@ namespace gaia {
 						const bool isInheritedTerm = isPotentialInheritedTerm && world_term_uses_inherit_policy(*w, id);
 						const bool isAdjunctTerm =
 								term.src == EntityBad && term.entTrav == EntityBad && !term_has_variables(term) &&
-								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, entity_from_id(*w, id.id()))) ||
+								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, pair_rel(*w, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(*w, id)));
 						hasEntityFilterTerms |= isAdjunctTerm || isDirectIsTerm || isInheritedTerm;
 					}
@@ -33347,7 +33308,7 @@ namespace gaia {
 						const bool isCachedInheritedDataTerm = isInheritedTerm && !world_is_out_of_line_component(*w, id);
 						const bool isAdjunctTerm =
 								term.src == EntityBad && term.entTrav == EntityBad && !term_has_variables(term) &&
-								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, entity_from_id(*w, id.id()))) ||
+								((id.pair() && world_is_exclusive_dont_fragment_relation(*w, pair_rel(*w, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(*w, id)));
 						canDirectCreateArchetypeMatch &= term.src == EntityBad;
 						if (id.pair() && (is_wildcard(id.id()) || is_wildcard(id.gen())))
@@ -33355,7 +33316,7 @@ namespace gaia {
 						const bool hasDynamicRelationUsage =
 								term.entTrav != EntityBad || term.src != EntityBad || term_has_variables(term);
 						if (id.pair() && hasDynamicRelationUsage && !is_wildcard(id.id()) && !is_variable((EntityId)id.id()))
-							data.deps.add_rel(entity_from_id(*w, id.id()));
+							data.deps.add_rel(pair_rel(*w, id));
 						if (term.entTrav != EntityBad) {
 							data.deps.add_rel(term.entTrav);
 							data.deps.set_dep_flag(DependencyHasTraversalTerms);
@@ -33383,7 +33344,7 @@ namespace gaia {
 							if (isCachedInheritedDataTerm)
 								data.deps.set_dep_flag(DependencyHasInheritedDataTerms);
 							if (id.pair() && !is_wildcard(id.id()) && !is_variable((EntityId)id.id()))
-								data.deps.add_rel(entity_from_id(*w, id.id()));
+								data.deps.add_rel(pair_rel(*w, id));
 							continue;
 						}
 
@@ -33431,14 +33392,14 @@ namespace gaia {
 
 							if (!idIsWildcard) {
 								const auto j = (uint32_t)i;
-								const auto e = entity_from_id(*w, id.id());
+								const auto e = pair_rel(*w, id);
 								const auto has_as = allowSemanticIs ? (uint32_t)is_base(*w, e) : 0U;
 								as_mask_0 |= (has_as << j);
 							}
 
 							if (!isGenWildcard) {
 								const auto j = (uint32_t)i;
-								const auto e = entity_from_id(*w, id.gen());
+								const auto e = pair_tgt(*w, id);
 								const auto has_as = allowSemanticIs ? (uint32_t)is_base(*w, e) : 0U;
 								as_mask_1 |= (has_as << j);
 							}
@@ -36749,14 +36710,14 @@ namespace gaia {
 							if (idInArchetype == idInQuery)
 								return {true};
 
-							const auto eQ = entity_from_id(w, idInQuery.gen());
+							const auto eQ = pair_tgt(w, idInQuery);
 							if (eQ == idInArchetype)
 								return {true};
 
 							// If the archetype entity is an (Is, X) pair treat Is as X and try matching it with
 							// entities inheriting from e.
 							if (idInArchetype.id() == Is.id()) {
-								const auto eA = entity_from_id(w, idInArchetype.gen());
+								const auto eA = pair_tgt(w, idInArchetype);
 								if (eA == eQ)
 									return {true};
 
@@ -36789,7 +36750,7 @@ namespace gaia {
 							if (archetype.pairs_is() > 0) {
 								auto archetypeIds = archetype.ids_view();
 
-								const auto e = entity_from_id(w, idInQuery.gen());
+								const auto e = pair_tgt(w, idInQuery);
 								return {as_relations_trav_if(w, e, [&](Entity relation) {
 									// Relation does not necessary match the sorted order of components in the archetype
 									// so we need to search through all of its ids.
@@ -37271,8 +37232,8 @@ namespace gaia {
 					GAIA_ASSERT(limit > 0);
 					GAIA_ASSERT(queryId.pair());
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return 0;
 
@@ -37329,7 +37290,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 
@@ -37345,8 +37306,8 @@ namespace gaia {
 						return false;
 					}
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 					const auto rel = resolve_pair_query_token(queryRel, varsIn);
@@ -37364,14 +37325,14 @@ namespace gaia {
 
 						auto vars = varsIn;
 						if (rel.needsBind) {
-							const auto relValue = entity_from_id(w, idInArchetype.id());
+							const auto relValue = pair_rel(w, idInArchetype);
 							if (relValue == EntityBad)
 								continue;
 							if (!match_token(vars, rel.token, relValue, true))
 								continue;
 						}
 						if (tgt.needsBind) {
-							const auto tgtValue = entity_from_id(w, idInArchetype.gen());
+							const auto tgtValue = pair_tgt(w, idInArchetype);
 							if (tgtValue == EntityBad)
 								continue;
 							if (!match_token(vars, tgt.token, tgtValue, true))
@@ -37479,7 +37440,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 							if (queryToken.id() != value.id())
@@ -37491,8 +37452,8 @@ namespace gaia {
 						return false;
 					}
 
-					auto queryRel = entity_from_id(w, queryId.id());
-					auto queryTgt = entity_from_id(w, queryId.gen());
+					auto queryRel = pair_rel(w, queryId);
+					auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 
@@ -37532,12 +37493,12 @@ namespace gaia {
 							continue;
 
 						if (!relIsConcrete) {
-							const auto rel = entity_from_id(w, idInArchetype.id());
+							const auto rel = pair_rel(w, idInArchetype);
 							if (rel == EntityBad)
 								continue;
 						}
 						if (!tgtIsConcrete) {
-							const auto tgt = entity_from_id(w, idInArchetype.gen());
+							const auto tgt = pair_tgt(w, idInArchetype);
 							if (tgt == EntityBad)
 								continue;
 						}
@@ -37835,7 +37796,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 
@@ -37849,8 +37810,8 @@ namespace gaia {
 						return false;
 					}
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 					const auto rel = resolve_pair_query_token(queryRel, varsIn);
@@ -37874,14 +37835,14 @@ namespace gaia {
 
 						auto vars = varsIn;
 						if (rel.needsBind) {
-							const auto relValue = entity_from_id(w, idInArchetype.id());
+							const auto relValue = pair_rel(w, idInArchetype);
 							if (relValue == EntityBad)
 								continue;
 							if (!match_token(vars, rel.token, relValue, true))
 								continue;
 						}
 						if (tgt.needsBind) {
-							const auto tgtValue = entity_from_id(w, idInArchetype.gen());
+							const auto tgtValue = pair_tgt(w, idInArchetype);
 							if (tgtValue == EntityBad)
 								continue;
 							if (!match_token(vars, tgt.token, tgtValue, true))
@@ -38615,17 +38576,17 @@ namespace gaia {
 						mask |= (uint8_t(1) << detail::var_index(term.src));
 
 					if (!term.id.pair()) {
-						const auto idEnt = entity_from_id(world, term.id.id());
+						const auto idEnt = id_entity(world, term.id);
 						if (detail::is_var_entity(idEnt) && !detail::var_is_bound(vars, idEnt))
 							mask |= (uint8_t(1) << detail::var_index(idEnt));
 						return mask;
 					}
 
-					const auto relEnt = entity_from_id(world, term.id.id());
+					const auto relEnt = pair_rel(world, term.id);
 					if (detail::is_var_entity(relEnt) && !detail::var_is_bound(vars, relEnt))
 						mask |= (uint8_t(1) << detail::var_index(relEnt));
 
-					const auto tgtEnt = entity_from_id(world, term.id.gen());
+					const auto tgtEnt = pair_tgt(world, term.id);
 					if (detail::is_var_entity(tgtEnt) && !detail::var_is_bound(vars, tgtEnt))
 						mask |= (uint8_t(1) << detail::var_index(tgtEnt));
 
@@ -39650,7 +39611,7 @@ namespace gaia {
 							return false;
 
 						const auto id = term.id;
-						return (id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+						return (id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 									 (!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 					};
 
@@ -45750,7 +45711,7 @@ namespace gaia {
 						return false;
 
 					const auto id = term.id;
-					return (id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+					return (id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 								 (!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 				}
 
@@ -46181,7 +46142,7 @@ namespace gaia {
 					if (evalPlan.pSingleAllTerm != nullptr && uses_non_direct_is_matching(*pSeedTerm) &&
 							(uses_non_direct_is_matching(*evalPlan.pSingleAllTerm) ||
 							 uses_inherited_id_matching(world, *evalPlan.pSingleAllTerm))) {
-						const auto seedTarget = entity_from_id(world, (EntityId)pSeedTerm->id.gen());
+						const auto seedTarget = pair_tgt(world, pSeedTerm->id);
 						if (seedTarget != EntityBad)
 							seedImpliesSingleAllTerm = match_entity_term(world, seedTarget, *evalPlan.pSingleAllTerm);
 					}
@@ -46587,7 +46548,7 @@ namespace gaia {
 						const bool isDirectIsTerm = uses_non_direct_is_matching(term);
 						const bool isInheritedTerm = uses_inherited_id_matching(world, term);
 						const bool isAdjunctTerm =
-								(id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+								(id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 								(!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 						const bool needsEntityFilter = isAdjunctTerm || isDirectIsTerm || isInheritedTerm ||
 																					 (hasEntityFilterTerms && term.op == QueryOpKind::Or);
@@ -56782,8 +56743,8 @@ namespace gaia {
 					return cnt;
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return 0;
@@ -56791,7 +56752,7 @@ namespace gaia {
 					if (is_wildcard(term.gen()))
 						return pStore->srcToTgtCnt;
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					return pSources != nullptr ? (uint32_t)pSources->size() : 0;
 				}
 
@@ -56842,8 +56803,8 @@ namespace gaia {
 					return;
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return;
@@ -56862,7 +56823,7 @@ namespace gaia {
 						return;
 					}
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					if (pSources == nullptr)
 						return;
 
@@ -56925,8 +56886,8 @@ namespace gaia {
 					});
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return true;
@@ -56945,7 +56906,7 @@ namespace gaia {
 						return true;
 					}
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					if (pSources == nullptr)
 						return true;
 
@@ -57772,7 +57733,7 @@ namespace gaia {
 			}
 
 		private:
-			static constexpr uint32_t WorldSerializerVersion = 2;
+			static constexpr uint32_t WorldSerializerVersion = 3;
 			static constexpr uint32_t WorldSerializerJSONVersion = 1;
 
 			void save_to(ser::serializer s) const {
@@ -57990,8 +57951,8 @@ namespace gaia {
 				// Version number, currently unused
 				uint32_t version = 0;
 				s.load(version);
-				if (version != WorldSerializerVersion) {
-					GAIA_LOG_E("Unsupported world version %u. Expected %u.", version, WorldSerializerVersion);
+				if (version < 2 || version > WorldSerializerVersion) {
+					GAIA_LOG_E("Unsupported world version %u. Expected 2..%u.", version, WorldSerializerVersion);
 					return false;
 				}
 
@@ -58011,7 +57972,8 @@ namespace gaia {
 				// Install the append-only core-id remap for nested Entity::load() calls.
 				// This keeps the serializer API unchanged, at the cost of relying on
 				// scoped thread-local state instead of explicit serializer-local context.
-				const detail::EntityLoadRemapGuard entityLoadRemapGuard(lastCoreComponentId, currLastCoreComponentId);
+				const detail::EntityLoadRemapGuard entityLoadRemapGuard(
+						lastCoreComponentId, currLastCoreComponentId, version >= WorldSerializerVersion);
 				auto remapLoadedEntityId = [&](uint32_t id) {
 					return detail::remap_loaded_entity_id(id, lastCoreComponentId, currLastCoreComponentId);
 				};
@@ -58152,6 +58114,14 @@ namespace gaia {
 						ec.pChunk = ec.pArchetype->chunks()[chunkIdx];
 						ec.pEntity = &ec.pChunk->entity_view()[ec.row];
 					}
+				}
+
+				if (version < WorldSerializerVersion) {
+					m_compCache.for_each_item([&](ComponentCacheItem& item) {
+						auto comp = item.comp;
+						comp.data.id = item.entity.id();
+						sync_component_record(item.entity, comp);
+					});
 				}
 
 #if GAIA_ASSERT_ENABLED
@@ -61235,6 +61205,21 @@ namespace gaia {
 
 		GAIA_NODISCARD inline Entity entity_from_id(const World& world, EntityId id) {
 			return world.get(id);
+		}
+
+		GAIA_NODISCARD inline Entity id_entity(const World& world, Entity id) {
+			GAIA_ASSERT(!id.pair());
+			return entity_from_id(world, (EntityId)id.id());
+		}
+
+		GAIA_NODISCARD inline Entity pair_rel(const World& world, Entity pair) {
+			GAIA_ASSERT(pair.pair());
+			return entity_from_id(world, (EntityId)pair.id());
+		}
+
+		GAIA_NODISCARD inline Entity pair_tgt(const World& world, Entity pair) {
+			GAIA_ASSERT(pair.pair());
+			return entity_from_id(world, (EntityId)pair.gen());
 		}
 
 		GAIA_NODISCARD inline bool valid(const World& world, Entity entity) {

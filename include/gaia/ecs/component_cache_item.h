@@ -53,7 +53,6 @@ namespace gaia {
 			};
 
 			struct ComponentCacheItemCtx {
-				uint32_t compDescId = 0;
 				const char* nameStr = nullptr;
 				uint32_t nameLen = 0;
 				uint32_t size = 0;
@@ -427,7 +426,6 @@ namespace gaia {
 				const auto nameTmpLen = init_type_name<T>(nameTmp);
 
 				ComponentCacheItemCtx ctx{};
-				ctx.compDescId = detail::ComponentDesc<T>::id();
 				ctx.nameStr = nameTmp;
 				ctx.nameLen = nameTmpLen;
 				ctx.size = componentSize;
@@ -458,7 +456,7 @@ namespace gaia {
 
 				auto* cci = new ComponentCacheItem();
 				cci->entity = entity;
-				cci->comp = Component(ctx.compDescId, ctx.soa, ctx.size, ctx.alig, ctx.storageType);
+				cci->comp = Component(entity.id(), ctx.soa, ctx.size, ctx.alig, ctx.storageType);
 				cci->hashLookup = ctx.hashLookup.hash != 0
 															? ctx.hashLookup
 															: ComponentLookupHash{core::calculate_hash64(ctx.nameStr, ctx.nameLen)};

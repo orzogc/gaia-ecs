@@ -18,17 +18,11 @@
 namespace gaia {
 	namespace ecs {
 		namespace detail {
-			using ComponentDescId = uint32_t;
-
 			template <typename T>
 			struct ComponentDesc final {
 				using CT = component_type_t<T>;
 				using U = typename component_type_t<T>::Type;
 				using DescU = typename CT::TypeFull;
-
-				static ComponentDescId id() {
-					return meta::type_info::id<DescU>();
-				}
 
 				static constexpr ComponentLookupHash hash_lookup() {
 					return {meta::type_info::hash<DescU>()};

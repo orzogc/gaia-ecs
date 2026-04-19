@@ -32,6 +32,9 @@ namespace gaia {
 		void del(World& world, Entity entity);
 
 		Entity entity_from_id(const World& world, EntityId id);
+		Entity id_entity(const World& world, Entity id);
+		Entity pair_rel(const World& world, Entity pair);
+		Entity pair_tgt(const World& world, Entity pair);
 
 		//! Returns whether @a entity currently exists and its generation matches the world's record.
 		bool valid(const World& world, Entity entity);

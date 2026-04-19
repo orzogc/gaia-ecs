@@ -39,8 +39,7 @@ namespace gaia {
 			static constexpr uint32_t MaxAlignment = MaxComponentSizeInBytes;
 
 			struct InternalData {
-				//! Index in the entity array
-				// detail::ComponentDescId id;
+				//! Component entity index
 				uint32_t id;
 				//! Component size
 				IdentifierData size : MaxComponentSize_Bits;
@@ -106,6 +105,12 @@ namespace gaia {
 			GAIA_NODISCARD constexpr bool operator<(Component other) const noexcept {
 				return id() < other.id();
 			}
+
+			template <typename Serializer>
+			void save(Serializer& s) const;
+
+			template <typename Serializer>
+			void load(Serializer& s);
 		};
 
 		//----------------------------------------------------------------------
@@ -358,6 +363,7 @@ namespace gaia {
 			struct EntityLoadRemapState {
 				uint32_t savedLastCoreComponentId = 0;
 				uint32_t currLastCoreComponentId = 0;
+				bool remapComponentIds = false;
 				bool active = false;
 			};
 
@@ -370,10 +376,12 @@ namespace gaia {
 			struct EntityLoadRemapGuard {
 				EntityLoadRemapState prev;
 
-				EntityLoadRemapGuard(uint32_t savedLastCoreComponentId, uint32_t currLastCoreComponentId) noexcept:
+				EntityLoadRemapGuard(
+						uint32_t savedLastCoreComponentId, uint32_t currLastCoreComponentId, bool remapComponentIds) noexcept:
 						prev(g_entityLoadRemapState) {
 					g_entityLoadRemapState.savedLastCoreComponentId = savedLastCoreComponentId;
 					g_entityLoadRemapState.currLastCoreComponentId = currLastCoreComponentId;
+					g_entityLoadRemapState.remapComponentIds = remapComponentIds;
 					g_entityLoadRemapState.active = true;
 				}
 
@@ -396,6 +404,14 @@ namespace gaia {
 					return id;
 
 				return id + (currLastCoreComponentId - savedLastCoreComponentId);
+			}
+
+			GAIA_NODISCARD inline uint32_t remap_loaded_entity_id(uint32_t id) noexcept {
+				const auto& state = g_entityLoadRemapState;
+				if (!state.active)
+					return id;
+
+				return remap_loaded_entity_id(id, state.savedLastCoreComponentId, state.currLastCoreComponentId);
 			}
 
 			GAIA_NODISCARD inline Entity
@@ -433,6 +449,18 @@ namespace gaia {
 		inline void Entity::load(Serializer& s) {
 			s.load(val);
 			*this = detail::remap_loaded_entity(*this);
+		}
+
+		template <typename Serializer>
+		inline void Component::save(Serializer& s) const {
+			s.save(val);
+		}
+
+		template <typename Serializer>
+		inline void Component::load(Serializer& s) {
+			s.load(val);
+			if (detail::g_entityLoadRemapState.active && detail::g_entityLoadRemapState.remapComponentIds)
+				data.id = detail::remap_loaded_entity_id(data.id);
 		}
 
 		//! Hashmap lookup structure used for Entity

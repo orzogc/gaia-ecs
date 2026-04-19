@@ -6444,8 +6444,8 @@ namespace gaia {
 					return cnt;
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return 0;
@@ -6453,7 +6453,7 @@ namespace gaia {
 					if (is_wildcard(term.gen()))
 						return pStore->srcToTgtCnt;
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					return pSources != nullptr ? (uint32_t)pSources->size() : 0;
 				}
 
@@ -6504,8 +6504,8 @@ namespace gaia {
 					return;
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return;
@@ -6524,7 +6524,7 @@ namespace gaia {
 						return;
 					}
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					if (pSources == nullptr)
 						return;
 
@@ -6587,8 +6587,8 @@ namespace gaia {
 					});
 				}
 
-				if (term.pair() && is_exclusive_dont_fragment_relation(entity_from_id(*this, term.id()))) {
-					const auto relation = entity_from_id(*this, term.id());
+				if (term.pair() && is_exclusive_dont_fragment_relation(pair_rel(*this, term))) {
+					const auto relation = pair_rel(*this, term);
 					const auto* pStore = exclusive_adjunct_store(relation);
 					if (pStore == nullptr)
 						return true;
@@ -6607,7 +6607,7 @@ namespace gaia {
 						return true;
 					}
 
-					const auto* pSources = exclusive_adjunct_sources(*pStore, entity_from_id(*this, term.gen()));
+					const auto* pSources = exclusive_adjunct_sources(*pStore, pair_tgt(*this, term));
 					if (pSources == nullptr)
 						return true;
 
@@ -7434,7 +7434,7 @@ namespace gaia {
 			}
 
 		private:
-			static constexpr uint32_t WorldSerializerVersion = 2;
+			static constexpr uint32_t WorldSerializerVersion = 3;
 			static constexpr uint32_t WorldSerializerJSONVersion = 1;
 
 			void save_to(ser::serializer s) const {
@@ -7652,8 +7652,8 @@ namespace gaia {
 				// Version number, currently unused
 				uint32_t version = 0;
 				s.load(version);
-				if (version != WorldSerializerVersion) {
-					GAIA_LOG_E("Unsupported world version %u. Expected %u.", version, WorldSerializerVersion);
+				if (version < 2 || version > WorldSerializerVersion) {
+					GAIA_LOG_E("Unsupported world version %u. Expected 2..%u.", version, WorldSerializerVersion);
 					return false;
 				}
 
@@ -7673,7 +7673,8 @@ namespace gaia {
 				// Install the append-only core-id remap for nested Entity::load() calls.
 				// This keeps the serializer API unchanged, at the cost of relying on
 				// scoped thread-local state instead of explicit serializer-local context.
-				const detail::EntityLoadRemapGuard entityLoadRemapGuard(lastCoreComponentId, currLastCoreComponentId);
+				const detail::EntityLoadRemapGuard entityLoadRemapGuard(
+						lastCoreComponentId, currLastCoreComponentId, version >= WorldSerializerVersion);
 				auto remapLoadedEntityId = [&](uint32_t id) {
 					return detail::remap_loaded_entity_id(id, lastCoreComponentId, currLastCoreComponentId);
 				};
@@ -7814,6 +7815,14 @@ namespace gaia {
 						ec.pChunk = ec.pArchetype->chunks()[chunkIdx];
 						ec.pEntity = &ec.pChunk->entity_view()[ec.row];
 					}
+				}
+
+				if (version < WorldSerializerVersion) {
+					m_compCache.for_each_item([&](ComponentCacheItem& item) {
+						auto comp = item.comp;
+						comp.data.id = item.entity.id();
+						sync_component_record(item.entity, comp);
+					});
 				}
 
 #if GAIA_ASSERT_ENABLED

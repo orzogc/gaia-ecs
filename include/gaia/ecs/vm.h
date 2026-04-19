@@ -738,14 +738,14 @@ namespace gaia {
 							if (idInArchetype == idInQuery)
 								return {true};
 
-							const auto eQ = entity_from_id(w, idInQuery.gen());
+							const auto eQ = pair_tgt(w, idInQuery);
 							if (eQ == idInArchetype)
 								return {true};
 
 							// If the archetype entity is an (Is, X) pair treat Is as X and try matching it with
 							// entities inheriting from e.
 							if (idInArchetype.id() == Is.id()) {
-								const auto eA = entity_from_id(w, idInArchetype.gen());
+								const auto eA = pair_tgt(w, idInArchetype);
 								if (eA == eQ)
 									return {true};
 
@@ -778,7 +778,7 @@ namespace gaia {
 							if (archetype.pairs_is() > 0) {
 								auto archetypeIds = archetype.ids_view();
 
-								const auto e = entity_from_id(w, idInQuery.gen());
+								const auto e = pair_tgt(w, idInQuery);
 								return {as_relations_trav_if(w, e, [&](Entity relation) {
 									// Relation does not necessary match the sorted order of components in the archetype
 									// so we need to search through all of its ids.
@@ -1260,8 +1260,8 @@ namespace gaia {
 					GAIA_ASSERT(limit > 0);
 					GAIA_ASSERT(queryId.pair());
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return 0;
 
@@ -1318,7 +1318,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 
@@ -1334,8 +1334,8 @@ namespace gaia {
 						return false;
 					}
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 					const auto rel = resolve_pair_query_token(queryRel, varsIn);
@@ -1353,14 +1353,14 @@ namespace gaia {
 
 						auto vars = varsIn;
 						if (rel.needsBind) {
-							const auto relValue = entity_from_id(w, idInArchetype.id());
+							const auto relValue = pair_rel(w, idInArchetype);
 							if (relValue == EntityBad)
 								continue;
 							if (!match_token(vars, rel.token, relValue, true))
 								continue;
 						}
 						if (tgt.needsBind) {
-							const auto tgtValue = entity_from_id(w, idInArchetype.gen());
+							const auto tgtValue = pair_tgt(w, idInArchetype);
 							if (tgtValue == EntityBad)
 								continue;
 							if (!match_token(vars, tgt.token, tgtValue, true))
@@ -1468,7 +1468,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 							if (queryToken.id() != value.id())
@@ -1480,8 +1480,8 @@ namespace gaia {
 						return false;
 					}
 
-					auto queryRel = entity_from_id(w, queryId.id());
-					auto queryTgt = entity_from_id(w, queryId.gen());
+					auto queryRel = pair_rel(w, queryId);
+					auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 
@@ -1521,12 +1521,12 @@ namespace gaia {
 							continue;
 
 						if (!relIsConcrete) {
-							const auto rel = entity_from_id(w, idInArchetype.id());
+							const auto rel = pair_rel(w, idInArchetype);
 							if (rel == EntityBad)
 								continue;
 						}
 						if (!tgtIsConcrete) {
-							const auto tgt = entity_from_id(w, idInArchetype.gen());
+							const auto tgt = pair_tgt(w, idInArchetype);
 							if (tgt == EntityBad)
 								continue;
 						}
@@ -1824,7 +1824,7 @@ namespace gaia {
 							if (idInArchetype.pair())
 								continue;
 
-							const auto value = entity_from_id(w, idInArchetype.id());
+							const auto value = id_entity(w, idInArchetype);
 							if (value == EntityBad)
 								continue;
 
@@ -1838,8 +1838,8 @@ namespace gaia {
 						return false;
 					}
 
-					const auto queryRel = entity_from_id(w, queryId.id());
-					const auto queryTgt = entity_from_id(w, queryId.gen());
+					const auto queryRel = pair_rel(w, queryId);
+					const auto queryTgt = pair_tgt(w, queryId);
 					if (queryRel == EntityBad || queryTgt == EntityBad)
 						return false;
 					const auto rel = resolve_pair_query_token(queryRel, varsIn);
@@ -1863,14 +1863,14 @@ namespace gaia {
 
 						auto vars = varsIn;
 						if (rel.needsBind) {
-							const auto relValue = entity_from_id(w, idInArchetype.id());
+							const auto relValue = pair_rel(w, idInArchetype);
 							if (relValue == EntityBad)
 								continue;
 							if (!match_token(vars, rel.token, relValue, true))
 								continue;
 						}
 						if (tgt.needsBind) {
-							const auto tgtValue = entity_from_id(w, idInArchetype.gen());
+							const auto tgtValue = pair_tgt(w, idInArchetype);
 							if (tgtValue == EntityBad)
 								continue;
 							if (!match_token(vars, tgt.token, tgtValue, true))
@@ -2604,17 +2604,17 @@ namespace gaia {
 						mask |= (uint8_t(1) << detail::var_index(term.src));
 
 					if (!term.id.pair()) {
-						const auto idEnt = entity_from_id(world, term.id.id());
+						const auto idEnt = id_entity(world, term.id);
 						if (detail::is_var_entity(idEnt) && !detail::var_is_bound(vars, idEnt))
 							mask |= (uint8_t(1) << detail::var_index(idEnt));
 						return mask;
 					}
 
-					const auto relEnt = entity_from_id(world, term.id.id());
+					const auto relEnt = pair_rel(world, term.id);
 					if (detail::is_var_entity(relEnt) && !detail::var_is_bound(vars, relEnt))
 						mask |= (uint8_t(1) << detail::var_index(relEnt));
 
-					const auto tgtEnt = entity_from_id(world, term.id.gen());
+					const auto tgtEnt = pair_tgt(world, term.id);
 					if (detail::is_var_entity(tgtEnt) && !detail::var_is_bound(vars, tgtEnt))
 						mask |= (uint8_t(1) << detail::var_index(tgtEnt));
 
@@ -3639,7 +3639,7 @@ namespace gaia {
 							return false;
 
 						const auto id = term.id;
-						return (id.pair() && world_is_exclusive_dont_fragment_relation(world, entity_from_id(world, id.id()))) ||
+						return (id.pair() && world_is_exclusive_dont_fragment_relation(world, pair_rel(world, id))) ||
 									 (!id.pair() && world_is_non_fragmenting_out_of_line_component(world, id));
 					};
 

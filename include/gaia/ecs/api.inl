@@ -35,6 +35,21 @@ namespace gaia {
 			return world.get(id);
 		}
 
+		GAIA_NODISCARD inline Entity id_entity(const World& world, Entity id) {
+			GAIA_ASSERT(!id.pair());
+			return entity_from_id(world, (EntityId)id.id());
+		}
+
+		GAIA_NODISCARD inline Entity pair_rel(const World& world, Entity pair) {
+			GAIA_ASSERT(pair.pair());
+			return entity_from_id(world, (EntityId)pair.id());
+		}
+
+		GAIA_NODISCARD inline Entity pair_tgt(const World& world, Entity pair) {
+			GAIA_ASSERT(pair.pair());
+			return entity_from_id(world, (EntityId)pair.gen());
+		}
+
 		GAIA_NODISCARD inline bool valid(const World& world, Entity entity) {
 			return world.valid(entity);
 		}

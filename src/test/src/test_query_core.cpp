@@ -5,14 +5,6 @@ namespace {
 	struct QueryUncached {};
 } // namespace
 
-uint32_t test_position_type_id_from_query_core() {
-	return gaia::meta::type_info::id<Position>();
-}
-
-uint32_t test_acceleration_type_id_from_query_core() {
-	return gaia::meta::type_info::id<Acceleration>();
-}
-
 TEST_CASE("Query - QueryResult") {
 	SUBCASE("Cached query") {
 		Test_Query_QueryResult<ecs::Query>();

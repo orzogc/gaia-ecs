@@ -106,7 +106,19 @@ namespace gaia {
 					GAIA_FOR_(cntEntities, j) {
 						dst[j].comp = comps[j];
 						dst[j].pData = &data(compOffs[j]);
-						dst[j].pItem = m_header.cc->find(comps[j].id());
+						Entity storageEntity = ids[j];
+						if (storageEntity.pair()) {
+							Entity pairEntities[] = {pair_rel(*m_header.world, storageEntity), pair_tgt(*m_header.world, storageEntity)};
+							const auto* pRelItem = m_header.cc->find(pairEntities[0]);
+							const auto* pTgtItem = m_header.cc->find(pairEntities[1]);
+							Component pairComponents[] = {
+									pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
+									pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
+							const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
+							storageEntity = pairEntities[idx];
+						}
+
+						dst[j].pItem = m_header.cc->find(storageEntity);
 					}
 				}
 
