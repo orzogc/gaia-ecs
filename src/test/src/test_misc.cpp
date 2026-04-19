@@ -3768,6 +3768,28 @@ TEST_CASE("Sparse DontFragment component and adjunct storage") {
 	CHECK(wld.fetch(e).pArchetype == pArchetypeBefore);
 }
 
+TEST_CASE("Builder handles sticky traits and adjunct ids") {
+	SparseTestWorld twld;
+
+	const auto& compItem = wld.add<PositionSparse>();
+	wld.build(compItem.entity).add(ecs::DontFragment).del(ecs::DontFragment).add(ecs::Sparse).del(ecs::Sparse);
+	CHECK(wld.has(compItem.entity, ecs::DontFragment));
+	CHECK(wld.has(compItem.entity, ecs::Sparse));
+	CHECK(compItem.comp.storage_type() == ecs::DataStorageType::Sparse);
+
+	const auto parent = wld.add();
+	const auto child = wld.add();
+	const auto* pArchetypeBefore = wld.fetch(child).pArchetype;
+
+	wld.build(child).add(ecs::Pair(ecs::Parent, parent));
+	CHECK(wld.target(child, ecs::Parent) == parent);
+	CHECK(wld.fetch(child).pArchetype == pArchetypeBefore);
+
+	wld.build(child).del(ecs::Pair(ecs::Parent, parent));
+	CHECK_FALSE(wld.has(child, ecs::Pair(ecs::Parent, parent)));
+	CHECK(wld.fetch(child).pArchetype == pArchetypeBefore);
+}
+
 TEST_CASE("DontFragment table component uses out-of-line storage") {
 	TestWorld twld;
 
@@ -3905,6 +3927,30 @@ TEST_CASE("Sparse component uses out-of-line storage and still fragments") {
 	wld.del<PositionSparse>(e);
 	CHECK_FALSE(wld.has<PositionSparse>(e));
 	CHECK(wld.fetch(e).pArchetype == pArchetypeBefore);
+}
+
+TEST_CASE("Sparse component default add still makes direct storage") {
+	SparseTestWorld twld;
+
+	const auto& compItem = wld.add<PositionSparse>();
+	const auto e = wld.add();
+	const auto* pArchetypeBefore = wld.fetch(e).pArchetype;
+
+	wld.add<PositionSparse>(e);
+	CHECK(wld.has<PositionSparse>(e));
+	CHECK(wld.has(e, compItem.entity));
+	CHECK(wld.fetch(e).pArchetype != pArchetypeBefore);
+	CHECK(wld.fetch(e).pArchetype->has(compItem.entity));
+
+	{
+		auto pos = wld.set<PositionSparse>(e);
+		pos = {2.0f, 3.0f, 4.0f};
+	}
+
+	const auto& pos = wld.get<PositionSparse>(e);
+	CHECK(pos.x == doctest::Approx(2.0f));
+	CHECK(pos.y == doctest::Approx(3.0f));
+	CHECK(pos.z == doctest::Approx(4.0f));
 }
 
 TEST_CASE("Table component can opt into sparse storage via trait") {

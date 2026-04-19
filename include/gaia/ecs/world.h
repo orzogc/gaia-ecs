@@ -1109,6 +1109,30 @@ namespace gaia {
 				return *pStore;
 			}
 
+			//! Finishes adding an out-of-line component after its sparse payload has been created.
+			//! Fragmenting components also add the id directly to the entity archetype.
+			//! \param entity Entity receiving the component.
+			//! \param object Component entity being added.
+			//! \param mode Out-of-line storage mode for the component.
+			void finish_out_of_line_add_inter(Entity entity, Entity object, OutOfLineMode mode) {
+				GAIA_ASSERT(mode != OutOfLineMode::None);
+
+#if GAIA_OBSERVERS_ENABLED
+				auto ctx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
+#endif
+				if (mode == OutOfLineMode::Fragmenting) {
+					EntityBuilder eb(*this, entity);
+					eb.add_inter_init(object);
+					eb.commit();
+				}
+
+				notify_add_single(entity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(ctx));
+#endif
+			}
+
 			//! Removes all sparse out-of-line component instances owned by @a entity.
 			//! \param entity Entity
 			void del_sparse_components(Entity entity) {
@@ -1453,6 +1477,16 @@ namespace gaia {
 				uint8_t m_graphEdgeOpCount = 0;
 				//! Whether the recorded single-step transition is an add or delete move.
 				bool m_graphEdgeIsAdd = false;
+
+				//! Classifies how a builder operation treats an id.
+				enum class IdMode : uint8_t {
+					//! Normal ids change archetype membership.
+					Normal,
+					//! Adjunct ids use exclusive adjunct storage.
+					Adjunct,
+					//! Sticky ids change how a component behaves and stay that way after they are added.
+					Sticky
+				};
 
 #if GAIA_ENABLE_ADD_DEL_HOOKS || GAIA_OBSERVERS_ENABLED
 				static constexpr uint32_t MAX_TERMS = 32;
@@ -2093,6 +2127,65 @@ namespace gaia {
 						m_world.set_component_sparse_storage(m_entity);
 				}
 
+				//! Classifies @a entity for builder add/delete handling.
+				//! \param entity Id being added or removed.
+				//! \return How the builder should treat the id.
+				GAIA_NODISCARD IdMode id_mode(Entity entity) const noexcept {
+					if (!entity.pair()) {
+						if (m_entity.comp() && (entity.id() == DontFragment.id() || entity.id() == Sparse.id()))
+							return IdMode::Sticky;
+
+						return IdMode::Normal;
+					}
+
+					return m_world.is_exclusive_dont_fragment_relation(m_world.get(entity.id())) ? IdMode::Adjunct
+																																											 : IdMode::Normal;
+				}
+
+				//! Checks whether @a entity is already present under the given builder mode.
+				//! \param mode Id handling mode.
+				//! \param entity Id being queried.
+				//! \return True if the id is already attached to the source entity.
+				GAIA_NODISCARD bool has_id(IdMode mode, Entity entity) const {
+					return mode == IdMode::Adjunct ? m_world.has(m_entity, entity) : m_pArchetype->has(entity);
+				}
+
+				//! Adds @a entity using the storage strategy selected by @a mode.
+				//! \param mode Id handling mode.
+				//! \param entity Id to attach.
+				//! \return True when the add succeeded. False when adjunct endpoints are stale.
+				GAIA_NODISCARD bool add_id(IdMode mode, Entity entity) {
+					if (mode == IdMode::Adjunct) {
+						const auto relation = m_world.try_get(entity.id());
+						const auto target = m_world.try_get(entity.gen());
+						if (relation == EntityBad || target == EntityBad)
+							return false;
+
+						m_world.exclusive_adjunct_set(m_entity, relation, target);
+						return true;
+					}
+
+					m_pArchetype = m_world.foc_archetype_add_no_graph(m_pArchetype, entity);
+					note_graph_edge(entity, true);
+					return true;
+				}
+
+				//! Removes @a entity using the storage strategy selected by @a mode.
+				//! \param mode Id handling mode.
+				//! \param entity Id to remove.
+				void del_id(IdMode mode, Entity entity) {
+					if (mode == IdMode::Adjunct) {
+						const auto relation = m_world.try_get(entity.id());
+						const auto target = m_world.try_get(entity.gen());
+						if (relation != EntityBad && target != EntityBad)
+							(void)m_world.exclusive_adjunct_del(m_entity, relation, target);
+						return;
+					}
+
+					m_pArchetype = m_world.foc_archetype_del_no_graph(m_pArchetype, entity);
+					note_graph_edge(entity, false);
+				}
+
 				void try_set_OnDeleteTarget(Entity entity, bool enable) {
 					if (!entity.pair())
 						return;
@@ -2170,15 +2263,14 @@ namespace gaia {
 
 				template <bool IsBootstrap>
 				bool handle_add(Entity entity) {
-					const bool isDontFragmentPair =
-							entity.pair() && m_world.is_exclusive_dont_fragment_relation(m_world.get(entity.id()));
+					const auto mode = id_mode(entity);
 #if GAIA_ASSERT_ENABLED
-					if (!isDontFragmentPair)
+					if (mode != IdMode::Adjunct)
 						World::verify_add(m_world, *m_pArchetype, m_entity, entity);
 #endif
 
 					// Don't add the same entity twice
-					if (isDontFragmentPair ? m_world.has(m_entity, entity) : m_pArchetype->has(entity))
+					if (has_id(mode, entity))
 						return false;
 
 					if (entity.pair()) {
@@ -2220,17 +2312,8 @@ namespace gaia {
 						m_world.invalidate_queries_for_entity({Is, e});
 					}
 
-					if (isDontFragmentPair) {
-						const auto relation = m_world.try_get(entity.id());
-						const auto target = m_world.try_get(entity.gen());
-						if (relation == EntityBad || target == EntityBad)
-							return false;
-
-						m_world.exclusive_adjunct_set(m_entity, relation, target);
-					} else {
-						m_pArchetype = m_world.foc_archetype_add_no_graph(m_pArchetype, entity);
-						note_graph_edge(entity, true);
-					}
+					if (!add_id(mode, entity))
+						return false;
 
 					if constexpr (!IsBootstrap) {
 						handle_DependsOn(entity, true);
@@ -2266,18 +2349,17 @@ namespace gaia {
 						return;
 					}
 
-					const bool isDontFragmentPair =
-							entity.pair() && m_world.is_exclusive_dont_fragment_relation(m_world.get(entity.id()));
+					const auto mode = id_mode(entity);
 					if (entity.pair())
 						m_world.invalidate_scope_path_cache();
 
 #if GAIA_ASSERT_ENABLED
-					if (!isDontFragmentPair)
+					if (mode != IdMode::Adjunct)
 						World::verify_del(m_world, *m_pArchetype, m_entity, entity);
 #endif
 
 					// Don't delete what has not beed added
-					if (!(isDontFragmentPair ? m_world.has(m_entity, entity) : m_pArchetype->has(entity)))
+					if (!has_id(mode, entity))
 						return;
 
 					if (entity.pair()) {
@@ -2302,15 +2384,7 @@ namespace gaia {
 						}
 					}
 
-					if (isDontFragmentPair) {
-						const auto relation = m_world.try_get(entity.id());
-						const auto target = m_world.try_get(entity.gen());
-						if (relation != EntityBad && target != EntityBad)
-							(void)m_world.exclusive_adjunct_del(m_entity, relation, target);
-					} else {
-						m_pArchetype = m_world.foc_archetype_del_no_graph(m_pArchetype, entity);
-						note_graph_edge(entity, false);
-					}
+					del_id(mode, entity);
 
 #if GAIA_ENABLE_ADD_DEL_HOOKS || GAIA_OBSERVERS_ENABLED
 					tl_del_comps.push_back(entity);
@@ -2373,10 +2447,7 @@ namespace gaia {
 				}
 
 				GAIA_NODISCARD bool is_sticky_component_trait(Entity entity) const noexcept {
-					if (entity.pair() || !m_entity.comp())
-						return false;
-
-					return entity.id() == DontFragment.id() || entity.id() == Sparse.id();
+					return id_mode(entity) == IdMode::Sticky;
 				}
 
 				bool del_inter(Entity entity) {
@@ -3168,26 +3239,11 @@ namespace gaia {
 				using FT = typename component_type_t<T>::TypeFull;
 				const auto& item = add<FT>();
 				if constexpr (supports_out_of_line_component<FT>()) {
-					switch (out_of_line_mode(item.entity)) {
-						case OutOfLineMode::Fragmenting: {
-							(void)sparse_component_store_mut<FT>(item.entity).add(entity);
-							EntityBuilder(*this, entity).add<T>();
-							return;
-						}
-						case OutOfLineMode::NonFragmenting: {
-#if GAIA_OBSERVERS_ENABLED
-							auto addDiffCtx = m_observers.prepare_diff(
-									*this, ObserverEvent::OnAdd, EntitySpan{&item.entity, 1}, EntitySpan{&entity, 1});
-#endif
-							(void)sparse_component_store_mut<FT>(item.entity).add(entity);
-							notify_add_single(entity, item.entity);
-#if GAIA_OBSERVERS_ENABLED
-							m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
-#endif
-							return;
-						}
-						case OutOfLineMode::None:
-							break;
+					const auto mode = out_of_line_mode(item.entity);
+					if (mode != OutOfLineMode::None) {
+						(void)sparse_component_store_mut<FT>(item.entity).add(entity);
+						finish_out_of_line_add_inter(entity, item.entity, mode);
+						return;
 					}
 				}
 
@@ -3208,32 +3264,13 @@ namespace gaia {
 				if constexpr (supports_out_of_line_component<typename component_type_t<T>::TypeFull>()) {
 					using FT = typename component_type_t<T>::TypeFull;
 					if (can_use_out_of_line_component<FT>(object)) {
-						auto& data = sparse_component_store_mut<FT>(object).add(entity);
-						data = GAIA_FWD(value);
-
-						if (out_of_line_mode(object) == OutOfLineMode::Fragmenting) {
-#if GAIA_OBSERVERS_ENABLED
-							auto addDiffCtx =
-									m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
-#endif
-							EntityBuilder eb(*this, entity);
-							eb.add_inter_init(object);
-							eb.commit();
-							notify_add_single(entity, object);
-#if GAIA_OBSERVERS_ENABLED
-							m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
-#endif
+						const auto mode = out_of_line_mode(object);
+						if (mode != OutOfLineMode::None) {
+							auto& data = sparse_component_store_mut<FT>(object).add(entity);
+							data = GAIA_FWD(value);
+							finish_out_of_line_add_inter(entity, object, mode);
 							return;
 						}
-#if GAIA_OBSERVERS_ENABLED
-						auto addDiffCtx =
-								m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&entity, 1});
-#endif
-						notify_add_single(entity, object);
-#if GAIA_OBSERVERS_ENABLED
-						m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
-#endif
-						return;
 					}
 				}
 
@@ -3270,21 +3307,7 @@ namespace gaia {
 					if (mode != OutOfLineMode::None) {
 						auto& data = sparse_component_store_mut<FT>(item.entity).add(entity);
 						data = GAIA_FWD(value);
-
-						if (mode == OutOfLineMode::Fragmenting) {
-							EntityBuilder builder(*this, entity);
-							builder.add(item.entity);
-							builder.commit();
-							return;
-						}
-#if GAIA_OBSERVERS_ENABLED
-						auto addDiffCtx = m_observers.prepare_diff(
-								*this, ObserverEvent::OnAdd, EntitySpan{&item.entity, 1}, EntitySpan{&entity, 1});
-#endif
-						notify_add_single(entity, item.entity);
-#if GAIA_OBSERVERS_ENABLED
-						m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
-#endif
+						finish_out_of_line_add_inter(entity, item.entity, mode);
 						return;
 					}
 				}
@@ -3331,27 +3354,8 @@ namespace gaia {
 				const auto& item = add<FT>();
 
 				if constexpr (supports_out_of_line_component<FT>()) {
-					const auto mode = out_of_line_mode(item.entity);
-					if (mode != OutOfLineMode::None) {
-						if (has_direct(entity, item.entity))
-							return false;
-
-						const auto inheritedOwner = inherited_id_owner(entity, item.entity);
-						if (inheritedOwner == EntityBad)
-							return false;
-
-						auto* pStore = sparse_component_store<FT>(item.entity);
-						GAIA_ASSERT(pStore != nullptr);
-						auto& data = sparse_component_store_mut<FT>(item.entity).add(entity);
-						data = pStore->get(inheritedOwner);
-
-						if (mode == OutOfLineMode::Fragmenting) {
-							EntityBuilder eb(*this, entity);
-							eb.add_inter_init(item.entity);
-							eb.commit();
-						}
-						return true;
-					}
+					if (out_of_line_mode(item.entity) != OutOfLineMode::None)
+						return override_out_of_line_inter(entity, item.entity);
 				}
 
 				return override_inter(entity, item.entity);
@@ -3365,26 +3369,8 @@ namespace gaia {
 				using FT = typename component_type_t<T>::TypeFull;
 
 				if constexpr (supports_out_of_line_component<FT>()) {
-					if (can_use_out_of_line_component<FT>(object)) {
-						if (has_direct(entity, object))
-							return false;
-
-						const auto inheritedOwner = inherited_id_owner(entity, object);
-						if (inheritedOwner == EntityBad)
-							return false;
-
-						auto* pStore = sparse_component_store<FT>(object);
-						GAIA_ASSERT(pStore != nullptr);
-						auto& data = sparse_component_store_mut<FT>(object).add(entity);
-						data = pStore->get(inheritedOwner);
-
-						if (out_of_line_mode(object) == OutOfLineMode::Fragmenting) {
-							EntityBuilder eb(*this, entity);
-							eb.add_inter_init(object);
-							eb.commit();
-						}
-						return true;
-					}
+					if (can_use_out_of_line_component<FT>(object))
+						return override_out_of_line_inter(entity, object);
 				}
 
 				return override_inter(entity, object);
@@ -3912,6 +3898,27 @@ namespace gaia {
 				return EntityBad;
 			}
 
+			//! Returns whether @a entity has a direct out-of-line payload for @a object.
+			//! \param entity Entity to inspect.
+			//! \param object Out-of-line component entity.
+			//! \return True when the sparse store contains a direct payload for the entity.
+			GAIA_NODISCARD bool has_direct_out_of_line_inter(Entity entity, Entity object) const {
+				const auto itSparseStore = m_sparseComponentsByComp.find(EntityLookupKey(object));
+				return itSparseStore != m_sparseComponentsByComp.end() &&
+							 itSparseStore->second.func_has(itSparseStore->second.pStore, entity);
+			}
+
+			//! Resolves which entity supplies the out-of-line payload for @a object on @a entity.
+			//! \param entity Entity being queried.
+			//! \param object Out-of-line component entity.
+			//! \return @a entity when the payload is direct, otherwise the inherited owner, or EntityBad.
+			GAIA_NODISCARD Entity out_of_line_owner_inter(Entity entity, Entity object) const {
+				if (has_direct_out_of_line_inter(entity, object))
+					return entity;
+
+				return inherited_id_owner(entity, object);
+			}
+
 			GAIA_NODISCARD bool instantiate_copies_id(Entity id) const {
 				const auto policy = target(id, OnInstantiate);
 				if (policy == EntityBad || policy == Override)
@@ -4015,11 +4022,95 @@ namespace gaia {
 				return copy_sparse_store_inter(srcEntity, dstEntity, object, itSparseStore->second);
 			}
 
+			//! Copies an inherited out-of-line payload onto @a entity and makes it direct when needed.
+			//! \param entity Entity receiving the local override.
+			//! \param object Out-of-line component entity being overridden.
+			//! \return True when the local override was created. False otherwise.
+			GAIA_NODISCARD bool override_out_of_line_inter(Entity entity, Entity object) {
+				GAIA_ASSERT(valid(entity));
+				GAIA_ASSERT(valid(object));
+				GAIA_ASSERT(out_of_line_mode(object) != OutOfLineMode::None);
+
+				if (has_direct(entity, object))
+					return false;
+
+				const auto inheritedOwner = inherited_id_owner(entity, object);
+				if (inheritedOwner == EntityBad)
+					return false;
+
+				if (!copy_sparse_payload_inter(entity, inheritedOwner, object))
+					return false;
+
+				if (out_of_line_mode(object) == OutOfLineMode::Fragmenting)
+					make_sparse_copy_direct_inter(entity, object);
+				return true;
+			}
+
+			//! Copies an owned out-of-line payload from @a srcEntity to @a dstEntity and reports the add.
+			//! Fragmenting components are also made direct on the destination archetype.
+			//! \param srcEntity Source entity owning the payload.
+			//! \param dstEntity Destination entity receiving the payload.
+			//! \param object Out-of-line component entity being copied.
+			//! \return True when the payload was copied. False otherwise.
+			GAIA_NODISCARD bool copy_owned_out_of_line_inter(Entity srcEntity, Entity dstEntity, Entity object) {
+				GAIA_ASSERT(valid(srcEntity));
+				GAIA_ASSERT(valid(dstEntity));
+				GAIA_ASSERT(valid(object));
+				GAIA_ASSERT(out_of_line_mode(object) != OutOfLineMode::None);
+
+				const auto mode = out_of_line_mode(object);
+				if (mode == OutOfLineMode::Fragmenting) {
+					if (!copy_sparse_payload_inter(dstEntity, srcEntity, object))
+						return false;
+
+					make_sparse_copy_direct_inter(dstEntity, object);
+					notify_add_single(dstEntity, object);
+					return true;
+				}
+#if GAIA_OBSERVERS_ENABLED
+				auto addDiffCtx =
+						m_observers.prepare_diff(*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&dstEntity, 1});
+#endif
+				if (!copy_sparse_payload_inter(dstEntity, srcEntity, object))
+					return false;
+				notify_add_single(dstEntity, object);
+#if GAIA_OBSERVERS_ENABLED
+				m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
+#endif
+				return true;
+			}
+
 			void make_sparse_copy_direct_inter(Entity entity, Entity object) {
 				GAIA_ASSERT(out_of_line_mode(object) == OutOfLineMode::Fragmenting);
 				EntityBuilder eb(*this, entity);
 				eb.add_inter_init(object);
 				eb.commit();
+			}
+
+			//! Copies direct component payload data for @a object from @a srcEntity to @a dstEntity.
+			//! \param srcEntity Source entity holding the payload.
+			//! \param dstEntity Destination entity receiving the payload.
+			//! \param object Component entity identifying the column to copy.
+			//! \param item Component cache item describing the payload copy operation.
+			void copy_direct_component_data_inter(
+					Entity srcEntity, Entity dstEntity, Entity object, const ComponentCacheItem& item) {
+				GAIA_ASSERT(valid(srcEntity));
+				GAIA_ASSERT(valid(dstEntity));
+				GAIA_ASSERT(valid(object));
+				GAIA_ASSERT(item.entity == object);
+				GAIA_ASSERT(item.comp.size() != 0U);
+
+				const auto& ecDst = fetch(dstEntity);
+				const auto& ecSrc = fetch(srcEntity);
+				const auto compIdxDst = ecDst.pChunk->comp_idx(object);
+				const auto compIdxSrc = ecSrc.pChunk->comp_idx(object);
+				GAIA_ASSERT(compIdxDst != BadIndex && compIdxSrc != BadIndex);
+
+				const auto idxDst = uint16_t(ecDst.row * (1U - (uint32_t)object.kind()));
+				const auto idxSrc = uint16_t(ecSrc.row * (1U - (uint32_t)object.kind()));
+				void* pDst = ecDst.pChunk->comp_ptr_mut(compIdxDst);
+				const void* pSrc = ecSrc.pChunk->comp_ptr(compIdxSrc);
+				item.copy(pDst, pSrc, idxDst, idxSrc, ecDst.pChunk->capacity(), ecSrc.pChunk->capacity());
 			}
 
 			GAIA_NODISCARD bool override_inter(Entity entity, Entity object) {
@@ -4037,29 +4128,12 @@ namespace gaia {
 					const auto* pItem = comp_cache().find(object);
 					if (pItem != nullptr && pItem->entity == object) {
 						const auto mode = out_of_line_mode(object);
-						if (mode != OutOfLineMode::None) {
-							if (!copy_sparse_payload_inter(entity, inheritedOwner, object))
-								return false;
-
-							if (mode == OutOfLineMode::Fragmenting)
-								make_sparse_copy_direct_inter(entity, object);
-							return true;
-						}
+						if (mode != OutOfLineMode::None)
+							return override_out_of_line_inter(entity, object);
 
 						if (pItem->comp.size() != 0U) {
 							add(entity, object);
-
-							const auto& ecDst = fetch(entity);
-							const auto& ecSrc = fetch(inheritedOwner);
-							const auto compIdxDst = ecDst.pChunk->comp_idx(object);
-							const auto compIdxSrc = ecSrc.pChunk->comp_idx(object);
-							GAIA_ASSERT(compIdxDst != BadIndex && compIdxSrc != BadIndex);
-
-							const auto idxDst = uint16_t(ecDst.row * (1U - (uint32_t)object.kind()));
-							const auto idxSrc = uint16_t(ecSrc.row * (1U - (uint32_t)object.kind()));
-							void* pDst = ecDst.pChunk->comp_ptr_mut(compIdxDst);
-							const void* pSrc = ecSrc.pChunk->comp_ptr(compIdxSrc);
-							pItem->copy(pDst, pSrc, idxDst, idxSrc, ecDst.pChunk->capacity(), ecSrc.pChunk->capacity());
+							copy_direct_component_data_inter(inheritedOwner, entity, object, *pItem);
 							return true;
 						}
 					}
@@ -4080,45 +4154,14 @@ namespace gaia {
 				if (!object.pair()) {
 					const auto* pItem = comp_cache().find(object);
 					if (pItem != nullptr && pItem->entity == object) {
-						const auto mode = out_of_line_mode(object);
-						if (mode != OutOfLineMode::None) {
-							if (mode == OutOfLineMode::Fragmenting) {
-								if (!copy_sparse_payload_inter(dstEntity, srcEntity, object))
-									return false;
-
-								make_sparse_copy_direct_inter(dstEntity, object);
-								notify_add_single(dstEntity, object);
-								return true;
-							}
-#if GAIA_OBSERVERS_ENABLED
-							auto addDiffCtx = m_observers.prepare_diff(
-									*this, ObserverEvent::OnAdd, EntitySpan{&object, 1}, EntitySpan{&dstEntity, 1});
-#endif
-							if (!copy_sparse_payload_inter(dstEntity, srcEntity, object))
-								return false;
-							notify_add_single(dstEntity, object);
-#if GAIA_OBSERVERS_ENABLED
-							m_observers.finish_diff(*this, GAIA_MOV(addDiffCtx));
-#endif
-							return true;
-						}
+						if (out_of_line_mode(object) != OutOfLineMode::None)
+							return copy_owned_out_of_line_inter(srcEntity, dstEntity, object);
 
 						if (pItem->comp.size() != 0U) {
 							EntityBuilder eb(*this, dstEntity);
 							eb.add_inter_init(object);
 							eb.commit();
-
-							const auto& ecDst = fetch(dstEntity);
-							const auto& ecSrc = fetch(srcEntity);
-							const auto compIdxDst = ecDst.pChunk->comp_idx(object);
-							const auto compIdxSrc = ecSrc.pChunk->comp_idx(object);
-							GAIA_ASSERT(compIdxDst != BadIndex && compIdxSrc != BadIndex);
-
-							const auto idxDst = uint16_t(ecDst.row * (1U - (uint32_t)object.kind()));
-							const auto idxSrc = uint16_t(ecSrc.row * (1U - (uint32_t)object.kind()));
-							void* pDst = ecDst.pChunk->comp_ptr_mut(compIdxDst);
-							const void* pSrc = ecSrc.pChunk->comp_ptr(compIdxSrc);
-							pItem->copy(pDst, pSrc, idxDst, idxSrc, ecDst.pChunk->capacity(), ecSrc.pChunk->capacity());
+							copy_direct_component_data_inter(srcEntity, dstEntity, object, *pItem);
 							notify_add_single(dstEntity, object);
 							return true;
 						}
@@ -4828,7 +4871,7 @@ namespace gaia {
 #if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<typename component_type_t<T>::TypeFull>(pItem->entity);
 						GAIA_ASSERT(pStore != nullptr);
-						GAIA_ASSERT(pStore->has(entity));
+						GAIA_ASSERT(has_direct_out_of_line_inter(entity, pItem->entity));
 #endif
 
 						::gaia::ecs::update_version(m_worldVersion);
@@ -4889,7 +4932,7 @@ namespace gaia {
 #if GAIA_ASSERT_ENABLED
 						auto* pStore = sparse_component_store<FT>(object);
 						GAIA_ASSERT(pStore != nullptr);
-						GAIA_ASSERT(pStore->has(entity));
+						GAIA_ASSERT(has_direct_out_of_line_inter(entity, object));
 #endif
 
 						::gaia::ecs::update_version(m_worldVersion);
@@ -5055,12 +5098,9 @@ namespace gaia {
 					if (pItem != nullptr && out_of_line_mode(pItem->entity) != OutOfLineMode::None) {
 						const auto* pStore = sparse_component_store<FT>(pItem->entity);
 						GAIA_ASSERT(pStore != nullptr);
-						if (pStore->has(entity))
-							return pStore->get(entity);
-
-						const auto inheritedOwner = inherited_id_owner(entity, compEntity);
-						GAIA_ASSERT(inheritedOwner != EntityBad);
-						return pStore->get(inheritedOwner);
+						const auto owner = out_of_line_owner_inter(entity, compEntity);
+						GAIA_ASSERT(owner != EntityBad);
+						return pStore->get(owner);
 					}
 				}
 
@@ -5081,12 +5121,9 @@ namespace gaia {
 					if (can_use_out_of_line_component<FT>(object)) {
 						const auto* pStore = sparse_component_store<FT>(object);
 						GAIA_ASSERT(pStore != nullptr);
-						if (pStore->has(entity))
-							return pStore->get(entity);
-
-						const auto inheritedOwner = inherited_id_owner(entity, object);
-						GAIA_ASSERT(inheritedOwner != EntityBad);
-						return pStore->get(inheritedOwner);
+						const auto owner = out_of_line_owner_inter(entity, object);
+						GAIA_ASSERT(owner != EntityBad);
+						return pStore->get(owner);
 					}
 				}
 
@@ -5197,7 +5234,7 @@ namespace gaia {
 				if (!object.pair()) {
 					const auto itSparseStore = m_sparseComponentsByComp.find(EntityLookupKey(object));
 					if (itSparseStore != m_sparseComponentsByComp.end())
-						return itSparseStore->second.func_has(itSparseStore->second.pStore, entity) ||
+						return has_direct_out_of_line_inter(entity, object) ||
 									 (allowSemanticIs && inherited_id_owner(entity, object) != EntityBad);
 				}
 
@@ -5407,8 +5444,7 @@ namespace gaia {
 				if constexpr (supports_out_of_line_component<FT>()) {
 					const auto* pItem = comp_cache().template find<FT>();
 					if (pItem != nullptr && out_of_line_mode(pItem->entity) != OutOfLineMode::None) {
-						const auto* pStore = sparse_component_store<FT>(pItem->entity);
-						return pStore != nullptr && (pStore->has(entity) || inherited_id_owner(entity, compEntity) != EntityBad);
+						return out_of_line_owner_inter(entity, compEntity) != EntityBad;
 					}
 				}
 
