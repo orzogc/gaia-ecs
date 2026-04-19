@@ -4102,6 +4102,81 @@ TEST_CASE("Sparse runtime-registered component uses out-of-line storage and stil
 	CHECK(wld.fetch(e).pArchetype == pArchetypeBefore);
 }
 
+TEST_CASE("Runtime sparse mode drives add/has/get behavior") {
+	TestWorld twld;
+
+	const auto& fragComp = add_runtime_component(
+			wld, "Runtime_Sparse_Mode_Frag", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+			(uint32_t)alignof(Position));
+	const auto& nonFragComp = add_runtime_component(
+			wld, "Runtime_Sparse_Mode_NonFrag", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+			(uint32_t)alignof(Position));
+	wld.add(nonFragComp.entity, ecs::DontFragment);
+
+	const auto e = wld.add();
+	const auto* pArchetypeBefore = wld.fetch(e).pArchetype;
+
+	wld.add(e, fragComp.entity, Position{1.0f, 2.0f, 3.0f});
+	wld.add(e, nonFragComp.entity, Position{4.0f, 5.0f, 6.0f});
+
+	CHECK(wld.has(e, fragComp.entity));
+	CHECK(wld.has(e, nonFragComp.entity));
+	CHECK(wld.fetch(e).pArchetype != pArchetypeBefore);
+	CHECK(wld.fetch(e).pArchetype->has(fragComp.entity));
+	CHECK_FALSE(wld.fetch(e).pArchetype->has(nonFragComp.entity));
+
+	const auto& fragPos = wld.get<Position>(e, fragComp.entity);
+	CHECK(fragPos.x == doctest::Approx(1.0f));
+	CHECK(fragPos.y == doctest::Approx(2.0f));
+	CHECK(fragPos.z == doctest::Approx(3.0f));
+
+	const auto& nonFragPos = wld.get<Position>(e, nonFragComp.entity);
+	CHECK(nonFragPos.x == doctest::Approx(4.0f));
+	CHECK(nonFragPos.y == doctest::Approx(5.0f));
+	CHECK(nonFragPos.z == doctest::Approx(6.0f));
+}
+
+TEST_CASE("Sparse copy keeps frag and non-frag payloads") {
+	TestWorld twld;
+
+	const auto& fragComp = add_runtime_component(
+			wld, "Runtime_Sparse_Copy_Frag", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+			(uint32_t)alignof(Position));
+	const auto& nonFragComp = add_runtime_component(
+			wld, "Runtime_Sparse_Copy_NonFrag", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+			(uint32_t)alignof(Position));
+	wld.add(nonFragComp.entity, ecs::DontFragment);
+
+	const auto src = wld.add();
+	wld.add(src, fragComp.entity, Position{1.0f, 2.0f, 3.0f});
+	wld.add(src, nonFragComp.entity, Position{4.0f, 5.0f, 6.0f});
+
+	const auto dst = wld.copy(src);
+	CHECK(wld.has(dst, fragComp.entity));
+	CHECK(wld.has(dst, nonFragComp.entity));
+	CHECK(wld.fetch(dst).pArchetype->has(fragComp.entity));
+	CHECK_FALSE(wld.fetch(dst).pArchetype->has(nonFragComp.entity));
+
+	{
+		auto pos = wld.set<Position>(src, fragComp.entity);
+		pos = {10.0f, 11.0f, 12.0f};
+	}
+	{
+		auto pos = wld.set<Position>(src, nonFragComp.entity);
+		pos = {13.0f, 14.0f, 15.0f};
+	}
+
+	const auto& fragPos = wld.get<Position>(dst, fragComp.entity);
+	CHECK(fragPos.x == doctest::Approx(1.0f));
+	CHECK(fragPos.y == doctest::Approx(2.0f));
+	CHECK(fragPos.z == doctest::Approx(3.0f));
+
+	const auto& nonFragPos = wld.get<Position>(dst, nonFragComp.entity);
+	CHECK(nonFragPos.x == doctest::Approx(4.0f));
+	CHECK(nonFragPos.y == doctest::Approx(5.0f));
+	CHECK(nonFragPos.z == doctest::Approx(6.0f));
+}
+
 TEST_CASE("Runtime-registered table component can opt into sparse storage via trait") {
 	TestWorld twld;
 
