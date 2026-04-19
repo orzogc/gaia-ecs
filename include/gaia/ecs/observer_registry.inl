@@ -44,7 +44,7 @@ namespace gaia {
 		}
 
 		inline void
-		ObserverRegistry::DiffDispatcher::append_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets) {
+		ObserverRegistry::DiffDispatcher::add_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets) {
 			for (auto entity: targets) {
 				if (world.valid(entity))
 					out.push_back(entity);
@@ -180,7 +180,7 @@ namespace gaia {
 					!SharedDispatch::has_pair_relations(world, index.traversalRelation, terms)) {
 				ctx.targeted = true;
 				ctx.targets.reserve((uint32_t)targetEntities.size());
-				append_valid_targets(world, ctx.targets, targetEntities);
+				add_valid_targets(world, ctx.targets, targetEntities);
 				normalize_targets(ctx.targets);
 			}
 
@@ -341,11 +341,11 @@ namespace gaia {
 			return ctx;
 		}
 
-		inline void ObserverRegistry::DiffDispatcher::append_targets(World& world, Context& ctx, EntitySpan targets) {
+		inline void ObserverRegistry::DiffDispatcher::add_targets(World& world, Context& ctx, EntitySpan targets) {
 			if (!ctx.active || !ctx.targeted || targets.empty())
 				return;
 
-			append_valid_targets(world, ctx.targets, targets);
+			add_valid_targets(world, ctx.targets, targets);
 		}
 
 		inline void ObserverRegistry::DiffDispatcher::finish(World& world, Context&& ctx) {
@@ -916,7 +916,7 @@ namespace gaia {
 			}
 		}
 
-		inline void ObserverRegistry::append_propagated_targets_cached(
+		inline void ObserverRegistry::add_propagated_targets_cached(
 				ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 				cnt::darray<Entity>& outTargets) {
 			auto& entry = ensure_propagated_targets_cached(registry, world, obs, changedSource);
@@ -966,7 +966,7 @@ namespace gaia {
 				return false;
 
 			if (changedSources.size() == 1) {
-				append_propagated_targets_cached(registry, world, obs, changedSources[0], outTargets);
+				add_propagated_targets_cached(registry, world, obs, changedSources[0], outTargets);
 				return true;
 			}
 
@@ -983,7 +983,7 @@ namespace gaia {
 				EntitySpan changedTargets, cnt::darray<Entity>& outTargets) {
 			switch (obs.plan.exec_kind()) {
 				case ObserverPlan::ExecKind::DiffLocal:
-					DiffDispatcher::append_valid_targets(world, outTargets, changedTargets);
+					DiffDispatcher::add_valid_targets(world, outTargets, changedTargets);
 					return true;
 				case ObserverPlan::ExecKind::DiffPropagated:
 					return collect_source_traversal_diff_targets(registry, world, obs, changedTerms, changedTargets, outTargets);
@@ -1089,8 +1089,8 @@ namespace gaia {
 			return DiffDispatcher::prepare_add_new(*this, world, terms);
 		}
 
-		inline void ObserverRegistry::append_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets) {
-			DiffDispatcher::append_targets(world, ctx, targets);
+		inline void ObserverRegistry::add_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets) {
+			DiffDispatcher::add_targets(world, ctx, targets);
 		}
 
 		inline void ObserverRegistry::finish_diff(World& world, DiffDispatchCtx&& ctx) {

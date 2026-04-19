@@ -98,7 +98,7 @@ namespace gaia {
 				static void collect_query_matches(World& world, ObserverRuntimeData& obs, cnt::darray<Entity>& out);
 				static void collect_query_target_matches(
 						World& world, ObserverRuntimeData& obs, EntitySpan targets, cnt::darray<Entity>& out);
-				static void append_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets);
+				static void add_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets);
 				static void copy_target_narrow_plan(const ObserverRuntimeData& obs, TargetNarrowCacheEntry& entry);
 				GAIA_NODISCARD static bool
 				same_target_narrow_plan(const ObserverRuntimeData& obs, const TargetNarrowCacheEntry& entry);
@@ -111,7 +111,7 @@ namespace gaia {
 						ObserverRegistry& registry, World& world, ObserverEvent event, EntitySpan terms,
 						EntitySpan targetEntities = {});
 				GAIA_NODISCARD static Context prepare_add_new(ObserverRegistry& registry, World& world, EntitySpan terms);
-				static void append_targets(World& world, Context& ctx, EntitySpan targets);
+				static void add_targets(World& world, Context& ctx, EntitySpan targets);
 				static void finish(World& world, Context&& ctx);
 			};
 
@@ -263,7 +263,7 @@ namespace gaia {
 			static void collect_propagated_targets_cached(
 					ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 					uint64_t visitStamp, cnt::set<EntityLookupKey>& visitedPairs, cnt::darray<Entity>& outTargets);
-			static void append_propagated_targets_cached(
+			static void add_propagated_targets_cached(
 					ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 					cnt::darray<Entity>& outTargets);
 			GAIA_NODISCARD static bool collect_source_traversal_diff_targets(
@@ -304,7 +304,7 @@ namespace gaia {
 			GAIA_NODISCARD DiffDispatchCtx
 			prepare_diff(World& world, ObserverEvent event, EntitySpan terms, EntitySpan targetEntities = {});
 			GAIA_NODISCARD DiffDispatchCtx prepare_diff_add_new(World& world, EntitySpan terms);
-			void append_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets);
+			void add_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets);
 			void finish_diff(World& world, DiffDispatchCtx&& ctx);
 
 			void teardown() {

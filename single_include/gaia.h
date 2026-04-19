@@ -28266,6 +28266,11 @@ namespace gaia {
 		class GAIA_API ComponentCache final {
 			friend class World;
 
+			struct ResolvedLookupEntry {
+				const ComponentCacheItem* pItem = nullptr;
+				uint32_t matches = 0;
+			};
+
 			//! Lookup of component items by component entity index.
 			cnt::map<uint32_t, const ComponentCacheItem*> m_compByEntityId;
 			//! World-local component lookup keyed by compile-time metadata hash.
@@ -28274,11 +28279,11 @@ namespace gaia {
 			//! Lookup of component items by their exact registered symbol name.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compBySymbol;
 			//! Lookup of component items by their exact path name.
-			//! Ambiguous paths are stored with nullptr and treated as lookup misses.
-			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByPath;
+			//! Ambiguous paths keep a tracked representative but remain lookup misses.
+			cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry> m_compByPath;
 			//! Lookup of component items by their unique short symbol name (leaf after the last `::`).
-			//! Ambiguous short names are stored with nullptr and treated as lookup misses.
-			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByShortSymbol;
+			//! Ambiguous short names keep a tracked representative but remain lookup misses.
+			cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry> m_compByShortSymbol;
 
 			//! Clears the contents of the component cache
 			//! \warning Should be used only after worlds are cleared because it invalidates all currently
@@ -28402,7 +28407,7 @@ namespace gaia {
 			}
 
 			static void add_lookup_mapping(
-					cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*>& map, util::str_view view,
+					cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry>& map, util::str_view view,
 					const ComponentCacheItem& item) {
 				if (view.empty())
 					return;
@@ -28410,21 +28415,69 @@ namespace gaia {
 				const auto key = lookup_key(view);
 				const auto it = map.find(key);
 				if (it == map.end()) {
-					map.emplace(key, &item);
+					map.emplace(key, ResolvedLookupEntry{&item, 1});
 					return;
 				}
 
-				if (it->second != &item)
-					it->second = nullptr;
+				auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+				++entry.matches;
 			}
 
-			void rebuild_path_map() {
-				m_compByPath.clear();
+			void add_path_mapping(const ComponentCacheItem& item) {
+				add_lookup_mapping(m_compByPath, item.path.view(), item);
+			}
+
+			static void push_unique_entity(cnt::darray<Entity>& out, Entity entity) {
+				if (entity == EntityBad)
+					return;
+
+				for (const auto existing: out) {
+					if (existing == entity)
+						return;
+				}
+
+				out.push_back(entity);
+			}
+
+			void remove_path_mapping(const ComponentCacheItem& item) {
+				const auto pathValue = item.path.view();
+				if (pathValue.empty())
+					return;
+
+				const auto key = lookup_key(pathValue);
+				const auto it = m_compByPath.find(key);
+				if (it == m_compByPath.end())
+					return;
+
+				auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+
+				if (entry.matches == 1) {
+					GAIA_ASSERT(entry.pItem == &item);
+					m_compByPath.erase(it);
+					return;
+				}
+
+				--entry.matches;
+				if (entry.pItem != &item)
+					return;
+
+				entry.pItem = nullptr;
 				for (const auto& [entityId, pItem]: m_compByEntityId) {
 					(void)entityId;
 					GAIA_ASSERT(pItem != nullptr);
-					add_lookup_mapping(m_compByPath, pItem->path.view(), *pItem);
+					if (pItem == &item)
+						continue;
+
+					if (pItem->path.view() != pathValue)
+						continue;
+
+					entry.pItem = pItem;
+					return;
 				}
+
+				GAIA_ASSERT(false);
 			}
 
 			//! Adds all name-based lookup mappings for a component item.
@@ -28433,7 +28486,7 @@ namespace gaia {
 			void add_name_mappings(ComponentCacheItem& item, util::str_view scopePath) {
 				m_compBySymbol.emplace(item.name, &item);
 				initialize_names(item, scopePath);
-				add_lookup_mapping(m_compByPath, item.path.view(), item);
+				add_path_mapping(item);
 				add_lookup_mapping(m_compByShortSymbol, short_symbol_view(item), item);
 			}
 
@@ -28586,17 +28639,21 @@ namespace gaia {
 			//! \param name Path name.
 			//! \return True when the path metadata was updated, false if validation failed.
 			bool path(ComponentCacheItem& item, util::str_view name) noexcept {
+				if (path_name(item) == name)
+					return true;
+
 				if (name.empty()) {
+					remove_path_mapping(item);
 					item.path.clear();
-					rebuild_path_map();
 					return true;
 				}
 
 				if (name.size() >= ComponentCacheItem::MaxNameLength)
 					return false;
 
+				remove_path_mapping(item);
 				item.path.assign(name);
-				rebuild_path_map();
+				add_path_mapping(item);
 				return true;
 			}
 
@@ -28634,7 +28691,10 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* path(util::str_view name) const noexcept {
 				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
 				const auto it = m_compByPath.find(lookup_key(name));
-				return it != m_compByPath.end() ? it->second : nullptr;
+				if (it == m_compByPath.end())
+					return nullptr;
+
+				return it->second.matches == 1 ? it->second.pItem : nullptr;
 			}
 
 			//! Searches for the component cache item by its exact path name.
@@ -28653,7 +28713,10 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* short_symbol(util::str_view name) const noexcept {
 				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
 				const auto it = m_compByShortSymbol.find(lookup_key(name));
-				return it != m_compByShortSymbol.end() ? it->second : nullptr;
+				if (it == m_compByShortSymbol.end())
+					return nullptr;
+
+				return it->second.matches == 1 ? it->second.pItem : nullptr;
 			}
 
 			//! Searches for the component cache item by its unique short symbol name.
@@ -28664,6 +28727,35 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* short_symbol(const char* name, uint32_t len = 0) const noexcept {
 				GAIA_ASSERT(name != nullptr);
 				return short_symbol(normalize_name_view(name, len));
+			}
+
+			//! Appends every component entity whose scoped path exactly matches @a name.
+			//! Unique matches append one entity. Ambiguous matches append all matching component entities.
+			//! \param out Output array.
+			//! \param name Exact scoped path to inspect.
+			void add_path_matches(cnt::darray<Entity>& out, util::str_view name) const {
+				if (name.empty())
+					return;
+
+				const auto it = m_compByPath.find(lookup_key(name));
+				if (it == m_compByPath.end())
+					return;
+
+				const auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+
+				if (entry.matches == 1) {
+					GAIA_ASSERT(entry.pItem != nullptr);
+					push_unique_entity(out, entry.pItem->entity);
+					return;
+				}
+
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
+					if (pItem->path.view() == name)
+						push_unique_entity(out, pItem->entity);
+				}
 			}
 
 		public:
@@ -31286,10 +31378,10 @@ namespace gaia {
 
 						pPairIndex->pairIndexBuffer[pPairIndex->pairCnt] = (uint8_t)i;
 						++pPairIndex->pairCnt;
-						append_pair_index_bucket(
+						add_pair_index_bucket(
 								pPairIndex->pairRelCountBuffer, pPairIndex->pairRelCountCnt, pPairIndex->pairRelIndexBuffer,
 								pairRelIndexCnt, (EntityId)ids[i].id(), (uint8_t)i);
-						append_pair_index_bucket(
+						add_pair_index_bucket(
 								pPairIndex->pairTgtCountBuffer, pPairIndex->pairTgtCountCnt, pPairIndex->pairTgtIndexBuffer,
 								pairTgtIndexCnt, (EntityId)ids[i].gen(), (uint8_t)i);
 
@@ -31328,7 +31420,7 @@ namespace gaia {
 					return bucket;
 				}
 
-				static void append_pair_index_bucket(
+				static void add_pair_index_bucket(
 						PairCountBucket* pBuckets, uint8_t& bucketCnt, uint8_t* pIndexBuffer, uint8_t& indexCnt, EntityId id,
 						uint8_t idsIdx) {
 					auto& bucket = ensure_pair_index_bucket(pBuckets, bucketCnt, id, indexCnt);
@@ -45858,7 +45950,7 @@ namespace gaia {
 				}
 
 				static void
-				append_chunk_run(cnt::darray<detail::BfsChunkRun>& runs, const EntityContainer& ec, uint32_t entityOffset) {
+				add_chunk_run(cnt::darray<detail::BfsChunkRun>& runs, const EntityContainer& ec, uint32_t entityOffset) {
 					if (runs.empty()) {
 						runs.push_back({ec.pArchetype, ec.pChunk, ec.row, (uint16_t)(ec.row + 1), entityOffset});
 						return;
@@ -46105,7 +46197,7 @@ namespace gaia {
 					uint32_t entityOffset = 0;
 					for (const auto entity: chunkOrderedEntities) {
 						const auto& ec = ::gaia::ecs::fetch(world, entity);
-						append_chunk_run(runs, ec, entityOffset++);
+						add_chunk_run(runs, ec, entityOffset++);
 					}
 
 					runData.cachedSeedTerm = seedTerm.id;
@@ -49990,7 +50082,7 @@ namespace gaia {
 				static void collect_query_matches(World& world, ObserverRuntimeData& obs, cnt::darray<Entity>& out);
 				static void collect_query_target_matches(
 						World& world, ObserverRuntimeData& obs, EntitySpan targets, cnt::darray<Entity>& out);
-				static void append_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets);
+				static void add_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets);
 				static void copy_target_narrow_plan(const ObserverRuntimeData& obs, TargetNarrowCacheEntry& entry);
 				GAIA_NODISCARD static bool
 				same_target_narrow_plan(const ObserverRuntimeData& obs, const TargetNarrowCacheEntry& entry);
@@ -50003,7 +50095,7 @@ namespace gaia {
 						ObserverRegistry& registry, World& world, ObserverEvent event, EntitySpan terms,
 						EntitySpan targetEntities = {});
 				GAIA_NODISCARD static Context prepare_add_new(ObserverRegistry& registry, World& world, EntitySpan terms);
-				static void append_targets(World& world, Context& ctx, EntitySpan targets);
+				static void add_targets(World& world, Context& ctx, EntitySpan targets);
 				static void finish(World& world, Context&& ctx);
 			};
 
@@ -50155,7 +50247,7 @@ namespace gaia {
 			static void collect_propagated_targets_cached(
 					ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 					uint64_t visitStamp, cnt::set<EntityLookupKey>& visitedPairs, cnt::darray<Entity>& outTargets);
-			static void append_propagated_targets_cached(
+			static void add_propagated_targets_cached(
 					ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 					cnt::darray<Entity>& outTargets);
 			GAIA_NODISCARD static bool collect_source_traversal_diff_targets(
@@ -50196,7 +50288,7 @@ namespace gaia {
 			GAIA_NODISCARD DiffDispatchCtx
 			prepare_diff(World& world, ObserverEvent event, EntitySpan terms, EntitySpan targetEntities = {});
 			GAIA_NODISCARD DiffDispatchCtx prepare_diff_add_new(World& world, EntitySpan terms);
-			void append_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets);
+			void add_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets);
 			void finish_diff(World& world, DiffDispatchCtx&& ctx);
 
 			void teardown() {
@@ -51255,6 +51347,18 @@ namespace gaia {
 
 				auto* pComp = reinterpret_cast<Component*>(ec.pChunk->comp_ptr_mut(compIdx, ec.row));
 				*pComp = comp;
+			}
+
+			//! Finalizes a newly registered component entity after the cache record has been created.
+			//! This synchronizes the core `Component` value stored on the component entity, registers the
+			//! default symbol through the normal naming path, and optionally latches the `Sparse` trait.
+			//! \param item Registered component cache item.
+			//! \param addSparseTrait Whether runtime sparse registration should attach the `Sparse` trait.
+			void finalize_component_registration(const ComponentCacheItem& item, bool addSparseTrait) {
+				sync_component_record(item.entity, item.comp);
+				name_raw(item.entity, item.name.str(), item.name.len());
+				if (addSparseTrait && item.comp.storage_type() == DataStorageType::Sparse)
+					add(item.entity, Sparse);
 			}
 
 			//! Latches DontFragment on a component entity record.
@@ -53086,14 +53190,14 @@ namespace gaia {
 				return true;
 			}
 
-			template <typename Func>
-			bool find_component_in_scope_chain_inter(Entity scopeEntity, const char* name, uint32_t len, Func&& func) const {
+			GAIA_NODISCARD const ComponentCacheItem*
+			find_comp_scope_chain_inter(Entity scopeEntity, const char* name, uint32_t len) const {
 				if (scopeEntity == EntityBad)
-					return false;
+					return nullptr;
 
 				util::str scopePath;
 				if (!build_scope_path(scopeEntity, scopePath))
-					return false;
+					return nullptr;
 
 				util::str scopedName;
 				scopedName.reserve(scopePath.size() + 1 + len);
@@ -53104,10 +53208,8 @@ namespace gaia {
 					scopedName.append('.');
 					scopedName.append(name, len);
 
-					if (const auto* pItem = m_compCache.path(scopedName.data(), (uint32_t)scopedName.size()); pItem != nullptr) {
-						if (func(*pItem))
-							return true;
-					}
+					if (const auto* pItem = m_compCache.path(scopedName.data(), (uint32_t)scopedName.size()); pItem != nullptr)
+						return pItem;
 
 					const auto parentSepIdx = scopePath.view().find_last_of('.');
 					if (parentSepIdx == BadIndex)
@@ -53116,7 +53218,109 @@ namespace gaia {
 					scopePath.assign(util::str_view(scopePath.data(), parentSepIdx));
 				}
 
-				return false;
+				return nullptr;
+			}
+
+			void add_comp_scope_chain_hits_inter(
+					cnt::darray<Entity>& out, Entity scopeEntity, const char* name, uint32_t len) const {
+				if (scopeEntity == EntityBad)
+					return;
+
+				util::str scopePath;
+				if (!build_scope_path(scopeEntity, scopePath))
+					return;
+
+				util::str scopedName;
+				scopedName.reserve(scopePath.size() + 1 + len);
+
+				while (!scopePath.empty()) {
+					scopedName.clear();
+					scopedName.append(scopePath.view());
+					scopedName.append('.');
+					scopedName.append(name, len);
+
+					if (const auto* pItem = m_compCache.path(scopedName.data(), (uint32_t)scopedName.size()); pItem != nullptr)
+						ComponentCache::push_unique_entity(out, pItem->entity);
+
+					const auto parentSepIdx = scopePath.view().find_last_of('.');
+					if (parentSepIdx == BadIndex)
+						break;
+
+					scopePath.assign(util::str_view(scopePath.data(), parentSepIdx));
+				}
+			}
+
+			GAIA_NODISCARD const ComponentCacheItem* find_comp_lookup_inter(const char* name, uint32_t len) const {
+				if (const auto* pItem = find_comp_scope_chain_inter(m_componentScope, name, len); pItem != nullptr)
+					return pItem;
+
+				for (const auto scopeEntity: m_componentLookupPath) {
+					if (scopeEntity == m_componentScope)
+						continue;
+
+					if (const auto* pItem = find_comp_scope_chain_inter(scopeEntity, name, len); pItem != nullptr)
+						return pItem;
+				}
+
+				return nullptr;
+			}
+
+			void add_comp_lookup_hits_inter(cnt::darray<Entity>& out, const char* name, uint32_t len) const {
+				add_comp_scope_chain_hits_inter(out, m_componentScope, name, len);
+				for (const auto scopeEntity: m_componentLookupPath) {
+					if (scopeEntity == m_componentScope)
+						continue;
+
+					add_comp_scope_chain_hits_inter(out, scopeEntity, name, len);
+				}
+			}
+
+			GAIA_NODISCARD const ComponentCacheItem*
+			find_comp_exact_inter(const char* name, uint32_t len, bool isPath, bool isSymbol) const {
+				if (const auto* pItem = m_compCache.symbol(name, len); pItem != nullptr)
+					return pItem;
+
+				if (!isPath) {
+					if (const auto* pItem = m_compCache.path(name, len); pItem != nullptr)
+						return pItem;
+					if (!isSymbol) {
+						if (const auto* pItem = m_compCache.short_symbol(name, len); pItem != nullptr)
+							return pItem;
+					}
+				}
+
+				return nullptr;
+			}
+
+			void add_comp_exact_hits_inter(
+					cnt::darray<Entity>& out, const char* name, uint32_t len, bool isPath, bool isSymbol) const {
+				if (const auto* pItem = m_compCache.symbol(name, len); pItem != nullptr)
+					ComponentCache::push_unique_entity(out, pItem->entity);
+
+				m_compCache.add_path_matches(out, util::str_view(name, len));
+
+				if (out.empty() && !isPath && !isSymbol) {
+					if (const auto* pItem = m_compCache.short_symbol(name, len); pItem != nullptr)
+						ComponentCache::push_unique_entity(out, pItem->entity);
+				}
+			}
+
+			GAIA_NODISCARD bool has_comp_lookup_ctx_inter() const noexcept {
+				return m_componentScope != EntityBad || !m_componentLookupPath.empty();
+			}
+
+			GAIA_NODISCARD static bool is_unqualified_comp_name_inter(const char* name, uint32_t len) noexcept {
+				return memchr(name, '.', len) == nullptr && memchr(name, ':', len) == nullptr;
+			}
+
+			GAIA_NODISCARD Entity pick_name_or_comp_inter(Entity namedEntity, const ComponentCacheItem* pCompItem) const {
+				if (pCompItem == nullptr)
+					return namedEntity;
+
+				if (namedEntity == EntityBad)
+					return pCompItem->entity;
+
+				return m_compCache.find(namedEntity) != nullptr ? pCompItem->entity : namedEntity;
 			}
 
 			//! Resolves a component name using world-aware scope rules.
@@ -53140,33 +53344,12 @@ namespace gaia {
 				}
 
 				if (!isPath && !isSymbol) {
-					const auto* pFound = (const ComponentCacheItem*)nullptr;
-					const auto findAndStore = [&](const ComponentCacheItem& item) {
-						pFound = &item;
-						return true;
-					};
-					if (find_component_in_scope_chain_inter(m_componentScope, name, l, findAndStore))
-						return pFound;
-
-					for (const auto scopeEntity: m_componentLookupPath) {
-						if (scopeEntity == m_componentScope)
-							continue;
-						if (find_component_in_scope_chain_inter(scopeEntity, name, l, findAndStore))
-							return pFound;
-					}
-				}
-
-				if (const auto* pItem = m_compCache.symbol(name, l); pItem != nullptr)
-					return pItem;
-
-				if (!isPath) {
-					if (const auto* pItem = m_compCache.path(name, l); pItem != nullptr)
+					if (const auto* pItem = find_comp_lookup_inter(name, l); pItem != nullptr)
 						return pItem;
-					if (!isSymbol) {
-						if (const auto* pItem = m_compCache.short_symbol(name, l); pItem != nullptr)
-							return pItem;
-					}
 				}
+
+				if (const auto* pItem = find_comp_exact_inter(name, l, isPath, isSymbol); pItem != nullptr)
+					return pItem;
 
 				const auto aliasEntity = alias(name, l);
 				return aliasEntity != EntityBad ? m_compCache.find(aliasEntity) : nullptr;
@@ -53293,9 +53476,7 @@ namespace gaia {
 				(void)current_scope_path(scopePath);
 
 				const auto& item = comp_cache_mut().add<FT>(entity, scopePath.view());
-				sset<Component>(item.entity) = item.comp;
-				// Register the default component symbol through the normal entity naming path.
-				name_raw(item.entity, item.name.str(), item.name.len());
+				finalize_component_registration(item, false);
 #if GAIA_ECS_AUTO_COMPONENT_SCHEMA
 				auto_populate_component_schema<FT>(comp_cache_mut().get(item.entity));
 #endif
@@ -53319,17 +53500,7 @@ namespace gaia {
 				util::str scopePath;
 				(void)current_scope_path(scopePath);
 				const auto& itemInfo = comp_cache_mut().add(entity, item, scopePath.view());
-				{
-					auto& ec = m_recs.entities[itemInfo.entity.id()];
-					const auto compIdx = core::get_index(ec.pArchetype->ids_view(), GAIA_ID(Component));
-					GAIA_ASSERT(compIdx != BadIndex);
-					auto* pComp = reinterpret_cast<Component*>(ec.pChunk->comp_ptr_mut(compIdx, ec.row));
-					*pComp = itemInfo.comp;
-				}
-				// Register the default component symbol through the normal entity naming path.
-				name_raw(itemInfo.entity, itemInfo.name.str(), itemInfo.name.len());
-				if (itemInfo.comp.storage_type() == DataStorageType::Sparse)
-					add(itemInfo.entity, Sparse);
+				finalize_component_registration(itemInfo, true);
 				return itemInfo;
 			}
 
@@ -53713,7 +53884,7 @@ namespace gaia {
 				(void)copy_sparse_entity_data(srcEntity, dstEntity, [](Entity) {
 					return true;
 				});
-				m_observers.append_diff_targets(*this, addDiffCtx, EntitySpan{&dstEntity, 1});
+				m_observers.add_diff_targets(*this, addDiffCtx, EntitySpan{&dstEntity, 1});
 
 				m_observers.on_add(*this, *pDstArchetype, EntitySpan{pAddedIds, addedIdCount}, EntitySpan{&dstEntity, 1});
 	#if GAIA_OBSERVERS_ENABLED
@@ -54086,10 +54257,10 @@ namespace gaia {
 					if (!addedIds.empty()) {
 						auto entities = pDstChunk->entity_view();
 						if (pAddDiffCtx != nullptr)
-							m_observers.append_diff_targets(
+							m_observers.add_diff_targets(
 									*this, *pAddDiffCtx, EntitySpan{entities.data() + originalChunkSize, toCreate});
 						else if (useLocalAddDiff)
-							m_observers.append_diff_targets(
+							m_observers.add_diff_targets(
 									*this, addDiffCtx, EntitySpan{entities.data() + originalChunkSize, toCreate});
 						m_observers.on_add(
 								*this, *pDstArchetype, addedIds, EntitySpan{entities.data() + originalChunkSize, toCreate});
@@ -54447,7 +54618,7 @@ namespace gaia {
 				// already present in the destination archetype and therefore absent from addedIds tail.
 				(void)copy_sparse_entity_data(prefabEntity, instance, copiedSparseIds);
 #if GAIA_OBSERVERS_ENABLED
-				m_observers.append_diff_targets(*this, addDiffCtx, EntitySpan{&instance, 1});
+				m_observers.add_diff_targets(*this, addDiffCtx, EntitySpan{&instance, 1});
 #endif
 
 				touch_rel_version(Is);
@@ -54597,8 +54768,7 @@ namespace gaia {
 	#endif
 
 	#if GAIA_OBSERVERS_ENABLED
-						m_observers.append_diff_targets(
-								*this, addDiffCtx, EntitySpan{entities.data() + originalChunkSize, toCreate});
+						m_observers.add_diff_targets(*this, addDiffCtx, EntitySpan{entities.data() + originalChunkSize, toCreate});
 						m_observers.on_add(
 								*this, *pDstArchetype, EntitySpan{node.addedIds},
 								EntitySpan{entities.data() + originalChunkSize, toCreate});
@@ -55743,41 +55913,12 @@ namespace gaia {
 
 				push_unique(get_entity_inter(name, l));
 
-				if (memchr(name, '.', l) == nullptr && memchr(name, ':', l) == nullptr) {
-					const auto pushLookupHit = [&](const ComponentCacheItem& item) {
-						push_unique(item.entity);
-						return false;
-					};
+				if (memchr(name, '.', l) == nullptr && memchr(name, ':', l) == nullptr)
+					add_comp_lookup_hits_inter(out, name, l);
 
-					(void)find_component_in_scope_chain_inter(m_componentScope, name, l, pushLookupHit);
-					for (const auto scopeEntity: m_componentLookupPath) {
-						if (scopeEntity == m_componentScope)
-							continue;
-
-						(void)find_component_in_scope_chain_inter(scopeEntity, name, l, pushLookupHit);
-					}
-				}
-
-				if (const auto* pItem = m_compCache.symbol(name, l); pItem != nullptr)
-					push_unique(pItem->entity);
-
-				if (const auto* pItem = m_compCache.path(name, l); pItem != nullptr) {
-					push_unique(pItem->entity);
-				} else {
-					const auto needle = util::str_view(name, l);
-					for (const auto& [entityId, pItem2]: m_compCache.m_compByEntityId) {
-						(void)entityId;
-						GAIA_ASSERT(pItem2 != nullptr);
-						const auto& item = *pItem2;
-						if (item.path.view() == needle)
-							push_unique(item.entity);
-					}
-				}
-
-				if (out.empty() && memchr(name, '.', l) == nullptr && memchr(name, ':', l) == nullptr) {
-					if (const auto* pItem = m_compCache.short_symbol(name, l); pItem != nullptr)
-						push_unique(pItem->entity);
-				}
+				const bool isPath = memchr(name, '.', l) != nullptr;
+				const bool isSymbol = memchr(name, ':', l) != nullptr;
+				add_comp_exact_hits_inter(out, name, l, isPath, isSymbol);
 
 				push_unique(alias(name, l));
 			}
@@ -55858,27 +55999,18 @@ namespace gaia {
 
 				auto key = EntityNameLookupKey(name, len, 0);
 				const auto l = key.len();
+				const bool isUnqualifiedCompName = is_unqualified_comp_name_inter(name, l);
+				const auto namedEntity = find_named_entity_inter(name, l);
 
-				if ((m_componentScope != EntityBad || !m_componentLookupPath.empty()) && memchr(name, '.', l) == nullptr &&
-						memchr(name, ':', l) == nullptr) {
-					const auto* pScopedItem = resolve_component_name_inter(name, l);
-					if (pScopedItem != nullptr) {
-						const auto it = m_nameToEntity.find(key);
-						if (it == m_nameToEntity.end())
-							return pScopedItem->entity;
-
-						if (m_compCache.find(it->second) != nullptr)
-							return pScopedItem->entity;
-					}
+				if (has_comp_lookup_ctx_inter() && isUnqualifiedCompName) {
+					if (const auto* pScopedItem = resolve_component_name_inter(name, l); pScopedItem != nullptr)
+						return pick_name_or_comp_inter(namedEntity, pScopedItem);
 				}
 
-				const auto it = m_nameToEntity.find(key);
-				if (it != m_nameToEntity.end())
-					return it->second;
+				if (namedEntity != EntityBad)
+					return namedEntity;
 
-				// Name not found. This might be a component so check the component cache
-				const auto* pItem = resolve_component_name_inter(name, l);
-				if (pItem != nullptr)
+				if (const auto* pItem = resolve_component_name_inter(name, l); pItem != nullptr)
 					return pItem->entity;
 
 				const auto aliasEntity = alias(name, l);
@@ -60960,7 +61092,7 @@ namespace gaia {
 					if (!addedIds.empty()) {
 						auto entities = pChunk->entity_view();
 						const auto targets = EntitySpan{entities.data() + originalChunkSize, toCreate};
-						m_observers.append_diff_targets(*this, addDiffCtx, targets);
+						m_observers.add_diff_targets(*this, addDiffCtx, targets);
 						m_observers.on_add(*this, archetype, addedIds, targets);
 					}
 #endif
@@ -61448,7 +61580,7 @@ namespace gaia {
 		}
 
 		inline void
-		ObserverRegistry::DiffDispatcher::append_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets) {
+		ObserverRegistry::DiffDispatcher::add_valid_targets(World& world, cnt::darray<Entity>& out, EntitySpan targets) {
 			for (auto entity: targets) {
 				if (world.valid(entity))
 					out.push_back(entity);
@@ -61584,7 +61716,7 @@ namespace gaia {
 					!SharedDispatch::has_pair_relations(world, index.traversalRelation, terms)) {
 				ctx.targeted = true;
 				ctx.targets.reserve((uint32_t)targetEntities.size());
-				append_valid_targets(world, ctx.targets, targetEntities);
+				add_valid_targets(world, ctx.targets, targetEntities);
 				normalize_targets(ctx.targets);
 			}
 
@@ -61745,11 +61877,11 @@ namespace gaia {
 			return ctx;
 		}
 
-		inline void ObserverRegistry::DiffDispatcher::append_targets(World& world, Context& ctx, EntitySpan targets) {
+		inline void ObserverRegistry::DiffDispatcher::add_targets(World& world, Context& ctx, EntitySpan targets) {
 			if (!ctx.active || !ctx.targeted || targets.empty())
 				return;
 
-			append_valid_targets(world, ctx.targets, targets);
+			add_valid_targets(world, ctx.targets, targets);
 		}
 
 		inline void ObserverRegistry::DiffDispatcher::finish(World& world, Context&& ctx) {
@@ -62320,7 +62452,7 @@ namespace gaia {
 			}
 		}
 
-		inline void ObserverRegistry::append_propagated_targets_cached(
+		inline void ObserverRegistry::add_propagated_targets_cached(
 				ObserverRegistry& registry, World& world, const ObserverRuntimeData& obs, Entity changedSource,
 				cnt::darray<Entity>& outTargets) {
 			auto& entry = ensure_propagated_targets_cached(registry, world, obs, changedSource);
@@ -62370,7 +62502,7 @@ namespace gaia {
 				return false;
 
 			if (changedSources.size() == 1) {
-				append_propagated_targets_cached(registry, world, obs, changedSources[0], outTargets);
+				add_propagated_targets_cached(registry, world, obs, changedSources[0], outTargets);
 				return true;
 			}
 
@@ -62387,7 +62519,7 @@ namespace gaia {
 				EntitySpan changedTargets, cnt::darray<Entity>& outTargets) {
 			switch (obs.plan.exec_kind()) {
 				case ObserverPlan::ExecKind::DiffLocal:
-					DiffDispatcher::append_valid_targets(world, outTargets, changedTargets);
+					DiffDispatcher::add_valid_targets(world, outTargets, changedTargets);
 					return true;
 				case ObserverPlan::ExecKind::DiffPropagated:
 					return collect_source_traversal_diff_targets(registry, world, obs, changedTerms, changedTargets, outTargets);
@@ -62493,8 +62625,8 @@ namespace gaia {
 			return DiffDispatcher::prepare_add_new(*this, world, terms);
 		}
 
-		inline void ObserverRegistry::append_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets) {
-			DiffDispatcher::append_targets(world, ctx, targets);
+		inline void ObserverRegistry::add_diff_targets(World& world, DiffDispatchCtx& ctx, EntitySpan targets) {
+			DiffDispatcher::add_targets(world, ctx, targets);
 		}
 
 		inline void ObserverRegistry::finish_diff(World& world, DiffDispatchCtx&& ctx) {

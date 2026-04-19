@@ -3066,7 +3066,7 @@ namespace gaia {
 				}
 
 				static void
-				append_chunk_run(cnt::darray<detail::BfsChunkRun>& runs, const EntityContainer& ec, uint32_t entityOffset) {
+				add_chunk_run(cnt::darray<detail::BfsChunkRun>& runs, const EntityContainer& ec, uint32_t entityOffset) {
 					if (runs.empty()) {
 						runs.push_back({ec.pArchetype, ec.pChunk, ec.row, (uint16_t)(ec.row + 1), entityOffset});
 						return;
@@ -3313,7 +3313,7 @@ namespace gaia {
 					uint32_t entityOffset = 0;
 					for (const auto entity: chunkOrderedEntities) {
 						const auto& ec = ::gaia::ecs::fetch(world, entity);
-						append_chunk_run(runs, ec, entityOffset++);
+						add_chunk_run(runs, ec, entityOffset++);
 					}
 
 					runData.cachedSeedTerm = seedTerm.id;

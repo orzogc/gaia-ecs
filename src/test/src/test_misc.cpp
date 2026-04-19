@@ -214,6 +214,23 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(cc.get(item.entity).entity == item.entity);
 	}
 
+	SUBCASE("typed/runtime registration sync component record") {
+		TestWorld twld;
+
+		const auto& typed = wld.add<Position>();
+		CHECK(wld.get<ecs::Component>(typed.entity) == typed.comp);
+		const auto typedSymbol = wld.symbol(typed.entity);
+		CHECK(typedSymbol == gaia::util::str_view(typed.name.str(), typed.name.len()));
+
+		const auto& runtime = add_runtime_component(
+				wld, "Runtime_Component_Finalize", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+				(uint32_t)alignof(Position));
+		CHECK(wld.get<ecs::Component>(runtime.entity) == runtime.comp);
+		const auto runtimeSymbol = wld.symbol(runtime.entity);
+		CHECK(runtimeSymbol == gaia::util::str_view("Runtime_Component_Finalize"));
+		CHECK(wld.has(runtime.entity, ecs::Sparse));
+	}
+
 	SUBCASE("symbol path alias and display name each have explicit behavior") {
 		TestWorld twld;
 		auto& cc = wld.comp_cache_mut();
@@ -279,6 +296,19 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(out[0] == entityA);
 	}
 
+	SUBCASE("world resolve reports unique short-symbol matches") {
+		TestWorld twld;
+		auto& cc = wld.comp_cache_mut();
+
+		const auto entity = wld.add();
+		(void)add_runtime_component(cc, entity, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1);
+
+		cnt::darray<ecs::Entity> out;
+		wld.resolve(out, "Device");
+		CHECK(out.size() == 1);
+		CHECK(out[0] == entity);
+	}
+
 	SUBCASE("path ambiguity resolves when one component leaves the shared path") {
 		TestWorld twld;
 		auto& cc = wld.comp_cache_mut();
@@ -299,6 +329,25 @@ TEST_CASE("Component cache - runtime registration") {
 		CHECK(wld.path(entityB, "debug.Device"));
 		CHECK(wld.path("shared.Device") == entityA);
 		CHECK(wld.get("shared.Device") == entityA);
+	}
+
+	SUBCASE("path diagnostics report shared-path components") {
+		TestWorld twld;
+		auto& cc = wld.comp_cache_mut();
+
+		const auto entityA = wld.add();
+		(void)add_runtime_component(cc, entityA, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1);
+		CHECK(wld.path(entityA, "shared.Device"));
+
+		const auto entityB = wld.add();
+		(void)add_runtime_component(cc, entityB, "Debug::Device", 0, ecs::DataStorageType::Table, 1);
+		CHECK(wld.path(entityB, "shared.Device"));
+
+		cnt::darray<ecs::Entity> out;
+		wld.resolve(out, "shared.Device");
+		CHECK(out.size() == 2);
+		CHECK((out[0] == entityA || out[1] == entityA));
+		CHECK((out[0] == entityB || out[1] == entityB));
 	}
 
 	SUBCASE("schema field registration supports add update and clear") {

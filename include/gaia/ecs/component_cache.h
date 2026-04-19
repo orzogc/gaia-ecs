@@ -24,6 +24,11 @@ namespace gaia {
 		class GAIA_API ComponentCache final {
 			friend class World;
 
+			struct ResolvedLookupEntry {
+				const ComponentCacheItem* pItem = nullptr;
+				uint32_t matches = 0;
+			};
+
 			//! Lookup of component items by component entity index.
 			cnt::map<uint32_t, const ComponentCacheItem*> m_compByEntityId;
 			//! World-local component lookup keyed by compile-time metadata hash.
@@ -32,11 +37,11 @@ namespace gaia {
 			//! Lookup of component items by their exact registered symbol name.
 			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compBySymbol;
 			//! Lookup of component items by their exact path name.
-			//! Ambiguous paths are stored with nullptr and treated as lookup misses.
-			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByPath;
+			//! Ambiguous paths keep a tracked representative but remain lookup misses.
+			cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry> m_compByPath;
 			//! Lookup of component items by their unique short symbol name (leaf after the last `::`).
-			//! Ambiguous short names are stored with nullptr and treated as lookup misses.
-			cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*> m_compByShortSymbol;
+			//! Ambiguous short names keep a tracked representative but remain lookup misses.
+			cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry> m_compByShortSymbol;
 
 			//! Clears the contents of the component cache
 			//! \warning Should be used only after worlds are cleared because it invalidates all currently
@@ -160,7 +165,7 @@ namespace gaia {
 			}
 
 			static void add_lookup_mapping(
-					cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*>& map, util::str_view view,
+					cnt::map<ComponentCacheItem::SymbolLookupKey, ResolvedLookupEntry>& map, util::str_view view,
 					const ComponentCacheItem& item) {
 				if (view.empty())
 					return;
@@ -168,47 +173,29 @@ namespace gaia {
 				const auto key = lookup_key(view);
 				const auto it = map.find(key);
 				if (it == map.end()) {
-					map.emplace(key, &item);
+					map.emplace(key, ResolvedLookupEntry{&item, 1});
 					return;
 				}
 
-				if (it->second != &item)
-					it->second = nullptr;
+				auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+				++entry.matches;
 			}
 
 			void add_path_mapping(const ComponentCacheItem& item) {
 				add_lookup_mapping(m_compByPath, item.path.view(), item);
 			}
 
-			void refresh_path_mapping(util::str_view pathValue, const ComponentCacheItem* pIgnore = nullptr) {
-				if (pathValue.empty())
+			static void push_unique_entity(cnt::darray<Entity>& out, Entity entity) {
+				if (entity == EntityBad)
 					return;
 
-				const ComponentCacheItem* pMatch = nullptr;
-				for (const auto& [entityId, pItem]: m_compByEntityId) {
-					(void)entityId;
-					GAIA_ASSERT(pItem != nullptr);
-					if (pItem == pIgnore)
-						continue;
-
-					if (pItem->path.view() != pathValue)
-						continue;
-
-					if (pMatch == nullptr) {
-						pMatch = pItem;
-						continue;
-					}
-
-					m_compByPath[lookup_key(pathValue)] = nullptr;
-					return;
+				for (const auto existing: out) {
+					if (existing == entity)
+						return;
 				}
 
-				if (pMatch == nullptr) {
-					m_compByPath.erase(lookup_key(pathValue));
-					return;
-				}
-
-				m_compByPath[lookup_key(pathValue)] = pMatch;
+				out.push_back(entity);
 			}
 
 			void remove_path_mapping(const ComponentCacheItem& item) {
@@ -221,13 +208,34 @@ namespace gaia {
 				if (it == m_compByPath.end())
 					return;
 
-				if (it->second == &item) {
+				auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+
+				if (entry.matches == 1) {
+					GAIA_ASSERT(entry.pItem == &item);
 					m_compByPath.erase(it);
 					return;
 				}
 
-				GAIA_ASSERT(it->second == nullptr);
-				refresh_path_mapping(pathValue, &item);
+				--entry.matches;
+				if (entry.pItem != &item)
+					return;
+
+				entry.pItem = nullptr;
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
+					if (pItem == &item)
+						continue;
+
+					if (pItem->path.view() != pathValue)
+						continue;
+
+					entry.pItem = pItem;
+					return;
+				}
+
+				GAIA_ASSERT(false);
 			}
 
 			//! Adds all name-based lookup mappings for a component item.
@@ -441,7 +449,10 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* path(util::str_view name) const noexcept {
 				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
 				const auto it = m_compByPath.find(lookup_key(name));
-				return it != m_compByPath.end() ? it->second : nullptr;
+				if (it == m_compByPath.end())
+					return nullptr;
+
+				return it->second.matches == 1 ? it->second.pItem : nullptr;
 			}
 
 			//! Searches for the component cache item by its exact path name.
@@ -460,7 +471,10 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* short_symbol(util::str_view name) const noexcept {
 				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
 				const auto it = m_compByShortSymbol.find(lookup_key(name));
-				return it != m_compByShortSymbol.end() ? it->second : nullptr;
+				if (it == m_compByShortSymbol.end())
+					return nullptr;
+
+				return it->second.matches == 1 ? it->second.pItem : nullptr;
 			}
 
 			//! Searches for the component cache item by its unique short symbol name.
@@ -471,6 +485,35 @@ namespace gaia {
 			GAIA_NODISCARD const ComponentCacheItem* short_symbol(const char* name, uint32_t len = 0) const noexcept {
 				GAIA_ASSERT(name != nullptr);
 				return short_symbol(normalize_name_view(name, len));
+			}
+
+			//! Appends every component entity whose scoped path exactly matches @a name.
+			//! Unique matches append one entity. Ambiguous matches append all matching component entities.
+			//! \param out Output array.
+			//! \param name Exact scoped path to inspect.
+			void add_path_matches(cnt::darray<Entity>& out, util::str_view name) const {
+				if (name.empty())
+					return;
+
+				const auto it = m_compByPath.find(lookup_key(name));
+				if (it == m_compByPath.end())
+					return;
+
+				const auto& entry = it->second;
+				GAIA_ASSERT(entry.matches != 0);
+
+				if (entry.matches == 1) {
+					GAIA_ASSERT(entry.pItem != nullptr);
+					push_unique_entity(out, entry.pItem->entity);
+					return;
+				}
+
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
+					if (pItem->path.view() == name)
+						push_unique_entity(out, pItem->entity);
+				}
 			}
 
 		public:

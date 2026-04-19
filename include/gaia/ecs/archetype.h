@@ -196,10 +196,10 @@ namespace gaia {
 
 						pPairIndex->pairIndexBuffer[pPairIndex->pairCnt] = (uint8_t)i;
 						++pPairIndex->pairCnt;
-						append_pair_index_bucket(
+						add_pair_index_bucket(
 								pPairIndex->pairRelCountBuffer, pPairIndex->pairRelCountCnt, pPairIndex->pairRelIndexBuffer,
 								pairRelIndexCnt, (EntityId)ids[i].id(), (uint8_t)i);
-						append_pair_index_bucket(
+						add_pair_index_bucket(
 								pPairIndex->pairTgtCountBuffer, pPairIndex->pairTgtCountCnt, pPairIndex->pairTgtIndexBuffer,
 								pairTgtIndexCnt, (EntityId)ids[i].gen(), (uint8_t)i);
 
@@ -238,7 +238,7 @@ namespace gaia {
 					return bucket;
 				}
 
-				static void append_pair_index_bucket(
+				static void add_pair_index_bucket(
 						PairCountBucket* pBuckets, uint8_t& bucketCnt, uint8_t* pIndexBuffer, uint8_t& indexCnt, EntityId id,
 						uint8_t idsIdx) {
 					auto& bucket = ensure_pair_index_bucket(pBuckets, bucketCnt, id, indexCnt);

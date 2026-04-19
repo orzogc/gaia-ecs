@@ -2051,6 +2051,34 @@ TEST_CASE("Component names") {
 		});
 	}
 
+	SUBCASE("component scope diagnostics include parent fallback") {
+		TestWorld twld;
+
+		const auto gameplay = wld.add();
+		wld.name(gameplay, "gameplay");
+
+		const auto render = wld.add();
+		wld.name(render, "render");
+		wld.child(render, gameplay);
+
+		ecs::Entity gameplayPos = ecs::EntityBad;
+		ecs::Entity renderPos = ecs::EntityBad;
+		wld.scope(gameplay, [&] {
+			gameplayPos = wld.add<Position>().entity;
+
+			wld.scope(render, [&] {
+				renderPos = wld.add<dummy::Position>().entity;
+
+				cnt::darray<ecs::Entity> out;
+				wld.resolve(out, "Position");
+				CHECK(out.size() == 2);
+				CHECK((out[0] == renderPos || out[1] == renderPos));
+				CHECK((out[0] == gameplayPos || out[1] == gameplayPos));
+				CHECK(wld.get("Position") == renderPos);
+			});
+		});
+	}
+
 	SUBCASE("lookup path resolves unqualified component names in configured order") {
 		TestWorld twld;
 
@@ -2238,6 +2266,27 @@ TEST_CASE("Component names") {
 		wld.resolve(out, "Device");
 		CHECK(out.size() == 1);
 		CHECK(out[0] == namedEntity);
+	}
+
+	SUBCASE("world lookup prefers scoped component over global component name") {
+		TestWorld twld;
+
+		const auto gameplay = wld.add();
+		wld.name(gameplay, "gameplay");
+
+		const auto render = wld.add();
+		wld.name(render, "render");
+		wld.child(render, gameplay);
+
+		const auto globalComp = add_runtime_component(wld, "Device", 0, ecs::DataStorageType::Table, 1).entity;
+
+		ecs::Entity scopedComp = ecs::EntityBad;
+		wld.scope(render, [&] {
+			scopedComp = add_runtime_component(wld, "Render::Device", 0, ecs::DataStorageType::Table, 1).entity;
+			CHECK(wld.get("Device") == scopedComp);
+		});
+
+		CHECK(wld.get("Device") == globalComp);
 	}
 
 	SUBCASE("world lookup prefers entity paths over component path collisions") {
