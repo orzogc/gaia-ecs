@@ -3000,44 +3000,33 @@ namespace gaia {
 			}
 
 			//! Creates a new runtime component if not found already.
-			//! \param name Component name.
-			//! \param size Component size in bytes.
-			//! \param storageType Data storage type.
-			//! \param alig Component alignment in bytes.
-			//! \param soa Number of SoA items (0 for AoS).
-			//! \param pSoaSizes SoA item sizes, must contain at least @a soa values when @a soa > 0.
-			//! \param hashLookup Optional lookup hash. If zero, hash(name) is used.
-			//! \param kind Entity kind (Gen by default, Uni supported).
+			//! \param item Component item registration context.
+			//! \param kind Entity kind assigned to the new component entity.
 			//! \return Component cache item of the component.
 			GAIA_NODISCARD const ComponentCacheItem&
-			add(const char* name, uint32_t size, DataStorageType storageType, uint32_t alig = 1, uint32_t soa = 0,
-					const uint8_t* pSoaSizes = nullptr, ComponentLookupHash hashLookup = {},
-					EntityKind kind = EntityKind::EK_Gen) {
-				GAIA_ASSERT(name != nullptr);
+			add(const ComponentCacheItem::ComponentCacheItemCtx& item, EntityKind kind = EntityKind::EK_Gen) {
+				GAIA_ASSERT(!item.name.empty());
+				GAIA_ASSERT(item.name.size() < ComponentCacheItem::MaxNameLength);
 
-				const auto len = (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength);
-				GAIA_ASSERT(len > 0 && len < ComponentCacheItem::MaxNameLength);
-
-				if (const auto* pItem = comp_cache().symbol(name, len); pItem != nullptr)
+				if (const auto* pItem = comp_cache().symbol(item.name); pItem != nullptr)
 					return *pItem;
 
 				const auto entity = add(*m_pCompArchetype, false, false, kind);
 				util::str scopePath;
 				(void)current_scope_path(scopePath);
-				const auto& item = comp_cache_mut().add(
-						entity, name, len, size, storageType, alig, soa, pSoaSizes, hashLookup, scopePath.view());
+				const auto& itemInfo = comp_cache_mut().add(entity, item, scopePath.view());
 				{
-					auto& ec = m_recs.entities[item.entity.id()];
+					auto& ec = m_recs.entities[itemInfo.entity.id()];
 					const auto compIdx = core::get_index(ec.pArchetype->ids_view(), GAIA_ID(Component));
 					GAIA_ASSERT(compIdx != BadIndex);
 					auto* pComp = reinterpret_cast<Component*>(ec.pChunk->comp_ptr_mut(compIdx, ec.row));
-					*pComp = item.comp;
+					*pComp = itemInfo.comp;
 				}
 				// Register the default component symbol through the normal entity naming path.
-				name_raw(item.entity, item.name.str(), item.name.len());
-				if (item.comp.storage_type() == DataStorageType::Sparse)
-					add(item.entity, Sparse);
-				return item;
+				name_raw(itemInfo.entity, itemInfo.name.str(), itemInfo.name.len());
+				if (itemInfo.comp.storage_type() == DataStorageType::Sparse)
+					add(itemInfo.entity, Sparse);
+				return itemInfo;
 			}
 
 			//! Attaches entity @a object to entity @a entity.

@@ -81,6 +81,15 @@ namespace gaia {
 														 : ComponentCacheItem::SymbolLookupKey(value.data(), value.size(), 0);
 			}
 
+			GAIA_NODISCARD static util::str_view normalize_name_view(const char* name, uint32_t len = 0) noexcept {
+				if (name == nullptr)
+					return {};
+
+				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
+				GAIA_ASSERT(l < ComponentCacheItem::MaxNameLength);
+				return util::str_view(name, l);
+			}
+
 			static bool build_default_path(util::str& out, util::str_view symbol) {
 				out.clear();
 				bool changed = false;
@@ -251,44 +260,24 @@ namespace gaia {
 			}
 
 			//! Registers a runtime-defined component.
-			//! \param entity Entity associated with the component.
-			//! \param name Component name.
-			//! \param len Name length. If zero, the length is calculated.
-			//! \param size Component size in bytes.
-			//! \param storageType Data storage type. DataStorageType::Table keeps the payload inline in archetype chunks.
-			//! \param alig Component alignment in bytes.
-			//! \param soa Number of SoA items (0 for AoS).
-			//! \param pSoaSizes SoA item sizes, must contain at least @a soa values when @a soa > 0.
-			//! \param hashLookup Optional lookup hash. If zero, hash(name) is used.
-			//! \param scopePath Optional world-provided scoped path prefix used when assigning the default path/alias.
+			//! \param entity Component entity to bind the cache record to.
+			//! \param item Component item registration context.
+			//! \param scopePath Optional scoped path prefix used to derive the default component path.
 			//! \return Component info.
 			GAIA_NODISCARD const ComponentCacheItem&
-			add(Entity entity, const char* name, uint32_t len, uint32_t size, DataStorageType storageType, uint32_t alig = 1,
-					uint32_t soa = 0, const uint8_t* pSoaSizes = nullptr, ComponentLookupHash hashLookup = {},
-					util::str_view scopePath = {}) {
+			add(Entity entity, const ComponentCacheItem::ComponentCacheItemCtx& item, util::str_view scopePath = {}) {
+				GAIA_ASSERT(entity != EntityBad);
 				GAIA_ASSERT(!entity.pair());
-				GAIA_ASSERT(name != nullptr);
-
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				GAIA_ASSERT(l > 0 && l < ComponentCacheItem::MaxNameLength);
+				GAIA_ASSERT(!item.name.empty());
+				GAIA_ASSERT(item.name.size() < ComponentCacheItem::MaxNameLength);
 
 				{
-					const auto* pExisting = symbol(name, l);
+					const auto* pExisting = symbol(item.name);
 					if (pExisting != nullptr)
 						return *pExisting;
 				}
 
-				ComponentCacheItem::ComponentCacheItemCtx ctx{};
-				ctx.nameStr = name;
-				ctx.nameLen = l;
-				ctx.size = size;
-				ctx.alig = alig;
-				ctx.storageType = storageType;
-				ctx.soa = soa;
-				ctx.pSoaSizes = pSoaSizes;
-				ctx.hashLookup = hashLookup;
-
-				const auto* pItem = ComponentCacheItem::create(entity, ctx);
+				const auto* pItem = ComponentCacheItem::create(entity, item);
 				GAIA_ASSERT(entity.id() == pItem->comp.id());
 				return add_item(pItem, scopePath);
 			}
@@ -348,25 +337,42 @@ namespace gaia {
 			}
 
 			//! Assigns a component path name used by path lookup and display_name().
+			//! Passing an empty string view clears the path.
+			//! \param item Component cache item to modify.
+			//! \param name Path name.
+			//! \return True when the path metadata was updated, false if validation failed.
+			bool path(ComponentCacheItem& item, util::str_view name) noexcept {
+				if (name.empty()) {
+					item.path.clear();
+					rebuild_resolved_name_maps();
+					return true;
+				}
+
+				if (name.size() >= ComponentCacheItem::MaxNameLength)
+					return false;
+
+				item.path.assign(name);
+				rebuild_resolved_name_maps();
+				return true;
+			}
+
+			//! Assigns a component path name used by path lookup and display_name().
 			//! Passing nullptr or an empty string clears the path.
 			//! \param item Component cache item to modify.
 			//! \param name Path name.
 			//! \param len Path length. If zero, the length is calculated.
 			//! \return True when the path metadata was updated, false if validation failed.
 			bool path(ComponentCacheItem& item, const char* name, uint32_t len = 0) noexcept {
-				if (name == nullptr || name[0] == 0) {
-					item.path.clear();
-					rebuild_resolved_name_maps();
-					return true;
-				}
+				return path(item, normalize_name_view(name, len));
+			}
 
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				if (l == 0 || l >= ComponentCacheItem::MaxNameLength)
-					return false;
-
-				item.path.assign(name, l);
-				rebuild_resolved_name_maps();
-				return true;
+			//! Searches for the component cache item by its exact registered symbol name.
+			//! \param name Symbol name.
+			//! \return Component cache item if found, nullptr otherwise.
+			GAIA_NODISCARD const ComponentCacheItem* symbol(util::str_view name) const noexcept {
+				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
+				const auto it = m_compBySymbol.find(lookup_key(name));
+				return it != m_compBySymbol.end() ? it->second : nullptr;
 			}
 
 			//! Searches for the component cache item by its exact registered symbol name.
@@ -375,12 +381,16 @@ namespace gaia {
 			//! \return Component cache item if found, nullptr otherwise.
 			GAIA_NODISCARD const ComponentCacheItem* symbol(const char* name, uint32_t len = 0) const noexcept {
 				GAIA_ASSERT(name != nullptr);
+				return symbol(normalize_name_view(name, len));
+			}
 
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				GAIA_ASSERT(l < ComponentCacheItem::MaxNameLength);
-
-				const auto it = m_compBySymbol.find(ComponentCacheItem::SymbolLookupKey(name, l, 0));
-				return it != m_compBySymbol.end() ? it->second : nullptr;
+			//! Searches for the component cache item by its exact path name.
+			//! \param name Path name.
+			//! \return Component cache item if found, nullptr otherwise.
+			GAIA_NODISCARD const ComponentCacheItem* path(util::str_view name) const noexcept {
+				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
+				const auto it = m_compByPath.find(lookup_key(name));
+				return it != m_compByPath.end() ? it->second : nullptr;
 			}
 
 			//! Searches for the component cache item by its exact path name.
@@ -389,12 +399,17 @@ namespace gaia {
 			//! \return Component cache item if found, nullptr otherwise.
 			GAIA_NODISCARD const ComponentCacheItem* path(const char* name, uint32_t len = 0) const noexcept {
 				GAIA_ASSERT(name != nullptr);
+				return path(normalize_name_view(name, len));
+			}
 
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				GAIA_ASSERT(l < ComponentCacheItem::MaxNameLength);
-
-				const auto it = m_compByPath.find(ComponentCacheItem::SymbolLookupKey(name, l, 0));
-				return it != m_compByPath.end() ? it->second : nullptr;
+			//! Searches for the component cache item by its unique short symbol name.
+			//! The short name is the leaf segment after the last `::` in the registered symbol.
+			//! \param name Short symbol name.
+			//! \return Component cache item if found and unique, nullptr otherwise.
+			GAIA_NODISCARD const ComponentCacheItem* short_symbol(util::str_view name) const noexcept {
+				GAIA_ASSERT(name.size() < ComponentCacheItem::MaxNameLength);
+				const auto it = m_compByShortSymbol.find(lookup_key(name));
+				return it != m_compByShortSymbol.end() ? it->second : nullptr;
 			}
 
 			//! Searches for the component cache item by its unique short symbol name.
@@ -404,12 +419,7 @@ namespace gaia {
 			//! \return Component cache item if found and unique, nullptr otherwise.
 			GAIA_NODISCARD const ComponentCacheItem* short_symbol(const char* name, uint32_t len = 0) const noexcept {
 				GAIA_ASSERT(name != nullptr);
-
-				const auto l = len == 0 ? (uint32_t)GAIA_STRLEN(name, ComponentCacheItem::MaxNameLength) : len;
-				GAIA_ASSERT(l < ComponentCacheItem::MaxNameLength);
-
-				const auto it = m_compByShortSymbol.find(ComponentCacheItem::SymbolLookupKey(name, l, 0));
-				return it != m_compByShortSymbol.end() ? it->second : nullptr;
+				return short_symbol(normalize_name_view(name, len));
 			}
 
 		public:

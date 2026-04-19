@@ -576,6 +576,18 @@ When adding components following restrictions apply:
 or `ecs::DontFragment`, register it explicitly first and then apply the trait to the component entity. Implicit registration
 can also be disabled entirely with `GAIA_ECS_AUTO_COMPONENT_REGISTRATION`.
 
+Runtime component registration uses explicit component metadata:
+
+```cpp
+ecs::ComponentCacheItem::ComponentCacheItemCtx ctx{};
+ctx.name = "Cooldown";
+ctx.size = 4;
+ctx.alig = 4;
+ctx.storageType = ecs::DataStorageType::Table;
+
+const ecs::ComponentCacheItem& cooldownCI = w.add(ctx);
+```
+
 
 ### Component hooks
 

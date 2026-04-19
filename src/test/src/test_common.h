@@ -79,6 +79,40 @@ void register_sparse_test_component(ecs::World& world) {
 	world.add(item.entity, ecs::Sparse);
 }
 
+inline util::str_view runtime_component_name_view(const char* name) {
+	GAIA_ASSERT(name != nullptr);
+	return util::str_view(name, (uint32_t)GAIA_STRLEN(name, ecs::ComponentCacheItem::MaxNameLength));
+}
+
+inline ecs::ComponentCacheItem::ComponentCacheItemCtx runtime_component_item_ctx(
+		const char* name, uint32_t size, ecs::DataStorageType storageType, uint32_t alig = 1, uint32_t soa = 0,
+		const uint8_t* pSoaSizes = nullptr, ecs::ComponentLookupHash hashLookup = {}) {
+	auto ctx = ecs::ComponentCacheItem::ComponentCacheItemCtx{};
+	ctx.name = runtime_component_name_view(name);
+	ctx.size = size;
+	ctx.alig = alig;
+	ctx.storageType = storageType;
+	ctx.soa = soa;
+	ctx.pSoaSizes = pSoaSizes;
+	ctx.hashLookup = hashLookup;
+	return ctx;
+}
+
+inline const ecs::ComponentCacheItem& add_runtime_component(
+		ecs::World& world, const char* name, uint32_t size, ecs::DataStorageType storageType, uint32_t alig = 1,
+		uint32_t soa = 0, const uint8_t* pSoaSizes = nullptr, ecs::ComponentLookupHash hashLookup = {},
+		ecs::EntityKind kind = ecs::EntityKind::EK_Gen) {
+	return world.add(runtime_component_item_ctx(name, size, storageType, alig, soa, pSoaSizes, hashLookup), kind);
+}
+
+inline const ecs::ComponentCacheItem& add_runtime_component(
+		ecs::ComponentCache& cc, ecs::Entity entity, const char* name, uint32_t size, ecs::DataStorageType storageType,
+		uint32_t alig = 1, uint32_t soa = 0, const uint8_t* pSoaSizes = nullptr, ecs::ComponentLookupHash hashLookup = {},
+		util::str_view scopePath = {}) {
+	return cc.add(
+			entity, runtime_component_item_ctx(name, size, storageType, alig, soa, pSoaSizes, hashLookup), scopePath);
+}
+
 //! World wrapper for test purposes.
 //! The wrapped world handles teardown on destruction; tests can still call update()
 //! repeatedly when they want to flush regular frame maintenance explicitly.

@@ -52,15 +52,23 @@ namespace gaia {
 				uint32_t size = 0;
 			};
 
+			//! Component item registration context.
 			struct ComponentCacheItemCtx {
-				const char* nameStr = nullptr;
-				uint32_t nameLen = 0;
+				//! Registered component symbol.
+				util::str_view name{};
+				//! Component payload size in bytes.
 				uint32_t size = 0;
+				//! Component payload alignment in bytes.
 				uint32_t alig = 0;
+				//! Component storage mode.
 				DataStorageType storageType = DataStorageType::Table;
+				//! Number of SoA elements, 0 means AoS.
 				uint32_t soa = 0;
+				//! Per-element SoA sizes when \ref soa is non-zero.
 				const uint8_t* pSoaSizes = nullptr;
-				ComponentLookupHash hashLookup = {};
+				//! Optional explicit lookup hash. When empty, the symbol hash is used.
+				ComponentLookupHash hashLookup{};
+				//! Optional lifecycle and serialization callbacks.
 				FuncCtor* funcCtor = nullptr;
 				FuncMove* funcMoveCtor = nullptr;
 				FuncCopy* funcCopyCtor = nullptr;
@@ -404,11 +412,11 @@ namespace gaia {
 				return nameTmpLen;
 			}
 
-			static void init_name(SymbolLookupKey& nameOut, const char* nameStr, uint32_t nameLen) {
-				char* name = mem::AllocHelper::alloc<char>(nameLen + 1);
-				memcpy((void*)name, (const void*)nameStr, nameLen);
-				name[nameLen] = 0;
-				nameOut = SymbolLookupKey(name, nameLen, 1);
+			static void init_name(SymbolLookupKey& nameOut, util::str_view nameView) {
+				char* name = mem::AllocHelper::alloc<char>(nameView.size() + 1);
+				memcpy((void*)name, (const void*)nameView.data(), nameView.size());
+				name[nameView.size()] = 0;
+				nameOut = SymbolLookupKey(name, nameView.size(), 1);
 			}
 
 		public:
@@ -426,8 +434,7 @@ namespace gaia {
 				const auto nameTmpLen = init_type_name<T>(nameTmp);
 
 				ComponentCacheItemCtx ctx{};
-				ctx.nameStr = nameTmp;
-				ctx.nameLen = nameTmpLen;
+				ctx.name = util::str_view(nameTmp, nameTmpLen);
 				ctx.size = componentSize;
 				ctx.alig = detail::ComponentDesc<T>::alig();
 				ctx.storageType = DataStorageType::Table;
@@ -449,7 +456,8 @@ namespace gaia {
 			}
 
 			GAIA_NODISCARD static ComponentCacheItem* create(Entity entity, const ComponentCacheItemCtx& ctx) {
-				GAIA_ASSERT(ctx.nameStr != nullptr && ctx.nameLen > 0 && ctx.nameLen < MaxNameLength);
+				GAIA_ASSERT(!ctx.name.empty());
+				GAIA_ASSERT(ctx.name.size() < MaxNameLength);
 				GAIA_ASSERT(ctx.size < Component::MaxComponentSizeInBytes);
 				GAIA_ASSERT((ctx.size == 0 && ctx.alig == 0) || (ctx.alig > 0 && ctx.alig < Component::MaxAlignment));
 				GAIA_ASSERT(ctx.soa <= meta::StructToTupleMaxTypes);
@@ -459,13 +467,13 @@ namespace gaia {
 				cci->comp = Component(entity.id(), ctx.soa, ctx.size, ctx.alig, ctx.storageType);
 				cci->hashLookup = ctx.hashLookup.hash != 0
 															? ctx.hashLookup
-															: ComponentLookupHash{core::calculate_hash64(ctx.nameStr, ctx.nameLen)};
+															: ComponentLookupHash{core::calculate_hash64(ctx.name.data(), ctx.name.size())};
 
 				if (ctx.soa > 0 && ctx.pSoaSizes != nullptr) {
 					GAIA_FOR(ctx.soa) cci->soaSizes[i] = ctx.pSoaSizes[i];
 				}
 
-				init_name(cci->name, ctx.nameStr, ctx.nameLen);
+				init_name(cci->name, ctx.name);
 
 				cci->func_ctor = ctx.funcCtor;
 				cci->func_move_ctor = ctx.funcMoveCtor;

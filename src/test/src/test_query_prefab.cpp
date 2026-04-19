@@ -2953,8 +2953,8 @@ TEST_CASE("Prefab - explicit override by id and inherited runtime sparse compone
 	TestWorld twld;
 
 	const auto prefabAnimal = wld.prefab();
-	const auto& runtimeComp = wld.add(
-			"Runtime_Sparse_Prefab_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+	const auto& runtimeComp = add_runtime_component(
+			wld, "Runtime_Sparse_Prefab_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
 			(uint32_t)alignof(Position));
 	wld.add(runtimeComp.entity, ecs::DontFragment);
 	wld.add(prefabAnimal, runtimeComp.entity, Position{2, 3, 4});
@@ -2978,8 +2978,8 @@ TEST_CASE("Prefab - inherited runtime sparse component set by id writes local ov
 	TestWorld twld;
 
 	const auto prefabAnimal = wld.prefab();
-	const auto& runtimeComp = wld.add(
-			"Runtime_Sparse_Prefab_Position_Query", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+	const auto& runtimeComp = add_runtime_component(
+			wld, "Runtime_Sparse_Prefab_Position_Query", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
 			(uint32_t)alignof(Position));
 	wld.add(runtimeComp.entity, ecs::DontFragment);
 	wld.add(prefabAnimal, runtimeComp.entity, Position{2, 3, 4});

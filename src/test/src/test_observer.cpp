@@ -343,11 +343,11 @@ TEST_CASE("World modify emits OnSet for raw writes") {
 TEST_CASE("World modify emits OnSet for raw object writes") {
 	TestWorld twld;
 
-	const auto& runtimeTableComp = wld.add(
-			"Observer_Runtime_Table_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Table,
+	const auto& runtimeTableComp = add_runtime_component(
+			wld, "Observer_Runtime_Table_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Table,
 			(uint32_t)alignof(Position));
-	const auto& runtimeSparseComp = wld.add(
-			"Observer_Runtime_Sparse_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+	const auto& runtimeSparseComp = add_runtime_component(
+			wld, "Observer_Runtime_Sparse_Position", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
 			(uint32_t)alignof(Position));
 	wld.add(runtimeSparseComp.entity, ecs::DontFragment);
 
@@ -420,11 +420,11 @@ TEST_CASE("World modify emits OnSet for raw object writes") {
 TEST_CASE("Observer - OnSet for immediate object writes") {
 	TestWorld twld;
 
-	const auto& runtimeTableComp = wld.add(
-			"Observer_Runtime_Table_Position_Setter", (uint32_t)sizeof(Position), ecs::DataStorageType::Table,
+	const auto& runtimeTableComp = add_runtime_component(
+			wld, "Observer_Runtime_Table_Position_Setter", (uint32_t)sizeof(Position), ecs::DataStorageType::Table,
 			(uint32_t)alignof(Position));
-	const auto& runtimeSparseComp = wld.add(
-			"Observer_Runtime_Sparse_Position_Setter", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
+	const auto& runtimeSparseComp = add_runtime_component(
+			wld, "Observer_Runtime_Sparse_Position_Setter", (uint32_t)sizeof(Position), ecs::DataStorageType::Sparse,
 			(uint32_t)alignof(Position));
 	wld.add(runtimeSparseComp.entity, ecs::DontFragment);
 
@@ -719,13 +719,13 @@ TEST_CASE("Observer - SoA callbacks materialize direct payloads correctly") {
 		uint32_t hits = 0;
 		PositionSoA lastPos{};
 		const auto observer = wld.observer()
-															 .event(ecs::ObserverEvent::OnSet)
-															 .all<PositionSoA>()
-															 .on_each([&](const PositionSoA& pos) {
-																 ++hits;
-																 lastPos = pos;
-															 })
-															 .entity();
+															.event(ecs::ObserverEvent::OnSet)
+															.all<PositionSoA>()
+															.on_each([&](const PositionSoA& pos) {
+																++hits;
+																lastPos = pos;
+															})
+															.entity();
 		(void)observer;
 
 		const auto e = wld.add();
@@ -748,20 +748,20 @@ TEST_CASE("Observer - SoA callbacks materialize direct payloads correctly") {
 		float lastY = 0.0f;
 		float lastZ = 0.0f;
 		const auto observer = wld.observer()
-															 .event(ecs::ObserverEvent::OnSet)
-															 .all<PositionSoA>()
-															 .on_each([&](ecs::Iter& it) {
-																 ++hits;
-																 auto posView = it.view_any<PositionSoA>(0);
-																 auto xs = posView.template get<0>();
-																 auto ys = posView.template get<1>();
-																 auto zs = posView.template get<2>();
-																 CHECK(it.size() == 1);
-																 lastX = xs[0];
-																 lastY = ys[0];
-																 lastZ = zs[0];
-															 })
-															 .entity();
+															.event(ecs::ObserverEvent::OnSet)
+															.all<PositionSoA>()
+															.on_each([&](ecs::Iter& it) {
+																++hits;
+																auto posView = it.view_any<PositionSoA>(0);
+																auto xs = posView.template get<0>();
+																auto ys = posView.template get<1>();
+																auto zs = posView.template get<2>();
+																CHECK(it.size() == 1);
+																lastX = xs[0];
+																lastY = ys[0];
+																lastZ = zs[0];
+															})
+															.entity();
 		(void)observer;
 
 		const auto e = wld.add();
@@ -782,31 +782,31 @@ TEST_CASE("Observer - SoA callbacks materialize direct payloads correctly") {
 		uint32_t onSetHits = 0;
 		PositionSoA lastPos{};
 		const auto onSetObserver = wld.observer()
-															 .event(ecs::ObserverEvent::OnSet)
-															 .all<PositionSoA>()
-															 .on_each([&](const PositionSoA& pos) {
-																 ++onSetHits;
-																 lastPos = pos;
-															 })
-															 .entity();
+																	 .event(ecs::ObserverEvent::OnSet)
+																	 .all<PositionSoA>()
+																	 .on_each([&](const PositionSoA& pos) {
+																		 ++onSetHits;
+																		 lastPos = pos;
+																	 })
+																	 .entity();
 		(void)onSetObserver;
 
 		const auto onAddObserver = wld.observer()
-															 .event(ecs::ObserverEvent::OnAdd)
-															 .all<PositionSoA&>()
-															 .on_each([&](ecs::Iter& it) {
-																 auto posView = it.view_any_mut<PositionSoA>(0);
-																 auto xs = posView.template set<0>();
-																 auto ys = posView.template set<1>();
-																 auto zs = posView.template set<2>();
-																 CHECK(onSetHits == 0);
-																 CHECK(it.size() == 1);
-																 xs[0] = 13.0f;
-																 ys[0] = 14.0f;
-																 zs[0] = 15.0f;
-																 CHECK(onSetHits == 0);
-															 })
-															 .entity();
+																	 .event(ecs::ObserverEvent::OnAdd)
+																	 .all<PositionSoA&>()
+																	 .on_each([&](ecs::Iter& it) {
+																		 auto posView = it.view_any_mut<PositionSoA>(0);
+																		 auto xs = posView.template set<0>();
+																		 auto ys = posView.template set<1>();
+																		 auto zs = posView.template set<2>();
+																		 CHECK(onSetHits == 0);
+																		 CHECK(it.size() == 1);
+																		 xs[0] = 13.0f;
+																		 ys[0] = 14.0f;
+																		 zs[0] = 15.0f;
+																		 CHECK(onSetHits == 0);
+																	 })
+																	 .entity();
 		(void)onAddObserver;
 
 		const auto e = wld.add();

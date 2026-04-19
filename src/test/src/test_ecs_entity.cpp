@@ -1982,7 +1982,7 @@ TEST_CASE("Component names") {
 				CHECK(wld.path(renderPos) == "gameplay.render.Position");
 				CHECK(wld.get("Position") == renderPos);
 
-				renderDevice = wld.add("Device", 0, ecs::DataStorageType::Table, 1).entity;
+				renderDevice = add_runtime_component(wld, "Device", 0, ecs::DataStorageType::Table, 1).entity;
 				CHECK(wld.path(renderDevice) == "gameplay.render.Device");
 				CHECK(wld.get("Device") == renderDevice);
 				CHECK(wld.get("gameplay.render.Device") == renderDevice);
@@ -2069,10 +2069,10 @@ TEST_CASE("Component names") {
 		ecs::Entity toolsDevice = ecs::EntityBad;
 
 		wld.scope(gameplay, [&] {
-			gameplayDevice = wld.add("Gameplay::Device", 0, ecs::DataStorageType::Table, 1).entity;
+			gameplayDevice = add_runtime_component(wld, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1).entity;
 		});
 		wld.scope(tools, [&] {
-			toolsDevice = wld.add("Tools::Device", 0, ecs::DataStorageType::Table, 1).entity;
+			toolsDevice = add_runtime_component(wld, "Tools::Device", 0, ecs::DataStorageType::Table, 1).entity;
 		});
 
 		CHECK(wld.get("Device") == ecs::EntityBad);
@@ -2225,7 +2225,7 @@ TEST_CASE("Component names") {
 
 		ecs::Entity scopedDevice = ecs::EntityBad;
 		wld.scope(render, [&] {
-			scopedDevice = wld.add("Render::Device", 0, ecs::DataStorageType::Table, 1).entity;
+			scopedDevice = add_runtime_component(wld, "Render::Device", 0, ecs::DataStorageType::Table, 1).entity;
 		});
 
 		CHECK(wld.alias("Device") == ecs::EntityBad);
@@ -2252,7 +2252,7 @@ TEST_CASE("Component names") {
 
 		ecs::Entity renderComp = ecs::EntityBad;
 		wld.scope(gameplay, [&] {
-			renderComp = wld.add("Gameplay::render", 0, ecs::DataStorageType::Table, 1).entity;
+			renderComp = add_runtime_component(wld, "Gameplay::render", 0, ecs::DataStorageType::Table, 1).entity;
 		});
 
 		CHECK(wld.path("gameplay.render") == renderComp);
@@ -2268,8 +2268,9 @@ TEST_CASE("Component names") {
 	SUBCASE("world lookup prefers exact component symbols over aliases") {
 		TestWorld twld;
 
-		const auto exactSymbolComp = wld.add("Gameplay::Device", 0, ecs::DataStorageType::Table, 1).entity;
-		const auto aliasComp = wld.add("OtherDevice", 0, ecs::DataStorageType::Table, 1).entity;
+		const auto exactSymbolComp =
+				add_runtime_component(wld, "Gameplay::Device", 0, ecs::DataStorageType::Table, 1).entity;
+		const auto aliasComp = add_runtime_component(wld, "OtherDevice", 0, ecs::DataStorageType::Table, 1).entity;
 		CHECK(wld.alias(aliasComp, "Gameplay::Device"));
 
 		CHECK(wld.alias("Gameplay::Device") == aliasComp);

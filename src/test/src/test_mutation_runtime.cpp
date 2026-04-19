@@ -1252,8 +1252,7 @@ TEST_CASE("SmallBlockAllocator") {
 		alloc.verify();
 
 		ecs::ComponentCacheItem::ComponentCacheItemCtx ctx{};
-		ctx.nameStr = "TestComponent";
-		ctx.nameLen = 13;
+		ctx.name = util::str_view("TestComponent", 13);
 		ctx.size = 4;
 		ctx.alig = 4;
 
