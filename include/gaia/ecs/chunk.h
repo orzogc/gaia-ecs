@@ -80,8 +80,8 @@ namespace gaia {
 			GAIA_CLANG_WARNING_DISABLE("-Wcast-align")
 
 			void init(
-					uint32_t cntEntities, const Entity* ids, const Component* comps, const ChunkDataOffsets& headerOffsets,
-					const ChunkDataOffset* compOffs) {
+					uint32_t cntEntities, const Entity* ids, const ComponentCacheItem* const* pItems,
+					const ChunkDataOffsets& headerOffsets, const ChunkDataOffset* compOffs) {
 				m_header.cntEntities = (uint8_t)cntEntities;
 
 				// Cache pointers to versions
@@ -104,21 +104,10 @@ namespace gaia {
 				if (cntEntities > 0) {
 					auto* dst = m_records.pRecords = (ComponentRecord*)&data(headerOffsets.firstByte_Records);
 					GAIA_FOR_(cntEntities, j) {
-						dst[j].comp = comps[j];
+						dst[j].comp =
+								pItems[j] == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pItems[j]->comp;
 						dst[j].pData = &data(compOffs[j]);
-						Entity storageEntity = ids[j];
-						if (storageEntity.pair()) {
-							Entity pairEntities[] = {pair_rel(*m_header.world, storageEntity), pair_tgt(*m_header.world, storageEntity)};
-							const auto* pRelItem = m_header.cc->find(pairEntities[0]);
-							const auto* pTgtItem = m_header.cc->find(pairEntities[1]);
-							Component pairComponents[] = {
-									pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
-									pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
-							const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
-							storageEntity = pairEntities[idx];
-						}
-
-						dst[j].pItem = m_header.cc->find(storageEntity);
+						dst[j].pItem = pItems[j];
 					}
 				}
 
@@ -477,8 +466,8 @@ namespace gaia {
 					const ChunkDataOffsets& offsets,
 					// component entities
 					const Entity* ids,
-					// component
-					const Component* comps,
+					// resolved component storage items
+					const ComponentCacheItem* const* pItems,
 					// component offsets
 					const ChunkDataOffset* compOffs) {
 				const auto totalBytes = chunk_total_bytes(dataBytes);
@@ -494,7 +483,7 @@ namespace gaia {
 				auto* pChunk = new (pChunkMem) Chunk(wld, cc, chunkIndex, capacity, genEntities, worldVersion);
 #endif
 
-				pChunk->init((uint32_t)cntEntities, ids, comps, offsets, compOffs);
+				pChunk->init((uint32_t)cntEntities, ids, pItems, offsets, compOffs);
 				return pChunk;
 			}
 

@@ -103,6 +103,14 @@ namespace gaia {
 			};
 
 		private:
+			GAIA_NODISCARD static Component empty_comp() noexcept {
+				return Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table);
+			}
+
+			GAIA_NODISCARD static Component comp_from_item(const ComponentCacheItem* pItem) noexcept {
+				return pItem == nullptr ? empty_comp() : pItem->comp;
+			}
+
 			struct ShapeData {
 				ArchetypeIdLookupKey::LookupHash archetypeIdHash;
 				//! Hash of components within this archetype - used for lookups
@@ -114,8 +122,8 @@ namespace gaia {
 				ChunkDataOffsets dataOffsets{};
 				//! Array of entities used to identify the archetype
 				Entity ids[ChunkHeader::MAX_COMPONENTS];
-				//! Array of component ids
-				Component comps[ChunkHeader::MAX_COMPONENTS];
+				//! Array of resolved storage items for each archetype term.
+				const ComponentCacheItem* compItems[ChunkHeader::MAX_COMPONENTS]{};
 				//! Array of components offset indices
 				ChunkDataOffset compOffs[ChunkHeader::MAX_COMPONENTS];
 			};
@@ -340,7 +348,7 @@ namespace gaia {
 				{
 					offset += mem::padding<alignof(ComponentVersion)>(memoryAddress);
 
-					const auto cnt = comps_view().size() + 1; // + 1 for entities
+					const auto cnt = m_shape.properties.cntEntities + 1; // + 1 for entities
 					GAIA_ASSERT(offset < 256);
 					m_shape.dataOffsets.firstByte_Versions = (ChunkDataVersionOffset)offset;
 					offset += sizeof(ComponentVersion) * cnt;
@@ -350,7 +358,7 @@ namespace gaia {
 				{
 					offset += mem::padding<alignof(Entity)>(offset);
 
-					const auto cnt = comps_view().size();
+					const auto cnt = m_shape.properties.cntEntities;
 					if (cnt != 0) {
 						m_shape.dataOffsets.firstByte_CompEntities = (ChunkDataOffset)offset;
 
@@ -363,7 +371,7 @@ namespace gaia {
 				{
 					offset += mem::padding<alignof(ComponentRecord)>(offset);
 
-					const auto cnt = comps_view().size();
+					const auto cnt = m_shape.properties.cntEntities;
 					if (cnt != 0) {
 
 						m_shape.dataOffsets.firstByte_Records = (ChunkDataOffset)offset;
@@ -389,30 +397,17 @@ namespace gaia {
 			//! \param maxDataOffset Maximum byte offset available for component payloads.
 			//! \return True if the chunk can still fit the candidate entity count. False otherwise.
 			static bool est_max_entities_per_chunk(
-					const World& world, const ComponentCache& cc, uint32_t offs, EntitySpan ids, ComponentSpan comps, uint32_t cap,
-					uint32_t maxDataOffset) {
-				GAIA_ASSERT(ids.size() == comps.size());
-				GAIA_FOR(comps.size()) {
-					const auto comp = comps[i];
+					uint32_t offs, const ComponentCacheItem* const* pItems, uint32_t cnt, uint32_t cap, uint32_t maxDataOffset) {
+				GAIA_FOR(cnt) {
+					const auto comp = comp_from_item(pItems[i]);
 					if (!component_has_inline_data(comp))
 						continue;
 
-					Entity storageEntity = ids[i];
-					if (storageEntity.pair()) {
-						Entity pairEntities[] = {pair_rel(world, storageEntity), pair_tgt(world, storageEntity)};
-						const auto* pRelItem = cc.find(pairEntities[0]);
-						const auto* pTgtItem = cc.find(pairEntities[1]);
-						Component pairComponents[] = {
-								pRelItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pRelItem->comp,
-								pTgtItem == nullptr ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) : pTgtItem->comp};
-						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
-						storageEntity = pairEntities[idx];
-					}
-
-					const auto& desc = cc.get(storageEntity);
+					const auto* pItem = pItems[i];
+					GAIA_ASSERT(pItem != nullptr);
 
 					// If we're beyond what the chunk could take, subtract one entity
-					offs = desc.calc_new_mem_offset(offs, cap);
+					offs = pItem->calc_new_mem_offset(offs, cap);
 					if (offs >= maxDataOffset)
 						return false;
 				}
@@ -421,8 +416,8 @@ namespace gaia {
 			}
 
 			static void reg_components(
-					Archetype& arch, EntitySpan ids, ComponentSpan comps, uint8_t from, uint8_t to, uint32_t& currOff,
-					uint32_t count) {
+					Archetype& arch, EntitySpan ids, const ComponentCacheItem* const* pItems, uint8_t from, uint8_t to,
+					uint32_t& currOff, uint32_t count) {
 				auto& ofs = arch.m_shape.compOffs;
 
 				// Set component ids
@@ -430,7 +425,7 @@ namespace gaia {
 
 				// Calculate offsets and assign them indices according to our mappings
 				GAIA_FOR2(from, to) {
-					const auto comp = comps[i];
+					const auto comp = comp_from_item(pItems[i]);
 					const auto compIdx = i;
 
 					if (!component_has_inline_data(comp)) {
@@ -482,7 +477,7 @@ namespace gaia {
 								m_world, m_cc, chunkIdx, //
 								m_shape.properties.capacity, m_shape.properties.cntEntities, //
 								m_shape.properties.genEntities, m_shape.properties.chunkDataBytes, //
-								m_worldVersion, m_shape.dataOffsets, m_shape.ids, m_shape.comps, m_shape.compOffs);
+								m_worldVersion, m_shape.dataOffsets, m_shape.ids, m_shape.compItems, m_shape.compOffs);
 						m_storage.chunks[chunkIdx] = pChunk;
 					}
 
@@ -521,26 +516,22 @@ namespace gaia {
 				const auto cnt = (uint32_t)ids.size();
 				newArch->m_shape.properties.cntEntities = (uint8_t)ids.size();
 
-				auto as_comp = [&](Entity entity) {
-					const auto* pDesc = cc.find(entity);
-					return pDesc == nullptr //
-										 ? Component(IdentifierIdBad, 0, 0, 0, DataStorageType::Table) //
-										 : pDesc->comp;
-				};
-
-				// Prepare m_comps array
-				auto comps = std::span(&newArch->m_shape.comps[0], cnt);
+				auto compItems = std::span(&newArch->m_shape.compItems[0], cnt);
 				GAIA_FOR(cnt) {
+					const ComponentCacheItem* pItem = nullptr;
 					if (ids[i].pair()) {
 						// When using pairs we need to decode the storage type from them.
 						// This is what pair<Rel, Tgt>::type actually does to determine what type to use at compile-time.
 						Entity pairEntities[] = {pair_rel(world, ids[i]), pair_tgt(world, ids[i])};
-						Component pairComponents[] = {as_comp(pairEntities[0]), as_comp(pairEntities[1])};
+						const auto* pRelItem = cc.find(pairEntities[0]);
+						const auto* pTgtItem = cc.find(pairEntities[1]);
+						Component pairComponents[] = {comp_from_item(pRelItem), comp_from_item(pTgtItem)};
 						const uint32_t idx = (pairComponents[0].size() != 0U || pairComponents[1].size() == 0U) ? 0 : 1;
-						comps[i] = pairComponents[idx];
+						pItem = idx == 0 ? pRelItem : pTgtItem;
 					} else {
-						comps[i] = as_comp(ids[i]);
+						pItem = cc.find(ids[i]);
 					}
+					compItems[i] = pItem;
 				}
 
 				// Calculate offsets
@@ -568,8 +559,8 @@ namespace gaia {
 
 				uint32_t genCompsSize = 0;
 				uint32_t uniCompsSize = 0;
-				GAIA_FOR(entsGeneric) genCompsSize += newArch->m_shape.comps[i].size();
-				GAIA_FOR2(entsGeneric, cnt) uniCompsSize += newArch->m_shape.comps[i].size();
+				GAIA_FOR(entsGeneric) genCompsSize += comp_from_item(newArch->m_shape.compItems[i]).size();
+				GAIA_FOR2(entsGeneric, cnt) uniCompsSize += comp_from_item(newArch->m_shape.compItems[i]).size();
 
 				auto compute_max_entities_for_chunk = [&](uint32_t maxEntities, uint32_t dataLimit) -> uint32_t {
 					uint32_t low = 1;
@@ -580,11 +571,10 @@ namespace gaia {
 					auto try_fit = [&](uint32_t count) -> bool {
 						const uint32_t currOff = offs.firstByte_EntityData + (count * sizeof(Entity));
 
-						if (!est_max_entities_per_chunk(
-										world, cc, currOff, ids.subspan(0, entsGeneric), comps.subspan(0, entsGeneric), count, dataLimit))
+						if (!est_max_entities_per_chunk(currOff, newArch->m_shape.compItems, entsGeneric, count, dataLimit))
 							return false;
 						if (!est_max_entities_per_chunk(
-										world, cc, currOff, ids.subspan(entsGeneric), comps.subspan(entsGeneric), 1, dataLimit))
+										currOff, newArch->m_shape.compItems + entsGeneric, cnt - entsGeneric, 1, dataLimit))
 							return false;
 
 						return true;
@@ -651,8 +641,11 @@ namespace gaia {
 
 				// Update the offsets according to the recalculated maxGenItemsInArchetype
 				auto currOff = offs.firstByte_EntityData + ((uint32_t)sizeof(Entity) * maxGenItemsInArchetype);
-				reg_components(*newArch, ids, comps, (uint8_t)0, (uint8_t)entsGeneric, currOff, maxGenItemsInArchetype);
-				reg_components(*newArch, ids, comps, (uint8_t)entsGeneric, (uint8_t)ids.size(), currOff, 1);
+				reg_components(
+						*newArch, ids, newArch->m_shape.compItems, (uint8_t)0, (uint8_t)entsGeneric, currOff,
+						maxGenItemsInArchetype);
+				reg_components(
+						*newArch, ids, newArch->m_shape.compItems, (uint8_t)entsGeneric, (uint8_t)ids.size(), currOff, 1);
 
 				newArch->m_shape.properties.capacity = (uint16_t)maxGenItemsInArchetype;
 				newArch->m_shape.properties.chunkDataBytes = (ChunkDataOffset)currOff;
@@ -739,7 +732,7 @@ namespace gaia {
 						m_world, m_cc, chunkCnt, //
 						m_shape.properties.capacity, m_shape.properties.cntEntities, //
 						m_shape.properties.genEntities, m_shape.properties.chunkDataBytes, //
-						m_worldVersion, m_shape.dataOffsets, m_shape.ids, m_shape.comps, m_shape.compOffs);
+						m_worldVersion, m_shape.dataOffsets, m_shape.ids, m_shape.compItems, m_shape.compOffs);
 
 				m_storage.firstFreeChunkIdx = m_storage.chunks.size();
 				m_storage.chunks.push_back(pChunk);
@@ -810,10 +803,6 @@ namespace gaia {
 
 			GAIA_NODISCARD EntitySpan ids_view() const {
 				return {&m_shape.ids[0], m_shape.properties.cntEntities};
-			}
-
-			GAIA_NODISCARD ComponentSpan comps_view() const {
-				return {&m_shape.comps[0], m_shape.properties.cntEntities};
 			}
 
 			GAIA_NODISCARD ChunkDataOffsetSpan comp_offs_view() const {
@@ -1262,7 +1251,6 @@ namespace gaia {
 
 			static void diag_basic_info(const World& world, const Archetype& archetype) {
 				auto ids = archetype.ids_view();
-				auto comps = archetype.comps_view();
 
 				// Calculate the number of entities in archetype
 				uint32_t entCnt = 0;
@@ -1277,8 +1265,9 @@ namespace gaia {
 				uint32_t uniCompsSize = 0;
 				{
 					const auto& p = archetype.props();
-					GAIA_FOR(p.genEntities) genCompsSize += comps[i].size();
-					GAIA_FOR2(p.genEntities, comps.size()) uniCompsSize += comps[i].size();
+					GAIA_FOR(p.genEntities) genCompsSize += comp_from_item(archetype.m_shape.compItems[i]).size();
+					GAIA_FOR2(p.genEntities, p.cntEntities)
+					uniCompsSize += comp_from_item(archetype.m_shape.compItems[i]).size();
 				}
 
 				const auto chunkBytes = Chunk::chunk_total_bytes(archetype.props().chunkDataBytes);
