@@ -5468,10 +5468,13 @@ namespace gaia {
 					push_unique(pItem->entity);
 				} else {
 					const auto needle = util::str_view(name, l);
-					m_compCache.for_each_item([&](const ComponentCacheItem& item) {
+					for (const auto& [entityId, pItem2]: m_compCache.m_compByEntityId) {
+						(void)entityId;
+						GAIA_ASSERT(pItem2 != nullptr);
+						const auto& item = *pItem2;
 						if (item.path.view() == needle)
 							push_unique(item.entity);
-					});
+					}
 				}
 
 				if (out.empty() && memchr(name, '.', l) == nullptr && memchr(name, ':', l) == nullptr) {
@@ -7818,11 +7821,13 @@ namespace gaia {
 				}
 
 				if (version < WorldSerializerVersion) {
-					m_compCache.for_each_item([&](ComponentCacheItem& item) {
-						auto comp = item.comp;
-						comp.data.id = item.entity.id();
-						sync_component_record(item.entity, comp);
-					});
+					for (const auto& [entityId, pItem]: m_compCache.m_compByEntityId) {
+						(void)entityId;
+						GAIA_ASSERT(pItem != nullptr);
+						auto comp = pItem->comp;
+						comp.data.id = pItem->entity.id();
+						sync_component_record(pItem->entity, comp);
+					}
 				}
 
 #if GAIA_ASSERT_ENABLED

@@ -57,24 +57,6 @@ namespace gaia {
 				m_compByShortSymbol.clear();
 			}
 
-			template <typename Func>
-			void for_each_item(Func&& func) {
-				for (auto& [entityId, pItem]: m_compByEntityId) {
-					(void)entityId;
-					GAIA_ASSERT(pItem != nullptr);
-					func(*const_cast<ComponentCacheItem*>(pItem));
-				}
-			}
-
-			template <typename Func>
-			void for_each_item(Func&& func) const {
-				for (const auto& [entityId, pItem]: m_compByEntityId) {
-					(void)entityId;
-					GAIA_ASSERT(pItem != nullptr);
-					func(*pItem);
-				}
-			}
-
 			GAIA_NODISCARD static bool is_internal_symbol(util::str_view symbol) noexcept {
 				constexpr char InternalPrefix[] = "gaia::ecs::";
 				constexpr uint32_t InternalPrefixLen = (uint32_t)(sizeof(InternalPrefix) - 1);
@@ -159,21 +141,24 @@ namespace gaia {
 			void rebuild_lookup_map(
 					cnt::map<ComponentCacheItem::SymbolLookupKey, const ComponentCacheItem*>& map, ViewFunc&& getView) {
 				map.clear();
-				for_each_item([&](const ComponentCacheItem& item) {
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
+					const auto& item = *pItem;
 					const auto view = getView(item);
 					if (view.empty())
-						return;
+						continue;
 
 					const auto key = lookup_key(view);
 					const auto it = map.find(key);
 					if (it == map.end()) {
 						map.emplace(key, &item);
-						return;
+						continue;
 					}
 
 					if (it->second != &item)
 						it->second = nullptr;
-				});
+				}
 			}
 
 			void rebuild_resolved_name_maps() {
@@ -469,9 +454,11 @@ namespace gaia {
 							item.comp.size(), item.comp.alig(), item.entity.id(), item.entity.gen(), item.name.str(),
 							EntityKindString[item.entity.kind()]);
 				};
-				for_each_item([&](const ComponentCacheItem& item) {
-					logDesc(item);
-				});
+				for (const auto& [entityId, pItem]: m_compByEntityId) {
+					(void)entityId;
+					GAIA_ASSERT(pItem != nullptr);
+					logDesc(*pItem);
+				}
 			}
 		};
 	} // namespace ecs
