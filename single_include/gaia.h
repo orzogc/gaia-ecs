@@ -54304,13 +54304,28 @@ namespace gaia {
 							 itSparseStore->second.func_has(itSparseStore->second.pStore, entity);
 			}
 
-			//! Resolves which entity supplies the out-of-line payload for @a object on @a entity.
+			//! Resolves which entity currently owns @a object for @a entity.
+			//! Direct adjunct pairs, direct sparse payloads, and direct archetype membership all resolve to @a entity.
+			//! Otherwise this returns the inherited owner, or EntityBad if the id is absent.
 			//! \param entity Entity being queried.
-			//! \param object Out-of-line component entity.
-			//! \return @a entity when the payload is direct, otherwise the inherited owner, or EntityBad.
-			GAIA_NODISCARD Entity out_of_line_owner_inter(Entity entity, Entity object) const {
-				if (has_direct_out_of_line_inter(entity, object))
-					return entity;
+			//! \param object Non-wildcard id being queried.
+			//! \return Direct owner, inherited owner, or EntityBad.
+			GAIA_NODISCARD Entity id_owner_inter(Entity entity, Entity object) const {
+				GAIA_ASSERT(valid(entity));
+				GAIA_ASSERT(object != EntityBad);
+				GAIA_ASSERT(!is_wildcard(object));
+
+				const auto& ec = fetch(entity);
+				if (is_req_del(ec))
+					return EntityBad;
+
+				if (object.pair()) {
+					if (has_exclusive_adjunct_pair(entity, object) || ec.pArchetype->has(object))
+						return entity;
+				} else {
+					if (has_direct_out_of_line_inter(entity, object) || ec.pArchetype->has(object))
+						return entity;
+				}
 
 				return inherited_id_owner(entity, object);
 			}
@@ -55494,19 +55509,15 @@ namespace gaia {
 					if (pItem != nullptr && out_of_line_mode(pItem->entity) != OutOfLineMode::None) {
 						const auto* pStore = sparse_component_store<FT>(pItem->entity);
 						GAIA_ASSERT(pStore != nullptr);
-						const auto owner = out_of_line_owner_inter(entity, compEntity);
+						const auto owner = id_owner_inter(entity, compEntity);
 						GAIA_ASSERT(owner != EntityBad);
 						return pStore->get(owner);
 					}
 				}
 
-				const auto& ec = m_recs.entities[entity.id()];
-				if (ec.pArchetype->has(compEntity))
-					return acc(entity).template get<T>();
-
-				const auto inheritedOwner = inherited_id_owner(entity, compEntity);
-				GAIA_ASSERT(inheritedOwner != EntityBad);
-				return acc(inheritedOwner).template get<T>();
+				const auto owner = id_owner_inter(entity, compEntity);
+				GAIA_ASSERT(owner != EntityBad);
+				return acc(owner).template get<T>();
 			}
 
 			//! Returns the value stored in the component associated with @a object on @a entity.
@@ -55517,19 +55528,15 @@ namespace gaia {
 					if (can_use_out_of_line_component<FT>(object)) {
 						const auto* pStore = sparse_component_store<FT>(object);
 						GAIA_ASSERT(pStore != nullptr);
-						const auto owner = out_of_line_owner_inter(entity, object);
+						const auto owner = id_owner_inter(entity, object);
 						GAIA_ASSERT(owner != EntityBad);
 						return pStore->get(owner);
 					}
 				}
 
-				const auto& ec = m_recs.entities[entity.id()];
-				if (ec.pArchetype->has(object))
-					return acc(entity).template get<T>(object);
-
-				const auto inheritedOwner = inherited_id_owner(entity, object);
-				GAIA_ASSERT(inheritedOwner != EntityBad);
-				return acc(inheritedOwner).template get<T>(object);
+				const auto owner = id_owner_inter(entity, object);
+				GAIA_ASSERT(owner != EntityBad);
+				return acc(owner).template get<T>(object);
 			}
 
 			//----------------------------------------------------------------------
@@ -55840,15 +55847,11 @@ namespace gaia {
 				if constexpr (supports_out_of_line_component<FT>()) {
 					const auto* pItem = comp_cache().template find<FT>();
 					if (pItem != nullptr && out_of_line_mode(pItem->entity) != OutOfLineMode::None) {
-						return out_of_line_owner_inter(entity, compEntity) != EntityBad;
+						return id_owner_inter(entity, compEntity) != EntityBad;
 					}
 				}
 
-				const auto& ec = m_recs.entities[entity.id()];
-				if (is_req_del(ec))
-					return false;
-
-				return ec.pArchetype->has(compEntity) || inherited_id_owner(entity, compEntity) != EntityBad;
+				return id_owner_inter(entity, compEntity) != EntityBad;
 			}
 
 			//----------------------------------------------------------------------
