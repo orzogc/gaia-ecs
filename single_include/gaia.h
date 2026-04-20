@@ -1132,6 +1132,7 @@ namespace gaia {
 } // namespace gaia
 
 namespace gaia {
+	//! Sentinel index value returned by helpers when a lookup fails.
 	constexpr uint32_t BadIndex = uint32_t(-1);
 
 #if GAIA_COMPILER_MSVC || GAIA_PLATFORM_WINDOWS
@@ -1200,23 +1201,30 @@ namespace gaia {
 			}
 		} // namespace detail
 
+		//! Tag type used to request zero-initialization in APIs that accept marker objects.
 		struct zero_t {
 			explicit constexpr zero_t() = default;
 		};
+		//! Shared zero-initialization tag instance.
 		inline constexpr zero_t zero{};
 
+		//! Removes both reference and pointer qualifiers from @a T.
 		template <typename T>
 		using rem_rp_t = typename detail::rem_rp<T>::type;
 
+		//! True when @a T is a mutable pointer or reference type.
 		template <typename T>
 		inline constexpr bool is_mut_v = detail::is_mut<T>::value;
 
+		//! Decayed value type after removing an optional pointer qualifier from @a T.
 		template <typename T>
 		using raw_t = typename std::decay_t<std::remove_pointer_t<T>>;
 
+		//! True when @a T already is a non-array raw value type.
 		template <typename T>
 		inline constexpr bool is_raw_v = std::is_same_v<T, raw_t<T>> && !std::is_array_v<T>;
 
+		//! True when @a T is a complete type at the point of instantiation.
 		template <typename T>
 		inline constexpr bool is_complete_v = detail::is_complete<T>::value;
 
@@ -1230,18 +1238,26 @@ namespace gaia {
 		template <typename T>
 		const T* addressof(const T&&) = delete;
 
+		//! Checks whether @a ptr satisfies the alignment requirements of @a T.
+		//! \tparam T Pointee type used for alignment validation.
+		//! \param ptr Pointer to validate.
 		template <typename T>
 		constexpr bool check_alignment(const T* ptr) noexcept {
 			return (reinterpret_cast<uintptr_t>(ptr)) % alignof(T) == 0;
 		}
 
+		//! RAII helper that calls `lock()` on construction and `unlock()` on destruction.
+		//! \tparam T Lockable type exposing `lock()` and `unlock()`.
 		template <typename T>
 		struct lock_scope {
 			T& m_ctx;
 
+			//! Acquires the lock represented by @a ctx.
+			//! \param ctx Lockable object to guard for the lifetime of this scope.
 			lock_scope(T& ctx): m_ctx(ctx) {
 				ctx.lock();
 			}
+			//! Releases the guarded lock.
 			~lock_scope() {
 				m_ctx.unlock();
 			}
@@ -1256,6 +1272,7 @@ namespace gaia {
 		// Container identification
 		//----------------------------------------------------------------------
 
+		//! Detects containers exposing both `data()` and `size()`.
 		template <typename, typename = void>
 		struct has_data_size: std::false_type {};
 		template <typename T>
@@ -1265,6 +1282,7 @@ namespace gaia {
 							 decltype(detail::size(std::declval<T>())) //
 							 >>: std::true_type {};
 
+		//! Detects containers exposing `begin()`, `end()`, and `size()`.
 		template <typename, typename = void>
 		struct has_size_begin_end: std::false_type {};
 		template <typename T>
@@ -1279,12 +1297,18 @@ namespace gaia {
 		// Bit-byte conversion
 		//----------------------------------------------------------------------
 
+		//! Converts a byte count to a bit count.
+		//! \tparam T Integral value type.
+		//! \param value Number of bytes.
 		template <typename T>
 		constexpr T as_bits(T value) {
 			static_assert(std::is_integral_v<T>);
 			return value * (T)8;
 		}
 
+		//! Converts a bit count to a byte count using integer division.
+		//! \tparam T Integral value type.
+		//! \param value Number of bits.
 		template <typename T>
 		constexpr T as_bytes(T value) {
 			static_assert(std::is_integral_v<T>);
@@ -1295,6 +1319,9 @@ namespace gaia {
 		// Memory size helpers
 		//----------------------------------------------------------------------
 
+		//! Counts how many bits are required to represent @a number.
+		//! \tparam T Integral value type.
+		//! \param number Value to inspect.
 		template <typename T>
 		constexpr uint32_t count_bits(T number) {
 			uint32_t bits_needed = 0;
@@ -1305,6 +1332,9 @@ namespace gaia {
 			return bits_needed;
 		}
 
+		//! Checks whether @a number is a power of two.
+		//! \tparam T Integral value type.
+		//! \param number Value to inspect.
 		template <typename T>
 		constexpr bool is_pow2(T number) {
 			static_assert(std::is_integral<T>::value, "is_pow2 must be used with integer types");
@@ -1312,6 +1342,9 @@ namespace gaia {
 			return (number & (number - 1)) == 0;
 		}
 
+		//! Returns the highest power of two not greater than @a number.
+		//! \tparam T Integral value type.
+		//! \param number Value to inspect.
 		template <typename T>
 		constexpr T closest_pow2(T number) {
 			static_assert(std::is_integral<T>::value, "closest_pow2 must be used with integer types");
@@ -1407,6 +1440,11 @@ namespace gaia {
 			}
 		}
 
+		//! Constructs an object of type @a T at the memory address @a pData using forwarded arguments.
+		//! \tparam T Type to construct.
+		//! \tparam Args Constructor argument types.
+		//! \param pData Pointer to the memory where the object should be constructed; must not be null.
+		//! \param args Arguments forwarded to the constructor of @a T.
 		template <typename T, typename... Args>
 		void call_ctor(T* pData, Args&&... args) {
 			GAIA_ASSERT(pData != nullptr);
@@ -1445,6 +1483,10 @@ namespace gaia {
 		// Element swapping
 		//----------------------------------------------------------------------
 
+		//! Swaps @a left and @a right using move operations.
+		//! \tparam T Value type.
+		//! \param left Left operand.
+		//! \param right Right operand.
 		template <typename T>
 		constexpr void swap(T& left, T& right) {
 			T tmp = GAIA_MOV(left);
@@ -1452,30 +1494,67 @@ namespace gaia {
 			right = GAIA_MOV(tmp);
 		}
 
+		//! Swaps two elements in a contiguous range when they are out of order according to @a cmpFunc.
+		//! \tparam T Element type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \param c Pointer to the first element of the range.
+		//! \param lhs Left index.
+		//! \param rhs Right index.
+		//! \param cmpFunc Ordering predicate.
 		template <typename T, typename TCmpFunc>
 		constexpr void swap_if(T* c, size_t lhs, size_t rhs, TCmpFunc cmpFunc) noexcept {
 			if (!cmpFunc(c[lhs], c[rhs]))
 				core::swap(c[lhs], c[rhs]);
 		}
 
+		//! Swaps @a lhs and @a rhs when they are out of order according to @a cmpFunc.
+		//! \tparam T Value type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \param lhs Left operand.
+		//! \param rhs Right operand.
+		//! \param cmpFunc Ordering predicate.
 		template <typename T, typename TCmpFunc>
 		constexpr void swap_if(T& lhs, T& rhs, TCmpFunc cmpFunc) noexcept {
 			if (!cmpFunc(lhs, rhs))
 				core::swap(lhs, rhs);
 		}
 
+		//! Swaps @a lhs and @a rhs when @a cmpFunc reports the current order should be inverted.
+		//! \tparam T Value type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \param lhs Left operand.
+		//! \param rhs Right operand.
+		//! \param cmpFunc Ordering predicate.
 		template <typename T, typename TCmpFunc>
 		constexpr void swap_if_not(T& lhs, T& rhs, TCmpFunc cmpFunc) noexcept {
 			if (cmpFunc(lhs, rhs))
 				core::swap(lhs, rhs);
 		}
 
+		//! Invokes @a swapFunc for two indexed elements when they are out of order according to @a cmpFunc.
+		//! \tparam T Element type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \tparam TSwapFunc Swap callback type.
+		//! \param c Pointer to the first element of the range.
+		//! \param lhs Left index.
+		//! \param rhs Right index.
+		//! \param cmpFunc Ordering predicate.
+		//! \param swapFunc Callback performing the actual swap.
 		template <typename T, typename TCmpFunc, typename TSwapFunc>
 		constexpr void try_swap_if(T* c, uint32_t lhs, uint32_t rhs, TCmpFunc cmpFunc, TSwapFunc swapFunc) noexcept {
 			if (!cmpFunc(c[lhs], c[rhs]))
 				swapFunc(lhs, rhs);
 		}
 
+		//! Invokes @a swapFunc for container indices when the elements are out of order according to @a cmpFunc.
+		//! \tparam C Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \tparam TSwapFunc Swap callback type.
+		//! \param c Container to inspect.
+		//! \param lhs Left index.
+		//! \param rhs Right index.
+		//! \param cmpFunc Ordering predicate.
+		//! \param swapFunc Callback performing the actual swap.
 		template <typename C, typename TCmpFunc, typename TSwapFunc>
 		constexpr void try_swap_if(
 				C& c, typename C::size_type lhs, typename C::size_type rhs, TCmpFunc cmpFunc, TSwapFunc swapFunc) noexcept {
@@ -1483,6 +1562,15 @@ namespace gaia {
 				swapFunc(lhs, rhs);
 		}
 
+		//! Invokes @a swapFunc for container indices when @a cmpFunc reports the current order should be inverted.
+		//! \tparam C Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \tparam TSwapFunc Swap callback type.
+		//! \param c Container to inspect.
+		//! \param lhs Left index.
+		//! \param rhs Right index.
+		//! \param cmpFunc Ordering predicate.
+		//! \param swapFunc Callback performing the actual swap.
 		template <typename C, typename TCmpFunc, typename TSwapFunc>
 		constexpr void try_swap_if_not(
 				C& c, typename C::size_type lhs, typename C::size_type rhs, TCmpFunc cmpFunc, TSwapFunc swapFunc) noexcept {
@@ -1494,6 +1582,12 @@ namespace gaia {
 		// Value filling
 		//----------------------------------------------------------------------
 
+		//! Assigns @a value to every element in the range [`first`, `last`).
+		//! \tparam ForwardIt Iterator type.
+		//! \tparam T Value type.
+		//! \param first First element in the range.
+		//! \param last One-past-last element in the range.
+		//! \param value Value to assign.
 		template <class ForwardIt, class T>
 		constexpr void fill(ForwardIt first, ForwardIt last, const T& value) {
 			for (; first != last; ++first) {
@@ -1505,11 +1599,19 @@ namespace gaia {
 		// Value range checking
 		//----------------------------------------------------------------------
 
+		//! Returns the smaller of two values.
+		//! \tparam T Value type.
+		//! \param a Left operand.
+		//! \param b Right operand.
 		template <class T>
 		constexpr const T& get_min(const T& a, const T& b) {
 			return (b < a) ? b : a;
 		}
 
+		//! Returns the greater of two values.
+		//! \tparam T Value type.
+		//! \param a Left operand.
+		//! \param b Right operand.
 		template <class T>
 		constexpr const T& get_max(const T& a, const T& b) {
 			return (b > a) ? b : a;
@@ -1519,6 +1621,7 @@ namespace gaia {
 		// Checking if a template arg is unique among the rest
 		//----------------------------------------------------------------------
 
+		//! Compile-time predicate checking whether every type in a pack is unique.
 		template <typename...>
 		inline constexpr auto is_unique = std::true_type{};
 
@@ -1533,6 +1636,7 @@ namespace gaia {
 			};
 		} // namespace detail
 
+		//! Builds a tuple type from the first occurrence of each type in a parameter pack.
 		template <typename T, typename... Ts>
 		struct unique: detail::type_identity<T> {}; // TODO: In C++20 we could use std::type_identity
 
@@ -1541,6 +1645,7 @@ namespace gaia {
 				std::conditional_t<
 						(std::is_same_v<U, Ts> || ...), unique<std::tuple<Ts...>, Us...>, unique<std::tuple<Ts..., U>, Us...>> {};
 
+		//! Tuple type containing only the first occurrence of each type in @a Ts.
 		template <typename... Ts>
 		using unique_tuple = typename unique<std::tuple<>, Ts...>::type;
 
@@ -1548,6 +1653,8 @@ namespace gaia {
 		// Calculating total size of all types of tuple
 		//----------------------------------------------------------------------
 
+		//! Returns the sum of `sizeof(...)` for all types stored in the tuple type.
+		//! \tparam Args Tuple element types.
 		template <typename... Args>
 		constexpr unsigned get_args_size(std::tuple<Args...> const& /*no_name*/) {
 			return (sizeof(Args) + ...);
@@ -1557,9 +1664,11 @@ namespace gaia {
 		// Function arguments type checks
 		//----------------------------------------------------------------------
 
+		//! Lightweight carrier for a function argument type pack.
 		template <typename... Type>
 		struct func_type_list {};
 
+		//! Extracts the argument list from a const member function pointer.
 		template <typename Class, typename Ret, typename... Args>
 		func_type_list<Args...> func_args(Ret (Class::*)(Args...) const);
 
@@ -1634,11 +1743,13 @@ namespace gaia {
 			constexpr std::false_type has_ffunc_equals_check(...);
 		} // namespace detail
 
+		//! Detects whether @a T defines `operator==` as a member function.
 		template <typename T>
 		struct has_func_equals {
 			static constexpr bool value = decltype(detail::has_mfunc_equals_check<T>(0))::value;
 		};
 
+		//! Detects whether @a T supports a free `operator==`.
 		template <typename T>
 		struct has_ffunc_equals {
 			static constexpr bool value = decltype(detail::has_ffunc_equals_check<T>(0))::value;
@@ -1648,12 +1759,14 @@ namespace gaia {
 		// Type helpers
 		//----------------------------------------------------------------------
 
+		//! Compile-time list of types.
 		template <typename... Type>
 		struct type_list {
 			using types = type_list;
 			static constexpr auto size = sizeof...(Type);
 		};
 
+		//! Concatenates two @ref type_list instances.
 		template <typename TypesA, typename TypesB>
 		struct type_list_concat;
 
@@ -1677,10 +1790,11 @@ namespace gaia {
 
 			template <auto FirstIdx, typename Tuple, typename Func, auto... Is>
 			void each_tuple_impl(Func func, std::integer_sequence<decltype(FirstIdx), Is...> /*no_name*/) {
-				if constexpr ((std::is_invocable_v<
-													 Func&&, decltype(std::tuple_element_t<FirstIdx + Is, Tuple>{}),
-													 std::integral_constant<decltype(FirstIdx), Is>> &&
-											 ...))
+				if constexpr (
+						(std::is_invocable_v<
+								 Func&&, decltype(std::tuple_element_t<FirstIdx + Is, Tuple>{}),
+								 std::integral_constant<decltype(FirstIdx), Is>> &&
+						 ...))
 					// func(Args&& arg, uint32_t idx)
 					(func(
 							 std::tuple_element_t<FirstIdx + Is, Tuple>{},
@@ -1693,10 +1807,10 @@ namespace gaia {
 
 			template <auto FirstIdx, typename Tuple, typename Func, auto... Is>
 			void each_tuple_impl(Tuple&& tuple, Func func, std::integer_sequence<decltype(FirstIdx), Is...> /*no_name*/) {
-				if constexpr ((std::is_invocable_v<
-													 Func&&, decltype(std::get<FirstIdx + Is>(tuple)),
-													 std::integral_constant<decltype(FirstIdx), Is>> &&
-											 ...))
+				if constexpr (
+						(std::is_invocable_v<
+								 Func&&, decltype(std::get<FirstIdx + Is>(tuple)), std::integral_constant<decltype(FirstIdx), Is>> &&
+						 ...))
 					// func(Args&& arg, uint32_t idx)
 					(func(std::get<FirstIdx + Is>(tuple), std::integral_constant<decltype(FirstIdx), FirstIdx + Is>{}), ...);
 				else
@@ -1876,6 +1990,13 @@ namespace gaia {
 			detail::each_tuple_impl<FirstIdx, Tuple>(func, std::make_integer_sequence<decltype(FirstIdx), Iters>{});
 		}
 
+		//! Applies @a func to every element in the iterator range [`first`, `last`).
+		//! \tparam InputIt Iterator type.
+		//! \tparam Func Callable type.
+		//! \param first First element in the range.
+		//! \param last One-past-last element in the range.
+		//! \param func Callable invoked for each dereferenced element.
+		//! \return The callable object after iteration.
 		template <typename InputIt, typename Func>
 		constexpr Func each(InputIt first, InputIt last, Func func) {
 			for (; first != last; ++first)
@@ -1883,6 +2004,12 @@ namespace gaia {
 			return func;
 		}
 
+		//! Applies @a func to every element in @a arr.
+		//! \tparam C Container type.
+		//! \tparam Func Callable type.
+		//! \param arr Container to iterate.
+		//! \param func Callable invoked for each element.
+		//! \return The callable object after iteration.
 		template <typename C, typename Func>
 		constexpr auto each(const C& arr, Func func) {
 			return each(arr.begin(), arr.end(), func);
@@ -1892,6 +2019,13 @@ namespace gaia {
 		// Lookups
 		//----------------------------------------------------------------------
 
+		//! Searches the iterator range [`first`, `last`) for the first element equal to @a value.
+		//! \tparam InputIt Iterator type.
+		//! \tparam T Lookup value type.
+		//! \param first First element in the range.
+		//! \param last One-past-last element in the range.
+		//! \param value Value to find.
+		//! \return Iterator to the first matching element or @a last when no match is found.
 		template <typename InputIt, typename T>
 		constexpr InputIt find(InputIt first, InputIt last, const T& value) {
 			if constexpr (std::is_pointer_v<InputIt>) {
@@ -1915,6 +2049,12 @@ namespace gaia {
 			return last;
 		}
 
+		//! Searches @a arr for the first element equal to @a item.
+		//! \tparam C Container type.
+		//! \tparam V Lookup value type.
+		//! \param arr Container to inspect.
+		//! \param item Value to find.
+		//! \return Iterator returned by the container lookup or `arr.end()` when no match is found.
 		template <typename C, typename V>
 		constexpr auto find(const C& arr, const V& item) {
 			if constexpr (has_func_find<C>::value)
@@ -1923,6 +2063,13 @@ namespace gaia {
 				return core::find(arr.begin(), arr.end(), item);
 		}
 
+		//! Searches the iterator range [`first`, `last`) for the first element satisfying @a func.
+		//! \tparam InputIt Iterator type.
+		//! \tparam Func Predicate type.
+		//! \param first First element in the range.
+		//! \param last One-past-last element in the range.
+		//! \param func Predicate used for matching.
+		//! \return Iterator to the first matching element or @a last when no match is found.
 		template <typename InputIt, typename Func>
 		constexpr InputIt find_if(InputIt first, InputIt last, Func func) {
 			if constexpr (std::is_pointer_v<InputIt>) {
@@ -1946,6 +2093,12 @@ namespace gaia {
 			return last;
 		}
 
+		//! Searches @a arr for the first element satisfying @a predicate.
+		//! \tparam UnaryPredicate Predicate type.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param predicate Predicate used for matching.
+		//! \return Iterator returned by the container lookup or `arr.end()` when no match is found.
 		template <typename UnaryPredicate, typename C>
 		constexpr auto find_if(const C& arr, UnaryPredicate predicate) {
 			if constexpr (has_func_find_if<C, UnaryPredicate>::value)
@@ -1954,6 +2107,13 @@ namespace gaia {
 				return core::find_if(arr.begin(), arr.end(), predicate);
 		}
 
+		//! Searches the iterator range [`first`, `last`) for the first element that does not satisfy @a func.
+		//! \tparam InputIt Iterator type.
+		//! \tparam Func Predicate type.
+		//! \param first First element in the range.
+		//! \param last One-past-last element in the range.
+		//! \param func Predicate used for matching.
+		//! \return Iterator to the first non-matching element or @a last when all elements match.
 		template <typename InputIt, typename Func>
 		constexpr InputIt find_if_not(InputIt first, InputIt last, Func func) {
 			if constexpr (std::is_pointer_v<InputIt>) {
@@ -1977,6 +2137,12 @@ namespace gaia {
 			return last;
 		}
 
+		//! Searches @a arr for the first element that does not satisfy @a predicate.
+		//! \tparam UnaryPredicate Predicate type.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param predicate Predicate used for matching.
+		//! \return Iterator returned by the container lookup or `arr.end()` when all elements match.
 		template <typename UnaryPredicate, typename C>
 		constexpr auto find_if_not(const C& arr, UnaryPredicate predicate) {
 			if constexpr (has_func_find_if_not<C, UnaryPredicate>::value)
@@ -1987,12 +2153,22 @@ namespace gaia {
 
 		//----------------------------------------------------------------------
 
+		//! Checks whether @a arr contains @a item.
+		//! \tparam C Container type.
+		//! \tparam V Lookup value type.
+		//! \param arr Container to inspect.
+		//! \param item Value to find.
 		template <typename C, typename V>
 		constexpr bool has(const C& arr, const V& item) {
 			const auto it = find(arr, item);
 			return it != arr.end();
 		}
 
+		//! Checks whether any element in @a arr satisfies @a predicate.
+		//! \tparam UnaryPredicate Predicate type.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param predicate Predicate used for matching.
 		template <typename UnaryPredicate, typename C>
 		constexpr bool has_if(const C& arr, UnaryPredicate predicate) {
 			const auto it = find_if(arr, predicate);
@@ -2001,6 +2177,10 @@ namespace gaia {
 
 		//----------------------------------------------------------------------
 
+		//! Returns the index of @a item in @a arr or @ref BadIndex when the item is not present.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param item Value to locate.
 		template <typename C>
 		constexpr auto get_index(const C& arr, typename C::const_reference item) {
 			const auto it = find(arr, item);
@@ -2010,11 +2190,21 @@ namespace gaia {
 			return (decltype(BadIndex))core::distance(arr.begin(), it);
 		}
 
+		//! Returns the index of @a item in @a arr without checking whether the item exists.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param item Value to locate.
+		//! \warning Returns an invalid index when @a item is not present.
 		template <typename C>
 		constexpr auto get_index_unsafe(const C& arr, typename C::const_reference item) {
 			return (decltype(BadIndex))core::distance(arr.begin(), find(arr, item));
 		}
 
+		//! Returns the index of the first element satisfying @a predicate or @ref BadIndex when none matches.
+		//! \tparam UnaryPredicate Predicate type.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param predicate Predicate used for matching.
 		template <typename UnaryPredicate, typename C>
 		constexpr auto get_index_if(const C& arr, UnaryPredicate predicate) {
 			const auto it = find_if(arr, predicate);
@@ -2024,6 +2214,12 @@ namespace gaia {
 			return (decltype(BadIndex))core::distance(arr.begin(), it);
 		}
 
+		//! Returns the index of the first element satisfying @a predicate without checking whether a match exists.
+		//! \tparam UnaryPredicate Predicate type.
+		//! \tparam C Container type.
+		//! \param arr Container to inspect.
+		//! \param predicate Predicate used for matching.
+		//! \warning Returns an invalid index when no element satisfies @a predicate.
 		template <typename UnaryPredicate, typename C>
 		constexpr auto get_index_if_unsafe(const C& arr, UnaryPredicate predicate) {
 			return (decltype(BadIndex))core::distance(arr.begin(), find_if(arr, predicate));
@@ -2055,7 +2251,7 @@ namespace gaia {
 		//! \param arr Array
 		//! \param idx Array index
 		//! \warning If the item order is important and the size of the array changes after calling this function you need
-		//           to sort the array.
+		//!          to sort the array.
 		template <typename C>
 		void swap_erase(C& arr, typename C::size_type idx) {
 			if (idx >= arr.size())
@@ -2071,6 +2267,7 @@ namespace gaia {
 		// Comparison
 		//----------------------------------------------------------------------
 
+		//! Equality comparison functor using `operator==`.
 		template <typename T>
 		struct equal_to {
 			constexpr bool operator()(const T& lhs, const T& rhs) const {
@@ -2078,6 +2275,7 @@ namespace gaia {
 			}
 		};
 
+		//! Strict weak ordering functor using `operator<`.
 		template <typename T>
 		struct is_smaller {
 			constexpr bool operator()(const T& lhs, const T& rhs) const {
@@ -2085,6 +2283,7 @@ namespace gaia {
 			}
 		};
 
+		//! Comparison functor using `operator<=`.
 		template <typename T>
 		struct is_smaller_or_equal {
 			constexpr bool operator()(const T& lhs, const T& rhs) const {
@@ -2092,6 +2291,7 @@ namespace gaia {
 			}
 		};
 
+		//! Strict weak ordering functor using `operator>`.
 		template <typename T>
 		struct is_greater {
 			constexpr bool operator()(const T& lhs, const T& rhs) const {
@@ -2475,6 +2675,13 @@ namespace gaia {
 			}
 		} // namespace detail
 
+		//! Recursively quick-sorts the index range [`low`, `high`] in @a arr.
+		//! \tparam Container Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \param arr Container to sort.
+		//! \param low First index in the range.
+		//! \param high Last index in the range.
+		//! \param cmpFunc Ordering predicate.
 		template <typename Container, typename TCmpFunc>
 		void quick_sort(Container& arr, int low, int high, TCmpFunc cmpFunc) {
 			if (low >= high)
@@ -2484,6 +2691,15 @@ namespace gaia {
 			quick_sort(arr, pos + 1, high, cmpFunc);
 		}
 
+		//! Recursively quick-sorts the index range [`low`, `high`] in @a arr using a custom swap callback.
+		//! \tparam Container Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \tparam TSwapFunc Swap callback type.
+		//! \param arr Container to sort.
+		//! \param low First index in the range.
+		//! \param high Last index in the range.
+		//! \param cmpFunc Ordering predicate.
+		//! \param swapFunc Callback performing the actual swap.
 		template <typename Container, typename TCmpFunc, typename TSwapFunc>
 		void quick_sort(Container& arr, int low, int high, TCmpFunc cmpFunc, TSwapFunc swapFunc) {
 			if (low >= high)
@@ -2622,6 +2838,11 @@ namespace gaia {
 			quick_sort(beg, 0, (int)n - 1, cmpFunc);
 		}
 
+		//! Sorts all elements in @a c using @a cmpFunc.
+		//! \tparam C Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \param c Container to sort.
+		//! \param cmpFunc Ordering predicate.
 		template <typename C, typename TCmpFunc>
 		void sort(C& c, TCmpFunc cmpFunc) {
 			sort(c.begin(), c.end(), cmpFunc);
@@ -2648,6 +2869,13 @@ namespace gaia {
 			quick_sort(beg, 0, (int)n - 1, cmpFunc, swapFunc);
 		}
 
+		//! Sorts all elements in @a c using @a cmpFunc and a custom swap callback.
+		//! \tparam C Container type.
+		//! \tparam TCmpFunc Comparison functor type.
+		//! \tparam TSwapFunc Swap callback type.
+		//! \param c Container to sort.
+		//! \param cmpFunc Ordering predicate.
+		//! \param swapFunc Callback performing the actual swap.
 		template <typename C, typename TCmpFunc, typename TSwapFunc>
 		void sort(C& c, TCmpFunc cmpFunc, TSwapFunc swapFunc) {
 			sort(c.begin(), c.end(), cmpFunc, swapFunc);
@@ -3539,76 +3767,83 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				return std::make_tuple();
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3);
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
@@ -3632,64 +3867,71 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				return 0;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 15;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 14;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 13;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				return 12;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				return 11;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 10;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 9;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 8;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				return 7;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				return 6;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 5;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 4;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 3;
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
 				return 2;
@@ -3706,76 +3948,83 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				visitor();
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6] = object;
 				return visitor(p1, p2, p3, p4, p5, p6);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5] = object;
 				return visitor(p1, p2, p3, p4, p5);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4] = object;
 				return visitor(p1, p2, p3, p4);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3] = object;
 				return visitor(p1, p2, p3);
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
@@ -6980,11 +7229,11 @@ namespace gaia {
 				void* m_data;
 				BlockArray m_blocks;
 
-				uint32_t m_sizeType: SizeTypeBits;
-				uint32_t m_blockCnt: NBlocks_Bits;
-				uint32_t m_usedBlocks: NBlocks_Bits;
-				uint32_t m_nextFreeBlock: NBlocks_Bits;
-				uint32_t m_freeBlocks: NBlocks_Bits;
+				uint32_t m_sizeType : SizeTypeBits;
+				uint32_t m_blockCnt : NBlocks_Bits;
+				uint32_t m_usedBlocks : NBlocks_Bits;
+				uint32_t m_nextFreeBlock : NBlocks_Bits;
+				uint32_t m_freeBlocks : NBlocks_Bits;
 
 #if GAIA_ASSERT_ENABLED
 				uint64_t m_usedMask = 0;
@@ -7072,8 +7321,7 @@ namespace gaia {
 
 			//! Frees one block back to this page.
 			//! \param pBlock Pointer previously returned by alloc_block().
-			void
-			free_block(void* pBlock) {
+			void free_block(void* pBlock) {
 				GAIA_ASSERT(pBlock != nullptr);
 				GAIA_ASSERT(m_usedBlocks > 0);
 				GAIA_ASSERT(m_freeBlocks <= NBlocks);
@@ -12220,14 +12468,12 @@ namespace robin_hood {
 		template <typename E, typename... Args>
 		[[noreturn]] GAIA_NOINLINE
 	#if ROBIN_HOOD(HAS_EXCEPTIONS)
-				void
-				doThrow(Args&&... args) {
+				void doThrow(Args&&... args) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 			throw E(GAIA_FWD(args)...);
 		}
 	#else
-				void
-				doThrow(Args&&... ROBIN_HOOD_UNUSED(args) /*unused*/) {
+				void doThrow(Args&&... ROBIN_HOOD_UNUSED(args) /*unused*/) {
 			abort();
 		}
 	#endif
@@ -14457,13 +14703,13 @@ namespace gaia {
 			BlockArray m_blocks;
 
 			//! Number of blocks in the block array
-			uint32_t m_blockCnt: NBlocks_Bits;
+			uint32_t m_blockCnt : NBlocks_Bits;
 			//! Number of used blocks out of NBlocks
-			uint32_t m_usedBlocks: NBlocks_Bits;
+			uint32_t m_usedBlocks : NBlocks_Bits;
 			//! Index of the next block to recycle
-			uint32_t m_nextFreeBlock: NBlocks_Bits;
+			uint32_t m_nextFreeBlock : NBlocks_Bits;
 			//! Number of blocks to recycle
-			uint32_t m_freeBlocks: NBlocks_Bits;
+			uint32_t m_freeBlocks : NBlocks_Bits;
 			//! Free bits to use in the future
 			// uint32_t m_unused : 8;
 
@@ -22435,6 +22681,8 @@ namespace gaia {
 
 namespace gaia {
 	namespace mt {
+		//! Manual-reset style synchronization primitive for waking a waiting thread.
+		//! The event stays signaled until reset explicitly.
 		class GAIA_API Event final {
 #if GAIA_USE_MT_STD
 			GAIA_PROF_MUTEX(std::mutex, m_mtx);
@@ -22448,6 +22696,7 @@ namespace gaia {
 
 		public:
 #if !GAIA_USE_MT_STD
+			//! Creates an unsignaled event and initializes the underlying pthread objects.
 			Event() {
 				[[maybe_unused]] int ret = pthread_mutex_init(&m_hMutexHandle, nullptr);
 				GAIA_ASSERT(ret == 0);
@@ -22457,6 +22706,7 @@ namespace gaia {
 				}
 			}
 
+			//! Destroys the underlying pthread synchronization objects.
 			~Event() {
 				[[maybe_unused]] int ret = pthread_cond_destroy(&m_hCondHandle);
 				GAIA_ASSERT(ret == 0);
@@ -22466,6 +22716,7 @@ namespace gaia {
 			}
 #endif
 
+			//! Sets the event to the signaled state and wakes one waiting thread.
 			void set() {
 #if GAIA_USE_MT_STD
 				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_mtx);
@@ -22487,6 +22738,7 @@ namespace gaia {
 #endif
 			}
 
+			//! Resets the event to the unsignaled state.
 			void reset() {
 #if GAIA_USE_MT_STD
 				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_mtx);
@@ -22502,6 +22754,8 @@ namespace gaia {
 #endif
 			}
 
+			//! Checks whether the event currently is in the signaled state.
+			//! \return True when the event is signaled.
 			GAIA_NODISCARD bool is_set() {
 #if GAIA_USE_MT_STD
 				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_mtx);
@@ -22519,6 +22773,7 @@ namespace gaia {
 #endif
 			}
 
+			//! Blocks the calling thread until the event becomes signaled.
 			void wait() {
 #if GAIA_USE_MT_STD
 				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_mtx);
@@ -22719,11 +22974,11 @@ namespace gaia {
 		private:
 			struct JobData {
 				//! Index in entity array
-				JobInternalType id: IdBits;
+				JobInternalType id : IdBits;
 				//! Generation index. Incremented every time an item is deleted
-				JobInternalType gen: GenBits;
+				JobInternalType gen : GenBits;
 				//! Job priority. 1-priority, 0-background
-				JobInternalType prio: PrioBits;
+				JobInternalType prio : PrioBits;
 			};
 
 			union {
@@ -25680,13 +25935,13 @@ namespace gaia {
 				//! Component entity index
 				uint32_t id;
 				//! Component size
-				IdentifierData size: MaxComponentSize_Bits;
+				IdentifierData size : MaxComponentSize_Bits;
 				//! Component alignment
-				IdentifierData alig: MaxAlignment_Bits;
+				IdentifierData alig : MaxAlignment_Bits;
 				//! Component storage kind. 0 = table, 1 = sparse.
 				IdentifierData storage : 1;
 				//! Component is SoA
-				IdentifierData soa: meta::StructToTupleMaxTypes_Bits;
+				IdentifierData soa : meta::StructToTupleMaxTypes_Bits;
 				//! Unused part
 				IdentifierData unused : 1;
 			};
@@ -26753,13 +27008,13 @@ namespace gaia {
 				//! Block size type, 0=8K, 1=16K blocks, 2=32K blocks
 				uint32_t m_sizeType : 2;
 				//! Number of blocks in the block array
-				uint32_t m_blockCnt: NBlocks_Bits;
+				uint32_t m_blockCnt : NBlocks_Bits;
 				//! Number of used blocks out of NBlocks
-				uint32_t m_usedBlocks: NBlocks_Bits;
+				uint32_t m_usedBlocks : NBlocks_Bits;
 				//! Index of the next block to recycle
-				uint32_t m_nextFreeBlock: NBlocks_Bits;
+				uint32_t m_nextFreeBlock : NBlocks_Bits;
 				//! Number of blocks to recycle
-				uint32_t m_freeBlocks: NBlocks_Bits;
+				uint32_t m_freeBlocks : NBlocks_Bits;
 				//! Free bits to use in the future
 				// uint32_t m_unused : 6;
 
@@ -27403,7 +27658,7 @@ namespace gaia {
 			uint16_t capacity;
 
 			//! Index of the first enabled entity in the chunk
-			uint16_t rowFirstEnabledEntity: MAX_CHUNK_ENTITIES_BITS;
+			uint16_t rowFirstEnabledEntity : MAX_CHUNK_ENTITIES_BITS;
 			//! True if there's any generic component that requires custom construction
 			uint16_t hasAnyCustomGenCtor : 1;
 			//! True if there's any unique component that requires custom construction
@@ -27413,7 +27668,7 @@ namespace gaia {
 			//! True if there's any unique component that requires custom destruction
 			uint16_t hasAnyCustomUniDtor : 1;
 			//! When it hits 0 the chunk is scheduled for deletion
-			uint16_t lifespanCountdown: CHUNK_LIFESPAN_BITS;
+			uint16_t lifespanCountdown : CHUNK_LIFESPAN_BITS;
 			//! True if deleted, false otherwise
 			uint16_t dead : 1;
 			//! Empty space for future use
@@ -31328,9 +31583,9 @@ namespace gaia {
 				//! If set the archetype is to be deleted
 				uint32_t dead : 1;
 				//! Max lifespan of the archetype
-				uint32_t lifespanCountdownMax: ARCHETYPE_LIFESPAN_BITS;
+				uint32_t lifespanCountdownMax : ARCHETYPE_LIFESPAN_BITS;
 				//! Remaining lifespan of the archetype
-				uint32_t lifespanCountdown: ARCHETYPE_LIFESPAN_BITS;
+				uint32_t lifespanCountdown : ARCHETYPE_LIFESPAN_BITS;
 
 				RuntimeData(): deleteReq(0), dead(0), lifespanCountdownMax(1), lifespanCountdown(0) {}
 			};
