@@ -23598,6 +23598,7 @@ namespace gaia {
 
 namespace gaia {
 	namespace mt {
+		//! Packed job state layout used inside @ref JobContainer::state.
 		enum JobState : uint32_t {
 			DEP_BITS_START = 0,
 			DEP_BITS = 27,
@@ -23627,6 +23628,8 @@ namespace gaia {
 			inline void signal_edge(JobContainer& jobData);
 		}
 
+		//! Outgoing dependency edges for a job.
+		//! Stores either a single dependent job handle or a heap-allocated array of handles.
 		struct JobEdges {
 			//! Dependency or an array of dependencies.
 			//! depCnt decides which one is used.
@@ -23642,6 +23645,7 @@ namespace gaia {
 			}
 		};
 
+		//! Internal storage for a scheduled job and its dependency metadata.
 		struct JobContainer: cnt::ilist_item {
 			//! Current state of the job
 			//! Consist of upper and bottom part.
@@ -23696,6 +23700,11 @@ namespace gaia {
 				return *this;
 			}
 
+			//! Creates a new job container for the intrusive storage.
+			//! \param index Stable slot index in the job pool.
+			//! \param generation Generation assigned to the slot.
+			//! \param pCtx Allocation context carrying the requested job priority.
+			//! \return Initialized job container.
 			GAIA_NODISCARD static JobContainer create(uint32_t index, uint32_t generation, void* pCtx) {
 				auto* ctx = (JobAllocCtx*)pCtx;
 
@@ -23707,43 +23716,58 @@ namespace gaia {
 				return jc;
 			}
 
+			//! Returns the public handle associated with @a jc.
+			//! \param jc Job container to inspect.
+			//! \return Handle referencing @a jc.
 			GAIA_NODISCARD static JobHandle handle(const JobContainer& jc) {
 				return JobHandle(jc.idx, jc.data.gen, (jc.prio == JobPriority::Low) != 0);
 			}
 		};
 
+		//! Handle identifying a shared callback used by parallel jobs.
 		struct ParallelCallbackHandle {
 			static constexpr uint32_t IdMask = uint32_t(-1);
 
 			uint32_t m_id = IdMask;
 			uint32_t m_gen = 0;
 
+			//! Creates an invalid callback handle.
 			ParallelCallbackHandle() = default;
+			//! Creates a callback handle from the given identifier and generation.
+			//! \param id Slot identifier.
+			//! \param gen Slot generation.
 			ParallelCallbackHandle(uint32_t id, uint32_t gen): m_id(id), m_gen(gen) {}
 
+			//! Returns the slot identifier.
 			GAIA_NODISCARD uint32_t id() const {
 				return m_id;
 			}
 
+			//! Returns the slot generation.
 			GAIA_NODISCARD uint32_t gen() const {
 				return m_gen;
 			}
 
+			//! Checks whether two callback handles reference the same record.
 			GAIA_NODISCARD bool operator==(const ParallelCallbackHandle& other) const {
 				return m_id == other.m_id && m_gen == other.m_gen;
 			}
 		};
 
+		//! Allocation context used when creating shared parallel callbacks.
 		struct ParallelCallbackAllocCtx {
 			JobArgsFunc callback;
 			uint32_t refs = 0;
 		};
 
+		//! Internal storage record for a shared parallel callback.
 		struct ParallelCallbackRecord: cnt::ilist_item {
 			JobArgsFunc callback;
 			std::atomic_uint32_t refs = 0;
 
+			//! Creates an empty callback record.
 			ParallelCallbackRecord() = default;
+			//! Destroys the callback record.
 			~ParallelCallbackRecord() = default;
 
 			ParallelCallbackRecord(const ParallelCallbackRecord&) = delete;
@@ -23762,6 +23786,11 @@ namespace gaia {
 				return *this;
 			}
 
+			//! Creates a new callback record for the intrusive storage.
+			//! \param index Stable slot index in the callback pool.
+			//! \param generation Generation assigned to the slot.
+			//! \param pCtx Allocation context carrying the callback and reference count.
+			//! \return Initialized callback record.
 			GAIA_NODISCARD static ParallelCallbackRecord create(uint32_t index, uint32_t generation, void* pCtx) {
 				auto* ctx = (ParallelCallbackAllocCtx*)pCtx;
 
@@ -23773,11 +23802,15 @@ namespace gaia {
 				return record;
 			}
 
+			//! Returns the public handle associated with @a record.
+			//! \param record Callback record to inspect.
+			//! \return Handle referencing @a record.
 			GAIA_NODISCARD static ParallelCallbackHandle handle(const ParallelCallbackRecord& record) {
 				return ParallelCallbackHandle(record.idx, record.data.gen);
 			}
 		};
 
+		//! Storage and lifecycle manager for internal job and parallel callback records.
 		class JobManager {
 			//! Implicit list of jobs. Page allocated, memory addresses are always fixed.
 			cnt::ilist<JobContainer, JobHandle> m_jobData;
@@ -23785,9 +23818,13 @@ namespace gaia {
 			cnt::ilist<ParallelCallbackRecord, ParallelCallbackHandle> m_parallelCallbacks;
 
 		public:
+			//! Returns mutable internal storage for @a jobHandle.
+			//! \param jobHandle Handle of the job to inspect.
 			JobContainer& data(JobHandle jobHandle) {
 				return m_jobData[jobHandle.id()];
 			}
+			//! Returns immutable internal storage for @a jobHandle.
+			//! \param jobHandle Handle of the job to inspect.
 			const JobContainer& data(JobHandle jobHandle) const {
 				return m_jobData[jobHandle.id()];
 			}
@@ -23812,6 +23849,10 @@ namespace gaia {
 				return handle;
 			}
 
+			//! Allocates a shared callback record used by parallel jobs.
+			//! \param callback Callback to invoke.
+			//! \param refs Initial reference count.
+			//! \return Handle identifying the new callback record.
 			GAIA_NODISCARD ParallelCallbackHandle alloc_parallel_callback(JobArgsFunc callback, uint32_t refs) {
 				ParallelCallbackAllocCtx ctx{};
 				ctx.callback = GAIA_MOV(callback);
@@ -23829,6 +23870,8 @@ namespace gaia {
 				jobData.state.store(JobState::Released);
 			}
 
+			//! Releases a shared callback record.
+			//! \param handle Handle of the callback record to free.
 			void free_parallel_callback(ParallelCallbackHandle handle) {
 				auto& record = m_parallelCallbacks[handle.id()];
 				record.callback.reset();
@@ -23851,6 +23894,9 @@ namespace gaia {
 				finalize(jobData);
 			}
 
+			//! Signals that one dependency edge of @a jobData has completed.
+			//! \param jobData Job whose dependency counter should be decremented.
+			//! \return True when the job has no remaining dependencies and can be processed.
 			static bool signal_edge(JobContainer& jobData) {
 				// Subtract from dependency counter
 				const auto state = jobData.state.fetch_sub(1) - 1;
@@ -23865,6 +23911,8 @@ namespace gaia {
 				return deps == 0;
 			}
 
+			//! Releases heap storage used for the dependency list of @a jobData.
+			//! \param jobData Job whose dependency edge storage should be released.
 			static void free_edges(JobContainer& jobData) {
 				// We only allocate an array for 2 and more dependencies
 				if (jobData.edges.depCnt <= 1)
@@ -23945,6 +23993,9 @@ namespace gaia {
 				GAIA_ASSERT((statePrev & JobState::DEP_BITS_MASK) < DEP_BITS_MASK - 1);
 			}
 
+			//! Marks a job as submitted.
+			//! \param jobData Job to transition.
+			//! \return Updated packed state value after the transition.
 			static uint32_t submit(JobContainer& jobData) {
 				[[maybe_unused]] const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				GAIA_ASSERT(state < JobState::Submitted);
@@ -23955,6 +24006,8 @@ namespace gaia {
 				return val;
 			}
 
+			//! Marks a job as queued for worker processing.
+			//! \param jobData Job to transition.
 			static void processing(JobContainer& jobData) {
 				GAIA_ASSERT(submitted(const_cast<const JobContainer&>(jobData)));
 				jobData.state.store(JobState::Processing);
@@ -23963,6 +24016,9 @@ namespace gaia {
 #endif
 			}
 
+			//! Marks a job as executing on the worker identified by @a workerIdx.
+			//! \param jobData Job to transition.
+			//! \param workerIdx Worker executing the job.
 			static void executing(JobContainer& jobData, uint32_t workerIdx) {
 				GAIA_ASSERT(processing(const_cast<const JobContainer&>(jobData)));
 				jobData.state.store(JobState::Executing | workerIdx);
@@ -23971,6 +24027,8 @@ namespace gaia {
 #endif
 			}
 
+			//! Marks a job as finished.
+			//! \param jobData Job to transition.
 			static void finalize(JobContainer& jobData) {
 				jobData.state.store(JobState::Done);
 #if GAIA_LOG_JOB_STATES
@@ -23978,6 +24036,8 @@ namespace gaia {
 #endif
 			}
 
+			//! Resets a completed or never-submitted job back to the clear state.
+			//! \param jobData Job to reset.
 			static void reset_state(JobContainer& jobData) {
 				[[maybe_unused]] const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				// The job needs to be either clear or finalize for us to allow a reset
@@ -23988,43 +24048,67 @@ namespace gaia {
 #endif
 			}
 
+			//! Checks whether the job referenced by @a jobHandle is in the clear state.
+			//! \param jobHandle Handle of the job to inspect.
+			//! \return True when the packed state is zero.
 			GAIA_NODISCARD bool is_clear(JobHandle jobHandle) const {
 				const auto& jobData = data(jobHandle);
 				const auto state = jobData.state.load();
 				return state == 0;
 			}
 
+			//! Checks whether @a jobData is in the clear state.
+			//! \param jobData Job to inspect.
+			//! \return True when the packed state is zero.
 			GAIA_NODISCARD static bool is_clear(JobContainer& jobData) {
 				const auto state = jobData.state.load();
 				return state == 0;
 			}
 
+			//! Checks whether @a jobData has been submitted but not yet queued for execution.
+			//! \param jobData Job to inspect.
+			//! \return True when the state bits equal @ref JobState::Submitted.
 			GAIA_NODISCARD static bool submitted(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Submitted;
 			}
 
+			//! Checks whether @a jobData is queued for worker processing.
+			//! \param jobData Job to inspect.
+			//! \return True when the state bits equal @ref JobState::Processing.
 			GAIA_NODISCARD static bool processing(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Processing;
 			}
 
+			//! Checks whether @a jobData currently is executing or queued for execution.
+			//! \param jobData Job to inspect.
+			//! \return True when the job is busy.
 			GAIA_NODISCARD static bool busy(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Executing || state == JobState::Processing;
 			}
 
+			//! Checks whether @a jobData has finished executing.
+			//! \param jobData Job to inspect.
+			//! \return True when the state bits equal @ref JobState::Done.
 			GAIA_NODISCARD static bool done(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Done;
 			}
 
+			//! Invokes the shared callback referenced by @a handle.
+			//! \param handle Callback handle.
+			//! \param args Arguments forwarded to the callback.
 			void invoke_parallel_callback(ParallelCallbackHandle handle, const JobArgs& args) {
 				auto& record = m_parallelCallbacks[handle.id()];
 				GAIA_ASSERT(record.data.gen == handle.gen());
 				record.callback(args);
 			}
 
+			//! Releases one reference to the callback referenced by @a handle.
+			//! \param handle Callback handle.
+			//! \return True when the released reference was the last one.
 			GAIA_NODISCARD bool release_parallel_callback_ref(ParallelCallbackHandle handle) {
 				auto& record = m_parallelCallbacks[handle.id()];
 				GAIA_ASSERT(record.data.gen == handle.gen());
