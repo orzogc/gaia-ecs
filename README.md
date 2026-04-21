@@ -3433,7 +3433,7 @@ Where possible, the given system's QoS is utilized (Windows, MacOS). In case of 
 
 Thread affinity is left untouched because this plays better with QoS and gives the operating system more control over scheduling.
 
-During scheduling, Gaia-ECS keeps worker-local queues and worker-to-worker stealing within the same priority class. If a worker releases a dependent job with a different priority, that job is routed to the matching global queue instead of being kept in the releasing worker's local queue. The main thread may still help drain both priority classes while waiting or calling `update()`.
+During scheduling, Gaia-ECS keeps worker-local queues and worker-to-worker stealing within the same priority class. If a worker releases a dependent job with a different priority, that job is routed to the matching global queue instead of being kept in the releasing worker's local queue. If that target queue is temporarily full, Gaia-ECS waits for the matching worker class to drain it instead of immediately running cross-priority work inline, unless there are no spawned workers for that priority and inline fallback is required for forward progress. The main thread may still help drain both priority classes while waiting or calling `update()`.
 
 ```cpp
 // Create a job designated for performance cores

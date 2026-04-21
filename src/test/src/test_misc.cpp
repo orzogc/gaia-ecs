@@ -3280,6 +3280,67 @@ TEST_CASE("Multithreading - Priority dependent jobs keep queue ownership") {
 	tp.del(highHandle);
 }
 
+TEST_CASE("Multithreading - Priority overflow does not inline cross-priority work") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(3, 1);
+
+	constexpr uint32_t LowJobs = 1536;
+
+	std::atomic_bool releaseLowJobs = false;
+	std::atomic_bool lowRanOnHighWorker = false;
+	std::atomic_uint32_t lowStarted = 0;
+
+	mt::Job highJob;
+	highJob.flags = mt::JobCreationFlags::ManualDelete;
+	highJob.priority = mt::JobPriority::High;
+	highJob.func = []() {};
+
+	const auto highHandle = tp.add(GAIA_MOV(highJob));
+
+	cnt::darr<mt::JobHandle> lowHandles;
+	lowHandles.resize(LowJobs);
+
+	GAIA_FOR(LowJobs) {
+		mt::Job lowJob;
+		lowJob.flags = mt::JobCreationFlags::ManualDelete;
+		lowJob.priority = mt::JobPriority::Low;
+		lowJob.func = [&]() {
+			auto* ctx = mt::detail::tl_workerCtx;
+			if (ctx != nullptr && ctx->workerIdx != 0 && ctx->prio == mt::JobPriority::High)
+				lowRanOnHighWorker.store(true, std::memory_order_release);
+
+			lowStarted.fetch_add(1, std::memory_order_release);
+			while (!releaseLowJobs.load(std::memory_order_acquire))
+				std::this_thread::yield();
+		};
+
+		lowHandles[i] = tp.add(GAIA_MOV(lowJob));
+		tp.dep(highHandle, lowHandles[i]);
+		tp.submit(lowHandles[i]);
+	}
+
+	tp.submit(highHandle);
+
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+	while (lowStarted.load(std::memory_order_acquire) == 0 && std::chrono::steady_clock::now() < deadline)
+		std::this_thread::yield();
+
+	CHECK(lowStarted.load(std::memory_order_acquire) > 0);
+
+	// Give the releasing worker enough time to hit the full low-priority queue path.
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	CHECK_FALSE(lowRanOnHighWorker.load(std::memory_order_acquire));
+
+	releaseLowJobs.store(true, std::memory_order_release);
+
+	GAIA_EACH(lowHandles) {
+		tp.wait(lowHandles[i]);
+		tp.del(lowHandles[i]);
+	}
+	tp.del(highHandle);
+}
+
 TEST_CASE("Multithreading - ScheduleParallel") {
 	auto& tp = mt::ThreadPool::get();
 

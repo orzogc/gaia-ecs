@@ -25564,6 +25564,45 @@ namespace gaia {
 				return try_fetch_prio(ctx, ctx.prio, jobHandle);
 			}
 
+			//! Checks whether @a ctx is allowed to execute work from @a prio inline.
+			//! \param ctx Calling worker context. Null when the submission comes from outside worker execution.
+			//! \param prio Priority class of the job being considered.
+			//! \return True when inline execution is allowed for forward progress.
+			GAIA_NODISCARD bool can_run_inline(const ThreadCtx* ctx, JobPriority prio) const {
+				// The main thread is allowed to help with both priority classes.
+				if (ctx == nullptr || ctx->workerIdx == 0)
+					return true;
+
+				// Matching worker classes may execute their own overflow inline.
+				if (ctx->prio == prio)
+					return true;
+
+				// If there are no spawned workers for the target priority we need to preserve
+				// the forward-progress guarantee and allow inline fallback.
+				return m_workerThreadsCnt[(uint32_t)prio] == 0;
+			}
+
+			//! Helps the scheduler make progress when a priority queue is temporarily full.
+			//! \param ctx Calling worker context.
+			//! \param prio Priority class whose queue is saturated.
+			void wait_for_queue_space(ThreadCtx& ctx, JobPriority prio) {
+				const auto prioIdx = (uint32_t)prio;
+
+				// Wake one worker from the target class in case all of them are asleep while
+				// the producer is waiting for queue space to become available.
+				if (m_workerThreadsCnt[prioIdx] != 0)
+					m_sem[prioIdx].release(1);
+
+				// Keep the current worker productive without violating the priority boundary.
+				JobHandle otherJobHandle;
+				if (try_fetch_prio(ctx, ctx.prio, otherJobHandle)) {
+					(void)run(otherJobHandle, &ctx);
+					return;
+				}
+
+				std::this_thread::yield();
+			}
+
 			//! Main worker-thread loop.
 			//! Pops ready jobs from the queues and executes them until the pool shuts down.
 			//! \param ctx Thread-local worker context.
@@ -25736,9 +25775,18 @@ namespace gaia {
 
 					handles = handles.subspan(pushed);
 					if (!handles.empty()) {
-						// The queue was full. Execute the job right away.
-						run(handles[0], ctx);
-						handles = handles.subspan(1);
+						const auto handle = handles[0];
+						const auto& jobData = m_jobManager.data(handle);
+
+						if (can_run_inline(ctx, jobData.prio)) {
+							// The queue was full. Execute the job right away only when the
+							// current execution context is allowed to run this priority class.
+							run(handle, ctx);
+							handles = handles.subspan(1);
+						} else {
+							GAIA_ASSERT(ctx != nullptr);
+							wait_for_queue_space(*ctx, jobData.prio);
+						}
 					}
 				}
 			}
