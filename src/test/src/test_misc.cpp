@@ -1,5 +1,7 @@
 #include "test_common.h"
 
+#include <chrono>
+
 struct AutoRegQueryProbe {
 	int value = 0;
 };
@@ -3230,6 +3232,52 @@ TEST_CASE("Multithreading - Schedule") {
 		GAIA_FOR(res.max_size()) res[i] = 0;
 		Run_Schedule_Simple(arr.data(), res.data(), JobCount, ItemsPerJob, JobSystemFunc, 4);
 	}
+}
+
+TEST_CASE("Multithreading - Priority dependent jobs keep queue ownership") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(3, 1);
+
+	std::atomic_bool highRanOnHighWorker = false;
+	std::atomic_bool lowRanOnLowWorker = false;
+	std::atomic_bool lowDone = false;
+
+	mt::Job highJob;
+	highJob.flags = mt::JobCreationFlags::ManualDelete;
+	highJob.priority = mt::JobPriority::High;
+	highJob.func = [&]() {
+		auto* ctx = mt::detail::tl_workerCtx;
+		highRanOnHighWorker.store(
+				ctx != nullptr && ctx->workerIdx != 0 && ctx->prio == mt::JobPriority::High, std::memory_order_release);
+	};
+
+	mt::Job lowJob;
+	lowJob.flags = mt::JobCreationFlags::ManualDelete;
+	lowJob.priority = mt::JobPriority::Low;
+	lowJob.func = [&]() {
+		auto* ctx = mt::detail::tl_workerCtx;
+		lowRanOnLowWorker.store(
+				ctx != nullptr && ctx->workerIdx != 0 && ctx->prio == mt::JobPriority::Low, std::memory_order_release);
+		lowDone.store(true, std::memory_order_release);
+	};
+
+	const auto highHandle = tp.add(GAIA_MOV(highJob));
+	const auto lowHandle = tp.add(GAIA_MOV(lowJob));
+	tp.dep(highHandle, lowHandle);
+	tp.submit(lowHandle);
+	tp.submit(highHandle);
+
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+	while (!lowDone.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+		std::this_thread::yield();
+
+	CHECK(highRanOnHighWorker.load(std::memory_order_acquire));
+	CHECK(lowDone.load(std::memory_order_acquire));
+	CHECK(lowRanOnLowWorker.load(std::memory_order_acquire));
+
+	tp.wait(lowHandle);
+	tp.del(lowHandle);
+	tp.del(highHandle);
 }
 
 TEST_CASE("Multithreading - ScheduleParallel") {

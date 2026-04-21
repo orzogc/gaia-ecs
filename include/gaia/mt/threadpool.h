@@ -106,8 +106,13 @@ namespace gaia {
 			MpmcQueue<JobHandle, 1024> m_jobQueue[JobPriorityCnt];
 			//! The number of workers dedicated for a given level of job priority
 			uint32_t m_workersCnt[JobPriorityCnt]{};
-			//! Semaphore controlling if the worker threads are allowed to run
-			SemaphoreFast m_sem;
+			//! The number of spawned worker threads dedicated for a given level of job priority.
+			//! Unlike m_workersCnt this excludes the main thread.
+			//! Due to some nuances, it makes things easier to keep this a separate variable
+			//! along m_workerCnt.
+			uint32_t m_workerThreadsCnt[JobPriorityCnt]{};
+			//! Semaphores controlling if the worker threads are allowed to run
+			SemaphoreFast m_sem[JobPriorityCnt];
 
 			//! Futex counter
 			std::atomic_uint32_t m_blockedInWorkUntil;
@@ -208,9 +213,13 @@ namespace gaia {
 				if (count == 0) {
 					m_workersCnt[0] = 1; // main thread
 					m_workersCnt[1] = 0;
+					m_workerThreadsCnt[0] = 0;
+					m_workerThreadsCnt[1] = 0;
 				} else {
 					m_workersCnt[0] = count + 1; // Main thread is always a priority worker
 					m_workersCnt[1] = m_workers.size() - count;
+					m_workerThreadsCnt[0] = count;
+					m_workerThreadsCnt[1] = m_workers.size() - count;
 				}
 
 				// Create a new set of high and low priority threads (if any)
@@ -227,9 +236,13 @@ namespace gaia {
 				if (realCnt == 0) {
 					m_workersCnt[0] = 0;
 					m_workersCnt[1] = 1; // main thread
+					m_workerThreadsCnt[0] = 0;
+					m_workerThreadsCnt[1] = 0;
 				} else {
 					m_workersCnt[0] = m_workers.size() - realCnt;
 					m_workersCnt[1] = realCnt + 1; // Main thread is always a priority worker;
+					m_workerThreadsCnt[0] = m_workers.size() - realCnt;
+					m_workerThreadsCnt[1] = realCnt;
 				}
 
 				// Create a new set of high and low priority threads (if any)
@@ -1162,27 +1175,21 @@ namespace gaia {
 				}
 			}
 
-			bool try_fetch_job(ThreadCtx& ctx, JobHandle& jobHandle) {
-				// Try getting a job from the local queue
-				if (ctx.jobQueue.try_pop(jobHandle))
-					return true;
-
-				// Try getting a job from the global queue
-				if (m_jobQueue[(uint32_t)ctx.prio].try_pop(jobHandle))
-					return true;
-
-				// Could not get a job, try stealing from other workers.
+			//! Attempts to steal work from worker-local queues of the requested priority class.
+			//! \param ctx Worker requesting more work.
+			//! \param prio Priority class to search.
+			//! \param[out] jobHandle Receives the stolen job handle when one is available.
+			//! \return True when a valid job was obtained. False otherwise.
+			GAIA_NODISCARD bool try_steal_job(ThreadCtx& ctx, JobPriority prio, JobHandle& jobHandle) {
 				const auto workerCnt = m_workersCtx.size();
 				for (uint32_t i = 0; i < workerCnt;) {
-					// We need to skip our worker
-					if (i == ctx.workerIdx) {
+					// Keep stealing within the same priority class and skip our own queue
+					if (i == ctx.workerIdx || m_workersCtx[i].prio != prio) {
 						++i;
 						continue;
 					}
 
-					// Try stealing a job
 					const auto res = m_workersCtx[i].jobQueue.try_steal(jobHandle);
-
 					// Race condition, try again from the same context
 					if (!res)
 						continue;
@@ -1190,7 +1197,7 @@ namespace gaia {
 					// Stealing can return true if the queue is empty.
 					// We return right away only if we receive a valid handle which means
 					// when there was an idle job in the queue.
-					if (res && jobHandle != (JobHandle)JobNull_t{})
+					if (jobHandle != (JobHandle)JobNull_t{})
 						return true;
 
 					++i;
@@ -1199,13 +1206,45 @@ namespace gaia {
 				return false;
 			}
 
+			//! Attempts to fetch work from the global queue or peer workers of one priority class.
+			//! \param ctx Worker requesting more work.
+			//! \param prio Priority class to search.
+			//! \param[out] jobHandle Receives the ready job handle when one is available.
+			//! \return True when a valid job was obtained. False otherwise.
+			GAIA_NODISCARD bool try_fetch_prio(ThreadCtx& ctx, JobPriority prio, JobHandle& jobHandle) {
+				if (m_jobQueue[(uint32_t)prio].try_pop(jobHandle))
+					return true;
+
+				return try_steal_job(ctx, prio, jobHandle);
+			}
+
+			//! Attempts to fetch the next runnable job for a worker.
+			//! \param ctx Worker requesting more work.
+			//! \param[out] jobHandle Receives the next ready job handle when one is available.
+			//! \return True when a valid job was obtained. False otherwise.
+			GAIA_NODISCARD bool try_fetch_job(ThreadCtx& ctx, JobHandle& jobHandle) {
+				// Try getting a job from the local queue
+				if (ctx.jobQueue.try_pop(jobHandle))
+					return true;
+
+				// The main thread may help with both queues while waiting or updating
+				if (ctx.workerIdx == 0) {
+					if (try_fetch_prio(ctx, JobPriority::High, jobHandle))
+						return true;
+
+					return try_fetch_prio(ctx, JobPriority::Low, jobHandle);
+				}
+
+				return try_fetch_prio(ctx, ctx.prio, jobHandle);
+			}
+
 			//! Main worker-thread loop.
 			//! Pops ready jobs from the queues and executes them until the pool shuts down.
 			//! \param ctx Thread-local worker context.
 			void worker_loop(ThreadCtx& ctx) {
 				while (true) {
 					// Wait for work
-					m_sem.wait();
+					m_sem[(uint32_t)ctx.prio].wait();
 
 					// Keep executing while there is work
 					while (true) {
@@ -1232,7 +1271,10 @@ namespace gaia {
 				m_stop.store(true);
 
 				// Signal all threads
-				m_sem.release((int32_t)m_workers.size());
+				GAIA_FOR(JobPriorityCnt) {
+					if (m_workerThreadsCnt[i] != 0)
+						m_sem[i].release((int32_t)m_workerThreadsCnt[i]);
+				}
 
 				auto* ctx = detail::tl_workerCtx;
 				if (ctx == nullptr) {
@@ -1314,6 +1356,9 @@ namespace gaia {
 				process(std::span(pHandles, cnt), ctx);
 			}
 
+			//! Moves ready jobs into execution queues or runs them inline when queue capacity is exhausted.
+			//! \param jobHandles Ready job handles to process.
+			//! \param ctx Calling worker context. Null when the submission comes from outside worker execution.
 			void process(std::span<JobHandle> jobHandles, ThreadCtx* ctx) {
 				auto* pHandles = (JobHandle*)alloca(sizeof(JobHandle) * jobHandles.size());
 				uint32_t handlesCnt = 0;
@@ -1336,24 +1381,32 @@ namespace gaia {
 
 				std::span handles(pHandles, handlesCnt);
 				while (!handles.empty()) {
-					// Try pushing all jobs
+					// Try pushing all jobs while preserving their priority queue ownership.
 					uint32_t pushed = 0;
-					if (ctx != nullptr) {
-						pushed = ctx->jobQueue.try_push(handles);
-					} else {
-						for (auto handle: handles) {
-							if (m_jobQueue[(uint32_t)handle.prio()].try_push(handle))
-								pushed++;
-							else
-								break;
-						}
+					uint32_t released[JobPriorityCnt]{};
+					for (; pushed < handles.size(); ++pushed) {
+						const auto handle = handles[pushed];
+						const auto& jobData = m_jobManager.data(handle);
+						const auto prio = jobData.prio;
+						// Worker-local queues are reserved for work that matches the worker's own
+						// priority class. Cross-priority releases must go through the matching
+						// global queue so the right workers can pick them up.
+						const bool useLocalQueue = ctx != nullptr && ctx->workerIdx != 0 && ctx->prio == prio;
+						const bool res =
+								useLocalQueue ? ctx->jobQueue.try_push(handle) : m_jobQueue[(uint32_t)prio].try_push(handle);
+						if (!res)
+							break;
+
+						released[(uint32_t)prio]++;
 					}
 
-					// Lock the semaphore with the number of jobs me managed to push.
-					// Number of workers if the upper bound.
-					const auto cntWorkers = ctx != nullptr ? m_workersCnt[(uint32_t)ctx->prio] : m_workers.size();
-					const auto cnt = (int32_t)core::get_min(pushed, cntWorkers);
-					m_sem.release(cnt);
+					GAIA_FOR(JobPriorityCnt) {
+						// Only spawned worker threads block on semaphores. The main thread helps by
+						// draining queues opportunistically from wait() and update().
+						const auto cnt = core::get_min(released[i], m_workerThreadsCnt[i]);
+						if (cnt != 0)
+							m_sem[i].release((int32_t)cnt);
+					}
 
 					handles = handles.subspan(pushed);
 					if (!handles.empty()) {
