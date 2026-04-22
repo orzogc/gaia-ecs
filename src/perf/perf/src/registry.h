@@ -8,6 +8,7 @@ enum class PerfRunMode {
 
 void register_entity_lifecycle(PerfRunMode mode);
 void register_structural_changes(PerfRunMode mode);
+void register_component_access(PerfRunMode mode);
 void register_query_hot_path(PerfRunMode mode);
 void register_fragmented(PerfRunMode mode);
 void register_observers(PerfRunMode mode);

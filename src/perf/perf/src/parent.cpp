@@ -908,7 +908,137 @@ void BM_Query_DirectHierarchy_Or_Each(picobench::state& state) {
 	dont_optimize(total);
 }
 
+//! Benchmarks transitive target traversal over `Is` targets.
+template <uint32_t ChainDepth>
+void BM_World_AsTargetsTrav(picobench::state& state) {
+	ecs::World w;
+
+	cnt::sarray<ecs::Entity, ChainDepth> chain{};
+	GAIA_FOR(ChainDepth) {
+		chain[i] = w.add();
+		if (i == 0)
+			continue;
+		w.add(chain[i], ecs::Pair(ecs::Is, chain[i - 1]));
+	}
+
+	for (auto _: state) {
+		(void)_;
+		uint64_t sum = 0;
+		w.as_targets_trav(chain[ChainDepth - 1], [&](ecs::Entity target) {
+			sum += target.id();
+		});
+		dont_optimize(sum);
+	}
+}
+
+void BM_World_AsTargetsTrav_2(picobench::state& state) {
+	BM_World_AsTargetsTrav<2>(state);
+}
+
+void BM_World_AsTargetsTrav_4(picobench::state& state) {
+	BM_World_AsTargetsTrav<4>(state);
+}
+
+void BM_World_AsTargetsTrav_8(picobench::state& state) {
+	BM_World_AsTargetsTrav<8>(state);
+}
+
+void BM_World_AsTargetsTrav_32(picobench::state& state) {
+	BM_World_AsTargetsTrav<32>(state);
+}
+
+//! Benchmarks deleting wildcard pairs matching (*, target) across many relations.
+//! The delete loop should avoid copying the full relation set before removing pairs.
+void BM_World_Delete_Wildcard_Target(picobench::state& state) {
+	const uint32_t n = (uint32_t)state.user_data();
+
+	for (auto _: state) {
+		(void)_;
+
+		ecs::World w;
+		const auto target = w.add();
+		cnt::darray<ecs::Entity> rels;
+		rels.reserve(n);
+
+		for (uint32_t i = 0; i < n; ++i) {
+			auto rel = w.add();
+			rels.push_back(rel);
+			auto src = w.add();
+			w.add(src, ecs::Pair(rel, target));
+		}
+
+		w.del(ecs::Pair(ecs::All, target));
+		w.update();
+		dont_optimize(rels.size());
+	}
+}
+
+//! Benchmarks cached wildcard-pair query maintenance while building a pair-heavy archetype.
+//! This exercises incremental query registration against archetypes that repeat the same relation
+//! across many pair ids, which would otherwise create duplicate wildcard lookup keys.
+void BM_QueryCache_RegisterPairHeavy_RelWildcard(picobench::state& state) {
+	const uint32_t pairCnt = (uint32_t)state.user_data();
+
+	for (auto _: state) {
+		(void)_;
+
+		state.stop_timer();
+		ecs::World w;
+		const auto rel = w.add();
+		cnt::darray<ecs::Entity> targets;
+		targets.reserve(pairCnt);
+		GAIA_FOR(pairCnt) {
+			targets.push_back(w.add());
+		}
+
+		auto q = w.query().all(ecs::Pair(rel, ecs::All));
+		dont_optimize(q.count());
+
+		const auto e = w.add();
+		state.start_timer();
+
+		GAIA_FOR(pairCnt) {
+			w.add(e, ecs::Pair(rel, targets[i]));
+		}
+
+		dont_optimize(e);
+	}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
+
+void BM_Hierarchy_Bfs_ChildOf_Disabled(picobench::state& state);
+void BM_Hierarchy_Bfs_Parent_Disabled(picobench::state& state);
+void BM_Hierarchy_DeleteTarget(picobench::state& state);
+void BM_Hierarchy_Set(picobench::state& state);
+void BM_Hierarchy_Sources(picobench::state& state);
+void BM_Hierarchy_TargetWalk(picobench::state& state);
+void BM_Query_Bfs(picobench::state& state);
+void BM_Query_Bfs_ChildOf_Component(picobench::state& state);
+void BM_Query_Bfs_ChildOf_Disabled(picobench::state& state);
+void BM_Query_Bfs_ChildOf_EachComponent(picobench::state& state);
+void BM_Query_Bfs_ChildOf_Iter(picobench::state& state);
+void BM_Query_Bfs_Parent_Disabled(picobench::state& state);
+void BM_Query_Cascade_ChildOf(picobench::state& state);
+void BM_Query_Cascade_ChildOf_Component(picobench::state& state);
+void BM_Query_Cascade_ChildOf_Disabled(picobench::state& state);
+void BM_Query_Cascade_ChildOf_EachComponent(picobench::state& state);
+void BM_Query_Cascade_ChildOf_Iter(picobench::state& state);
+void BM_Query_DepthOrder_ChildOf_Fanout(picobench::state& state);
+void BM_Query_DepthOrder_ChildOf_IterEmpty(picobench::state& state);
+void BM_Query_DepthOrder_DependsOn(picobench::state& state);
+void BM_Query_DepthOrder_DependsOn_IterEmpty(picobench::state& state);
+void BM_Query_DirectHierarchy_All(picobench::state& state);
+void BM_Query_DirectHierarchy_Each(picobench::state& state);
+void BM_Query_DirectHierarchy_Or(picobench::state& state);
+void BM_Query_DirectHierarchy_Or_Each(picobench::state& state);
+void BM_Query_Plain_ChildOf(picobench::state& state);
+void BM_Query_Plain_ChildOf_Component(picobench::state& state);
+void BM_Query_Plain_ChildOf_EachComponent(picobench::state& state);
+void BM_Query_Plain_ChildOf_Iter(picobench::state& state);
+void BM_Query_Walk_DependsOn(picobench::state& state);
+void BM_Relationship_SourcesWildcard(picobench::state& state);
+void BM_Relationship_TargetsWildcard(picobench::state& state);
 
 void register_parent(PerfRunMode mode) {
 	if (mode != PerfRunMode::Normal)

@@ -1429,90 +1429,6 @@ void BM_Query_IsEachIter(picobench::state& state) {
 	}
 }
 
-template <uint32_t ChainDepth, bool Direct>
-void BM_System_Is(picobench::state& state) {
-	const uint32_t branches = (uint32_t)state.user_data();
-
-	ecs::World w;
-	const auto root = create_is_fanout_fixture<ChainDepth>(w, branches, false);
-	uint64_t sink = 0;
-
-	if constexpr (Direct) {
-		w.system()
-				.name("is_direct")
-				.all<Position>()
-				.is(root, ecs::QueryTermOptions{}.direct())
-				.mode(ecs::QueryExecType::Default)
-				.on_each([&sink](const Position& p) {
-					sink += (uint64_t)(p.x + p.y + p.z);
-				});
-	} else {
-		w.system()
-				.name("is_semantic")
-				.all<Position>()
-				.is(root)
-				.mode(ecs::QueryExecType::Default)
-				.on_each([&sink](const Position& p) {
-					sink += (uint64_t)(p.x + p.y + p.z);
-				});
-	}
-
-	for (uint32_t i = 0; i < 4; ++i)
-		w.update();
-
-	for (auto _: state) {
-		(void)_;
-		w.update();
-	}
-
-	dont_optimize(sink);
-}
-
-template <uint32_t ChainDepth, bool Direct>
-void BM_System_IsIter(picobench::state& state) {
-	const uint32_t branches = (uint32_t)state.user_data();
-
-	ecs::World w;
-	const auto root = create_is_fanout_fixture<ChainDepth>(w, branches, false);
-	uint64_t sink = 0;
-
-	if constexpr (Direct) {
-		w.system()
-				.name("is_direct_iter")
-				.all<Position>()
-				.is(root, ecs::QueryTermOptions{}.direct())
-				.mode(ecs::QueryExecType::Default)
-				.on_each([&sink](ecs::Iter& it) {
-					auto posView = it.view<Position>();
-					GAIA_EACH(it) {
-						sink += (uint64_t)(posView[i].x + posView[i].y + posView[i].z);
-					}
-				});
-	} else {
-		w.system()
-				.name("is_semantic_iter")
-				.all<Position>()
-				.is(root)
-				.mode(ecs::QueryExecType::Default)
-				.on_each([&sink](ecs::Iter& it) {
-					auto posView = it.view<Position>();
-					GAIA_EACH(it) {
-						sink += (uint64_t)(posView[i].x + posView[i].y + posView[i].z);
-					}
-				});
-	}
-
-	for (uint32_t i = 0; i < 4; ++i)
-		w.update();
-
-	for (auto _: state) {
-		(void)_;
-		w.update();
-	}
-
-	dont_optimize(sink);
-}
-
 void BM_Query_IsEach_Semantic_D2(picobench::state& state) {
 	BM_Query_IsEach<2, false>(state);
 }
@@ -1535,206 +1451,6 @@ void BM_Query_IsEachIter_Semantic_D8(picobench::state& state) {
 
 void BM_Query_IsEachIter_Direct_D8(picobench::state& state) {
 	BM_Query_IsEachIter<8, true>(state);
-}
-
-void BM_System_Is_Semantic_D2(picobench::state& state) {
-	BM_System_Is<2, false>(state);
-}
-
-void BM_System_Is_Direct_D2(picobench::state& state) {
-	BM_System_Is<2, true>(state);
-}
-
-void BM_System_Is_Semantic_D8(picobench::state& state) {
-	BM_System_Is<8, false>(state);
-}
-
-void BM_System_Is_Direct_D8(picobench::state& state) {
-	BM_System_Is<8, true>(state);
-}
-
-void BM_System_IsIter_Semantic_D8(picobench::state& state) {
-	BM_System_IsIter<8, false>(state);
-}
-
-void BM_System_IsIter_Direct_D8(picobench::state& state) {
-	BM_System_IsIter<8, true>(state);
-}
-
-template <uint32_t ChainDepth, bool Direct>
-void BM_Observer_IsMatchesAny(picobench::state& state) {
-	const uint32_t branches = (uint32_t)state.user_data();
-
-	ecs::World w;
-	cnt::darray<ecs::Entity> leaves;
-	const auto root = create_is_fanout_fixture<ChainDepth>(w, branches, true, leaves);
-	const auto observerEntity = Direct ? w.observer() //
-																					 .event(ecs::ObserverEvent::OnAdd)
-																					 .is(root, ecs::QueryTermOptions{}.direct())
-																					 .on_each([](ecs::Iter&) {})
-																					 .entity()
-																		 : w.observer() //
-																					 .event(ecs::ObserverEvent::OnAdd)
-																					 .is(root)
-																					 .on_each([](ecs::Iter&) {})
-																					 .entity();
-
-	auto& observerData = w.observers().data(observerEntity);
-	auto& observerQueryInfo = observerData.query.fetch();
-	dont_optimize(observerEntity);
-
-	for (auto _: state) {
-		(void)_;
-
-		uint32_t hits = 0;
-		for (const auto leaf: leaves) {
-			const auto& ec = w.fetch(leaf);
-			hits += (uint32_t)observerData.query.matches_any(observerQueryInfo, *ec.pArchetype, ecs::EntitySpan{&leaf, 1});
-		}
-		dont_optimize(hits);
-	}
-}
-
-void BM_Observer_IsMatchesAny_Semantic_D2(picobench::state& state) {
-	BM_Observer_IsMatchesAny<2, false>(state);
-}
-
-void BM_Observer_IsMatchesAny_Direct_D2(picobench::state& state) {
-	BM_Observer_IsMatchesAny<2, true>(state);
-}
-
-void BM_Observer_IsMatchesAny_Semantic_D8(picobench::state& state) {
-	BM_Observer_IsMatchesAny<8, false>(state);
-}
-
-void BM_Observer_IsMatchesAny_Direct_D8(picobench::state& state) {
-	BM_Observer_IsMatchesAny<8, true>(state);
-}
-
-//! Benchmarks transitive target traversal over `Is` targets.
-template <uint32_t ChainDepth>
-void BM_World_AsTargetsTrav(picobench::state& state) {
-	ecs::World w;
-
-	cnt::sarray<ecs::Entity, ChainDepth> chain{};
-	GAIA_FOR(ChainDepth) {
-		chain[i] = w.add();
-		if (i == 0)
-			continue;
-		w.add(chain[i], ecs::Pair(ecs::Is, chain[i - 1]));
-	}
-
-	for (auto _: state) {
-		(void)_;
-		uint64_t sum = 0;
-		w.as_targets_trav(chain[ChainDepth - 1], [&](ecs::Entity target) {
-			sum += target.id();
-		});
-		dont_optimize(sum);
-	}
-}
-
-void BM_World_AsTargetsTrav_2(picobench::state& state) {
-	BM_World_AsTargetsTrav<2>(state);
-}
-
-void BM_World_AsTargetsTrav_4(picobench::state& state) {
-	BM_World_AsTargetsTrav<4>(state);
-}
-
-void BM_World_AsTargetsTrav_8(picobench::state& state) {
-	BM_World_AsTargetsTrav<8>(state);
-}
-
-void BM_World_AsTargetsTrav_32(picobench::state& state) {
-	BM_World_AsTargetsTrav<32>(state);
-}
-
-//! Benchmarks repeated creation, emptying, and GC of chunk-heavy archetypes.
-//! This exercises World's deferred chunk-delete queue maintenance.
-void BM_World_ChunkDeleteQueue_GC(picobench::state& state) {
-	const uint32_t n = (uint32_t)state.user_data();
-
-	struct ChunkQueueBenchTag {};
-
-	ecs::World w;
-	cnt::darray<ecs::Entity> entities;
-	entities.reserve(n);
-
-	for (auto _: state) {
-		(void)_;
-
-		entities.clear();
-		for (uint32_t i = 0; i < n; ++i) {
-			auto e = w.add();
-			w.add<ChunkQueueBenchTag>(e);
-			entities.push_back(e);
-		}
-
-		for (auto e: entities)
-			w.del(e);
-
-		w.update();
-		dont_optimize(entities.size());
-	}
-}
-
-//! Benchmarks deleting wildcard pairs matching (*, target) across many relations.
-//! The delete loop should avoid copying the full relation set before removing pairs.
-void BM_World_Delete_Wildcard_Target(picobench::state& state) {
-	const uint32_t n = (uint32_t)state.user_data();
-
-	for (auto _: state) {
-		(void)_;
-
-		ecs::World w;
-		const auto target = w.add();
-		cnt::darray<ecs::Entity> rels;
-		rels.reserve(n);
-
-		for (uint32_t i = 0; i < n; ++i) {
-			auto rel = w.add();
-			rels.push_back(rel);
-			auto src = w.add();
-			w.add(src, ecs::Pair(rel, target));
-		}
-
-		w.del(ecs::Pair(ecs::All, target));
-		w.update();
-		dont_optimize(rels.size());
-	}
-}
-
-//! Benchmarks cached wildcard-pair query maintenance while building a pair-heavy archetype.
-//! This exercises incremental query registration against archetypes that repeat the same relation
-//! across many pair ids, which would otherwise create duplicate wildcard lookup keys.
-void BM_QueryCache_RegisterPairHeavy_RelWildcard(picobench::state& state) {
-	const uint32_t pairCnt = (uint32_t)state.user_data();
-
-	for (auto _: state) {
-		(void)_;
-
-		state.stop_timer();
-		ecs::World w;
-		const auto rel = w.add();
-		cnt::darray<ecs::Entity> targets;
-		targets.reserve(pairCnt);
-		GAIA_FOR(pairCnt) {
-			targets.push_back(w.add());
-		}
-
-		auto q = w.query().all(ecs::Pair(rel, ecs::All));
-		dont_optimize(q.count());
-
-		const auto e = w.add();
-		state.start_timer();
-
-		GAIA_FOR(pairCnt) {
-			w.add(e, ecs::Pair(rel, targets[i]));
-		}
-
-		dont_optimize(e);
-	}
 }
 
 static inline void add_var_match_tags(ecs::World& w, ecs::Entity e, uint32_t bits) {
@@ -2882,6 +2598,101 @@ void BM_QueryCompile_Variable_GenericSourceBacktrack_Recompile(picobench::state&
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void BM_EntityBuilder_BatchAdd_4(picobench::state& state);
+void BM_QueryBuild_Variable_1VarOrSource_Recompile(picobench::state& state);
+void BM_QueryBuild_Variable_1VarOrSource_Uncached(picobench::state& state);
+void BM_QueryBuild_Variable_1VarSource_Recompile(picobench::state& state);
+void BM_QueryBuild_Variable_1VarSource_Uncached(picobench::state& state);
+void BM_QueryBuild_Variable_2VarPairAll_Recompile(picobench::state& state);
+void BM_QueryBuild_Variable_2VarPairAll_Uncached(picobench::state& state);
+void BM_QueryBuild_Variable_GenericSourceBacktrack_Recompile(picobench::state& state);
+void BM_QueryBuild_Variable_GenericSourceBacktrack_Uncached(picobench::state& state);
+void BM_QueryCache_ChangedConsume_IdenticalCached_Local(picobench::state& state);
+void BM_QueryCache_ChangedConsume_IdenticalCached_Shared(picobench::state& state);
+void BM_QueryCache_ChangedProbe_IdenticalCached_Local(picobench::state& state);
+void BM_QueryCache_ChangedProbe_IdenticalCached_Shared(picobench::state& state);
+void BM_QueryCache_CreateArchetype_BroadFirstAll(picobench::state& state);
+void BM_QueryCache_CreateArchetype_BroadMissAll(picobench::state& state);
+void BM_QueryCache_CreateArchetype_ExactAny(picobench::state& state);
+void BM_QueryCache_CreateArchetype_ExactNot(picobench::state& state);
+void BM_QueryCache_CreateArchetype_ExactOr(picobench::state& state);
+void BM_QueryCache_CreateArchetype_ExactWildcard(picobench::state& state);
+void BM_QueryCache_CreateArchetype_ExactWildcard_Miss(picobench::state& state);
+void BM_QueryCache_CreateArchetype_PairHeavyRelWildcard(picobench::state& state);
+void BM_QueryCache_Create_Fanout(picobench::state& state);
+void BM_QueryCache_Create_Fanout_15q_2t(picobench::state& state);
+void BM_QueryCache_Create_Fanout_3q_8t(picobench::state& state);
+void BM_QueryCache_Create_Fanout_7q_4t(picobench::state& state);
+void BM_QueryCache_Create_Fanout_Scaled_31(picobench::state& state);
+void BM_QueryCache_Create_Fanout_Scaled_31_4K(picobench::state& state);
+void BM_QueryCache_DirectSource_WarmRead_Default(picobench::state& state);
+void BM_QueryCache_DirectSource_WarmRead_SourceState(picobench::state& state);
+void BM_QueryCache_DynamicRelation_WarmRead(picobench::state& state);
+void BM_QueryCache_Grouped_SwitchingRead(picobench::state& state);
+void BM_QueryCache_Grouped_WarmRead(picobench::state& state);
+void BM_QueryCache_Invalidate_Churn(picobench::state& state);
+void BM_QueryCache_Invalidate_Relation(picobench::state& state);
+void BM_QueryCache_Invalidate_Relation_Read(picobench::state& state);
+void BM_QueryCache_NoSource_WarmRead_Default(picobench::state& state);
+void BM_QueryCache_NoSource_WarmRead_SourceState(picobench::state& state);
+void BM_QueryCache_RegisterPairHeavy_RelWildcard(picobench::state& state);
+void BM_QueryCache_Sorted_ExactExternalMergeWarmRead(picobench::state& state);
+void BM_QueryCache_Sorted_ExactMergeWarmRead(picobench::state& state);
+void BM_QueryCache_Sorted_UnrelatedWrite(picobench::state& state);
+void BM_QueryCache_Sorted_WarmRead(picobench::state& state);
+void BM_QueryCache_SourceTraversal_WarmRead_LargeClosure(picobench::state& state);
+void BM_QueryCache_SourceTraversal_WarmRead_Lazy(picobench::state& state);
+void BM_QueryCache_SourceTraversal_WarmRead_SmallClosure(picobench::state& state);
+void BM_QueryCache_SourceTraversal_WarmRead_Snapshotted(picobench::state& state);
+void BM_QueryCache_Wildcard_WarmRead(picobench::state& state);
+void BM_QueryCompile_Variable_1VarOrSource_Uncached(picobench::state& state);
+void BM_QueryCompile_Variable_1VarSource_Uncached(picobench::state& state);
+void BM_QueryCompile_Variable_2VarPairAll_Uncached(picobench::state& state);
+void BM_QueryCompile_Variable_GenericSourceBacktrack_Uncached(picobench::state& state);
+void BM_QueryMatch_ExactTerm(picobench::state& state);
+void BM_QueryMatch_IsChain_2(picobench::state& state);
+void BM_QueryMatch_IsChain_32(picobench::state& state);
+void BM_QueryMatch_IsChain_4(picobench::state& state);
+void BM_QueryMatch_IsChain_8(picobench::state& state);
+void BM_QueryMatch_Variable_1VarAny_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarAny_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarMixed_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarMixed_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOrDown_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOrDown_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOrUpDown_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOrUpDown_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOr_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1VarOr_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_1Var_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_1Var_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_2VarPairAll_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_2VarPairAll_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_AllOnlyCoupled_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_AllOnlyCoupled_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_AllOnly_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_AllOnly_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_GenericSourceBacktrack_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_GenericSourceBacktrack_Unbound(picobench::state& state);
+void BM_QueryMatch_Variable_PairAll_Bound(picobench::state& state);
+void BM_QueryMatch_Variable_PairAll_Unbound(picobench::state& state);
+void BM_Query_Filter_NoFrozen(picobench::state& state);
+void BM_Query_IsEachIter_Direct_D8(picobench::state& state);
+void BM_Query_IsEachIter_Semantic_D8(picobench::state& state);
+void BM_Query_IsEach_Direct_D2(picobench::state& state);
+void BM_Query_IsEach_Direct_D8(picobench::state& state);
+void BM_Query_IsEach_Semantic_D2(picobench::state& state);
+void BM_Query_IsEach_Semantic_D8(picobench::state& state);
+void BM_Query_PrefabInherited_Read_Each(picobench::state& state);
+void BM_Query_PrefabInherited_Read_Iter(picobench::state& state);
+void BM_Query_PrefabInherited_Write_Each(picobench::state& state);
+void BM_Query_ReadOnly_1Comp(picobench::state& state);
+void BM_Query_ReadWrite_2Comp(picobench::state& state);
+void BM_Query_ReadWrite_4Comp(picobench::state& state);
+void BM_Query_SelectiveAll_BroadFirst(picobench::state& state);
+void BM_Query_Variable_Source_Bound(picobench::state& state);
+void BM_Query_Variable_Source_Unbound(picobench::state& state);
+
 void register_query_hot_path(PerfRunMode mode) {
 	switch (mode) {
 		case PerfRunMode::Profiling:
@@ -3080,14 +2891,6 @@ void register_query_hot_path(PerfRunMode mode) {
 					.PICO_SETTINGS_FOCUS()
 					.user_data(NEntitiesFew)
 					.label("wildcard warm read 10K");
-			PICOBENCH_REG(BM_World_ChunkDeleteQueue_GC)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(NEntitiesFew)
-					.label("chunk delete queue gc 10K");
-			PICOBENCH_REG(BM_World_Delete_Wildcard_Target)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(1000)
-					.label("delete wildcard target 1K");
 			PICOBENCH_REG(BM_QueryCache_RegisterPairHeavy_RelWildcard)
 					.PICO_SETTINGS_FOCUS()
 					.user_data(30)
@@ -3318,37 +3121,6 @@ void register_query_hot_path(PerfRunMode mode) {
 					.user_data(128)
 					.label("1var pair-mixed (unbound)");
 
-			PICOBENCH_SUITE_REG("Observers");
-			PICOBENCH_REG(BM_Observer_IsMatchesAny_Semantic_D2)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(1024)
-					.label("observer is matches_any semantic d2");
-			PICOBENCH_REG(BM_Observer_IsMatchesAny_Direct_D2)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(1024)
-					.label("observer is matches_any direct d2");
-			PICOBENCH_REG(BM_Observer_IsMatchesAny_Semantic_D8)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(1024)
-					.label("observer is matches_any semantic d8");
-			PICOBENCH_REG(BM_Observer_IsMatchesAny_Direct_D8)
-					.PICO_SETTINGS_FOCUS()
-					.user_data(1024)
-					.label("observer is matches_any direct d8");
-
-			PICOBENCH_SUITE_REG("Systems (single-thread)");
-			PICOBENCH_REG(BM_System_Is_Semantic_D2).PICO_SETTINGS_FOCUS().user_data(1024).label("is semantic d2");
-			PICOBENCH_REG(BM_System_Is_Direct_D2).PICO_SETTINGS_FOCUS().user_data(1024).label("is direct d2");
-			PICOBENCH_REG(BM_System_Is_Semantic_D8).PICO_SETTINGS_FOCUS().user_data(1024).label("is semantic d8");
-			PICOBENCH_REG(BM_System_Is_Direct_D8).PICO_SETTINGS_FOCUS().user_data(1024).label("is direct d8");
-			PICOBENCH_REG(BM_System_IsIter_Semantic_D8).PICO_SETTINGS_FOCUS().user_data(1024).label("is iter semantic d8");
-			PICOBENCH_REG(BM_System_IsIter_Direct_D8).PICO_SETTINGS_FOCUS().user_data(1024).label("is iter direct d8");
-
-			PICOBENCH_SUITE_REG("Traversal helpers");
-			PICOBENCH_REG(BM_World_AsTargetsTrav_2).PICO_SETTINGS_FOCUS().label("as_targets_trav d2");
-			PICOBENCH_REG(BM_World_AsTargetsTrav_4).PICO_SETTINGS_FOCUS().label("as_targets_trav d4");
-			PICOBENCH_REG(BM_World_AsTargetsTrav_8).PICO_SETTINGS_FOCUS().label("as_targets_trav d8");
-			PICOBENCH_REG(BM_World_AsTargetsTrav_32).PICO_SETTINGS_FOCUS().label("as_targets_trav d32");
 			return;
 		default:
 			return;

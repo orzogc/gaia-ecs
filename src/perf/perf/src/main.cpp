@@ -36,6 +36,7 @@ int main(int argc, char* argv[]) {
 
 	register_entity_lifecycle(mode);
 	register_structural_changes(mode);
+	register_component_access(mode);
 	register_query_hot_path(mode);
 	register_fragmented(mode);
 	register_observers(mode);
