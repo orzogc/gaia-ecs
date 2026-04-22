@@ -8,6 +8,7 @@ set(GAIA_TEST_SOURCES
 	src/test_system.cpp
 	src/test_observer.cpp
 	src/test_misc.cpp
+	src/test_mt.cpp
 )
 
 function(gaia_configure_test_target target_name)
