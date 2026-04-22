@@ -23,7 +23,7 @@
 #include "gaia/ecs/query_cache.h"
 #include "gaia/ecs/query_common.h"
 #include "gaia/ecs/query_info.h"
-#include "gaia/mt/threadpool.h"
+#include "gaia/ecs/sched.h"
 #include "gaia/ser/ser_buffer_binary.h"
 #include "gaia/ser/ser_ct.h"
 #include "gaia/util/str.h"
@@ -32,6 +32,7 @@ namespace gaia {
 	namespace ecs {
 		class World;
 		void world_finish_write(World& world, Entity term, Entity entity);
+		const Sched& world_sched(const World& world);
 
 		//! Maximal cap for cached traversed-source closure snapshots.
 		inline static constexpr uint16_t MaxCacheSrcTrav = 32;
@@ -1990,23 +1991,22 @@ namespace gaia {
 						Func* pFunc;
 					};
 					ParallelQueryBatchCtx ctx{this, &func};
-					mt::JobParallelRef j;
-
-					// Use efficiency cores for low-level priority jobs
-					if constexpr (ExecType == QueryExecType::ParallelEff)
-						j.priority = mt::JobPriority::Low;
-
-					j.pCtx = &ctx;
-					j.invoke = [](void* pCtx, const mt::JobArgs& args) {
+					SchedParDesc desc{};
+					desc.pCtx = &ctx;
+					desc.itemCount = (uint32_t)m_batches.size();
+					desc.groupSize = 0;
+					desc.execType = ExecType;
+					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
 						run_query_func<Func, TMode>(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc,
-								std::span(&ctx.pSelf->m_batches[args.idxStart], args.idxEnd - args.idxStart));
+								std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart));
 					};
 
-					auto& tp = mt::ThreadPool::get();
-					auto jobHandle = tp.sched_par(GAIA_MOV(j), m_batches.size(), 0);
-					tp.wait(jobHandle);
+					const auto& backend = world_sched(*m_storage.world());
+					const auto token = sched_par(backend, desc);
+					sched_wait(backend, token);
+					sched_free(backend, token);
 					m_batches.clear();
 
 					unlock(*m_storage.world());
@@ -2161,23 +2161,22 @@ namespace gaia {
 						Func* pFunc;
 					};
 					ParallelQueryBatchCtx ctx{this, &func};
-					mt::JobParallelRef j;
-
-					// Use efficiency cores for low-level priority jobs
-					if constexpr (ExecType == QueryExecType::ParallelEff)
-						j.priority = mt::JobPriority::Low;
-
-					j.pCtx = &ctx;
-					j.invoke = [](void* pCtx, const mt::JobArgs& args) {
+					SchedParDesc desc{};
+					desc.pCtx = &ctx;
+					desc.itemCount = (uint32_t)m_batches.size();
+					desc.groupSize = 0;
+					desc.execType = ExecType;
+					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
 						run_query_func<Func, TMode>(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc,
-								std::span(&ctx.pSelf->m_batches[args.idxStart], args.idxEnd - args.idxStart));
+								std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart));
 					};
 
-					auto& tp = mt::ThreadPool::get();
-					auto jobHandle = tp.sched_par(GAIA_MOV(j), m_batches.size(), 0);
-					tp.wait(jobHandle);
+					const auto& backend = world_sched(*m_storage.world());
+					const auto token = sched_par(backend, desc);
+					sched_wait(backend, token);
+					sched_free(backend, token);
 					m_batches.clear();
 
 					unlock(*m_storage.world());
@@ -2543,21 +2542,22 @@ namespace gaia {
 						Constraints constraints;
 					};
 					ParallelQueryBatchCtx ctx{this, &func, constraints};
-					mt::JobParallelRef j;
-					if constexpr (ExecType == QueryExecType::ParallelEff)
-						j.priority = mt::JobPriority::Low;
-
-					j.pCtx = &ctx;
-					j.invoke = [](void* pCtx, const mt::JobArgs& args) {
+					SchedParDesc desc{};
+					desc.pCtx = &ctx;
+					desc.itemCount = (uint32_t)m_batches.size();
+					desc.groupSize = 0;
+					desc.execType = ExecType;
+					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
 						run_query_func_runtime(
-								ctx.pSelf->m_storage.world(), *ctx.pFunc,
-								std::span(&ctx.pSelf->m_batches[args.idxStart], args.idxEnd - args.idxStart), ctx.constraints);
+								ctx.pSelf->m_storage.world(), *ctx.pFunc, std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart),
+								ctx.constraints);
 					};
 
-					auto& tp = mt::ThreadPool::get();
-					auto jobHandle = tp.sched_par(GAIA_MOV(j), m_batches.size(), 0);
-					tp.wait(jobHandle);
+					const auto& backend = world_sched(*m_storage.world());
+					const auto token = sched_par(backend, desc);
+					sched_wait(backend, token);
+					sched_free(backend, token);
 					m_batches.clear();
 
 					unlock(*m_storage.world());
@@ -2683,21 +2683,22 @@ namespace gaia {
 						Constraints constraints;
 					};
 					ParallelQueryBatchCtx ctx{this, &func, constraints};
-					mt::JobParallelRef j;
-					if constexpr (ExecType == QueryExecType::ParallelEff)
-						j.priority = mt::JobPriority::Low;
-
-					j.pCtx = &ctx;
-					j.invoke = [](void* pCtx, const mt::JobArgs& args) {
+					SchedParDesc desc{};
+					desc.pCtx = &ctx;
+					desc.itemCount = (uint32_t)m_batches.size();
+					desc.groupSize = 0;
+					desc.execType = ExecType;
+					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
 						run_query_func_runtime(
-								ctx.pSelf->m_storage.world(), *ctx.pFunc,
-								std::span(&ctx.pSelf->m_batches[args.idxStart], args.idxEnd - args.idxStart), ctx.constraints);
+								ctx.pSelf->m_storage.world(), *ctx.pFunc, std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart),
+								ctx.constraints);
 					};
 
-					auto& tp = mt::ThreadPool::get();
-					auto jobHandle = tp.sched_par(GAIA_MOV(j), m_batches.size(), 0);
-					tp.wait(jobHandle);
+					const auto& backend = world_sched(*m_storage.world());
+					const auto token = sched_par(backend, desc);
+					sched_wait(backend, token);
+					sched_free(backend, token);
 					m_batches.clear();
 
 					unlock(*m_storage.world());

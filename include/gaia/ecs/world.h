@@ -728,7 +728,9 @@ namespace gaia {
 			//! Runtime callbacks have been shut down and must not execute anymore.
 			bool m_teardownActive = false;
 			//! Query used to iterate systems
-			ecs::Query m_systemsQuery;
+			Query m_systemsQuery;
+			//! Scheduler used by ECS parallel query/system runtime paths.
+			Sched m_sched{};
 			//! Scratch entity-visit stamps reused by wildcard relationship traversal helpers.
 			mutable cnt::darray<uint64_t> m_entityVisitStamps;
 			//! Monotonic stamp used with m_entityVisitStamps for O(1) per-call dedup.
@@ -792,6 +794,25 @@ namespace gaia {
 				auto q = query();
 				q.kind(QueryCacheKind::None);
 				return q;
+			}
+
+			//----------------------------------------------------------------------
+
+			//! Installs a custom scheduler used by ECS parallel execution paths.
+			//! \param sched Scheduler descriptor to bind to this world.
+			void set_sched(const Sched& sched) {
+				m_sched = sched;
+			}
+
+			//! Resets the world back to the default Gaia scheduler.
+			void reset_sched() {
+				m_sched = {};
+			}
+
+			//! Returns the resolved scheduler used by this world.
+			//! \return Bound scheduler or the default scheduler when none was installed.
+			GAIA_NODISCARD const Sched& sched() const {
+				return sched_resolve(m_sched);
 			}
 
 			//----------------------------------------------------------------------
@@ -11377,6 +11398,13 @@ namespace gaia {
 	namespace ecs {
 		inline uint32_t world_version(const World& world) {
 			return world.m_worldVersion;
+		}
+
+		//! Returns the resolved scheduler bound to @a world.
+		//! \param world World instance.
+		//! \return Bound scheduler or the default scheduler when none was installed.
+		inline const Sched& world_sched(const World& world) {
+			return world.sched();
 		}
 
 		//! Iterates direct targets of @a entity for the given relation.

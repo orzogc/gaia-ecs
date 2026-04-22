@@ -107,6 +107,7 @@ NOTE: Due to its extensive use of acceleration structures and caching, this libr
     * [Job dependencies](#job-dependencies)
     * [Priorities](#priorities)
     * [Threads](#threads)
+    * [Scheduler adapters](#scheduler-adapters)
   * [Customization](#customization)
     * [Logging](#logging)
 * [Requirements](#requirements)
@@ -3533,6 +3534,69 @@ while (!stopProgram) {
 If you need to designate a certain thread as the main thread, you can do it by calling `ThreadPool::make_main_thread` from that thread.
 
 Note, the operating system has the last word here. It might decide to schedule low-priority threads to high-performance cores or high-priority threads to efficiency cores depending on how the scheduler decides it should be.
+
+### Scheduler adapters
+
+If you already have your own task scheduler or are integrating Gaia-ECS into a larger engine, ECS parallel execution can be routed through a custom scheduler instead of the built-in Gaia thread pool.
+
+```cpp
+struct MyBackendCtx {
+  MyEngine::Scheduler* scheduler;
+};
+
+static ecs::SchedToken MyRunParallel(void* pCtx, const ecs::SchedParDesc* pDesc) {
+  auto& ctx = *(MyBackendCtx*)pCtx;
+
+  auto token = ctx.scheduler->parallel_for(
+    pDesc->itemCount,
+    [pDesc](uint32_t idxStart, uint32_t idxEnd) {
+      pDesc->invoke(pDesc->pCtx, idxStart, idxEnd);
+    });
+
+  ecs::SchedToken out{};
+  out.value[0] = token.raw0;
+  out.value[1] = token.raw1;
+  return out;
+}
+
+static void MyWait(void* pCtx, ecs::SchedToken token) {
+  auto& ctx = *(MyBackendCtx*)pCtx;
+  ctx.scheduler->wait(token.value[0], token.value[1]);
+}
+
+static void MyFree(void* pCtx, ecs::SchedToken token) {
+  auto& ctx = *(MyBackendCtx*)pCtx;
+  ctx.scheduler->release(token.value[0], token.value[1]);
+}
+
+MyBackendCtx backendCtx{&engineScheduler};
+
+ecs::Sched sched{};
+sched.pCtx = &backendCtx;
+sched.sched_par = &MyRunParallel;
+sched.wait = &MyWait;
+sched.free = &MyFree;
+
+ecs::World w;
+w.set_sched(sched);
+```
+
+After installing the scheduler, ECS paths that use `QueryExecType::Parallel`, `QueryExecType::ParallelPerf`, or `QueryExecType::ParallelEff` route their multithreaded workload through it:
+
+```cpp
+ecs::Query q = w.query().all<Position>();
+q.each([](const Position&) {
+  // ...
+}, ecs::QueryExecType::Parallel);
+
+w.system().all<Velocity>().mode(ecs::QueryExecType::Parallel).on_each([](Velocity&) {
+  // ...
+});
+```
+
+If no scheduler is installed, Gaia-ECS falls back to its built-in `gaia::mt::ThreadPool`.
+
+This adapter hook affects ECS parallel query/system execution. The low-level `gaia::mt::ThreadPool` API remains available directly when you want to use Gaia's jobsystem yourself.
 
 ## Customization
 

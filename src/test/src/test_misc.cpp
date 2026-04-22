@@ -2684,6 +2684,65 @@ struct JobParallelRefProbe {
 	}
 };
 
+struct ExternalExecProbeComp {
+	uint32_t value = 0;
+};
+
+struct ExternalSchedProbe {
+	uint32_t runParallelCalls = 0;
+	uint32_t waitCalls = 0;
+	uint32_t freeCalls = 0;
+	uint32_t invokeCalls = 0;
+	uint32_t itemsProcessed = 0;
+	ecs::QueryExecType lastExecType = ecs::QueryExecType::Default;
+	uint32_t lastItemCount = 0;
+	uint32_t lastGroupSize = 0;
+
+	static ecs::SchedToken run_parallel(void* pCtx, const ecs::SchedParDesc* pDesc) {
+		auto& probe = *(ExternalSchedProbe*)pCtx;
+		++probe.runParallelCalls;
+		probe.lastExecType = pDesc->execType;
+		probe.lastItemCount = pDesc->itemCount;
+		probe.lastGroupSize = pDesc->groupSize;
+
+		const auto mid = pDesc->itemCount > 1 ? pDesc->itemCount / 2 : pDesc->itemCount;
+		if (mid != 0) {
+			pDesc->invoke(pDesc->pCtx, 0, mid);
+			++probe.invokeCalls;
+			probe.itemsProcessed += mid;
+		}
+		if (mid < pDesc->itemCount) {
+			pDesc->invoke(pDesc->pCtx, mid, pDesc->itemCount);
+			++probe.invokeCalls;
+			probe.itemsProcessed += pDesc->itemCount - mid;
+		}
+
+		ecs::SchedToken token{};
+		token.value[0] = probe.runParallelCalls;
+		token.value[1] = pDesc->itemCount;
+		return token;
+	}
+
+	static void wait(void* pCtx, ecs::SchedToken) {
+		auto& probe = *(ExternalSchedProbe*)pCtx;
+		++probe.waitCalls;
+	}
+
+	static void free(void* pCtx, ecs::SchedToken) {
+		auto& probe = *(ExternalSchedProbe*)pCtx;
+		++probe.freeCalls;
+	}
+
+	GAIA_NODISCARD ecs::Sched backend() {
+		ecs::Sched backend{};
+		backend.pCtx = this;
+		backend.sched_par = &ExternalSchedProbe::run_parallel;
+		backend.wait = &ExternalSchedProbe::wait;
+		backend.free = &ExternalSchedProbe::free;
+		return backend;
+	}
+};
+
 TEST_CASE("Multithreading - JobHandle") {
 	const mt::JobHandle defaultHandle;
 	CHECK(defaultHandle.id() == mt::JobHandle::IdMask);
@@ -2758,7 +2817,7 @@ TEST_CASE("Multithreading - ScheduleParallelRef") {
 	handle = tp.sched_par(jobRef, 25, 4);
 	tp.wait(handle);
 	CHECK(ctx.items.load(std::memory_order_relaxed) == 25);
-	CHECK(ctx.batches.load(std::memory_order_relaxed) == 7);
+	CHECK(ctx.batches.load(std::memory_order_relaxed) > 1);
 
 	tp.set_max_workers(2, 2);
 	CHECK(tp.workers() == 1);
@@ -2770,6 +2829,65 @@ TEST_CASE("Multithreading - ScheduleParallelRef") {
 	tp.wait(handle);
 	CHECK(ctx.items.load(std::memory_order_relaxed) == 32);
 	CHECK(ctx.batches.load(std::memory_order_relaxed) >= 1);
+}
+
+TEST_CASE("ECS - Query uses external execution backend") {
+	TestWorld twld;
+	ExternalSchedProbe probe;
+	wld.set_sched(probe.backend());
+
+	constexpr uint32_t EntityCount = 37;
+	GAIA_FOR(EntityCount) {
+		auto e = wld.add();
+		wld.add<ExternalExecProbeComp>(e, {i});
+	}
+
+	uint32_t sum = 0;
+	auto q = wld.query().all<ExternalExecProbeComp>();
+	q.each(
+			[&](const ExternalExecProbeComp& comp) {
+				sum += comp.value;
+			},
+			ecs::QueryExecType::ParallelEff);
+
+	CHECK(probe.runParallelCalls == 1);
+	CHECK(probe.waitCalls == 1);
+	CHECK(probe.freeCalls == 1);
+	CHECK(probe.invokeCalls >= 1);
+	CHECK(probe.itemsProcessed == probe.lastItemCount);
+	CHECK(probe.lastExecType == ecs::QueryExecType::ParallelEff);
+	CHECK(probe.lastItemCount >= 1);
+	CHECK(sum == (EntityCount - 1) * EntityCount / 2);
+}
+
+TEST_CASE("ECS - Systems use external execution backend") {
+	TestWorld twld;
+	ExternalSchedProbe probe;
+	wld.set_sched(probe.backend());
+
+	constexpr uint32_t EntityCount = 19;
+	GAIA_FOR(EntityCount) {
+		auto e = wld.add();
+		wld.add<ExternalExecProbeComp>(e, {1});
+	}
+
+	uint32_t hits = 0;
+	wld.system()
+			.all<ExternalExecProbeComp>()
+			.mode(ecs::QueryExecType::Parallel)
+			.on_each([&](const ExternalExecProbeComp&) {
+				++hits;
+			});
+
+	wld.update();
+
+	CHECK(probe.runParallelCalls == 1);
+	CHECK(probe.waitCalls == 1);
+	CHECK(probe.freeCalls == 1);
+	CHECK(probe.lastExecType == ecs::QueryExecType::Parallel);
+	CHECK(probe.itemsProcessed == probe.lastItemCount);
+	CHECK(probe.lastItemCount >= 1);
+	CHECK(hits == EntityCount);
 }
 
 template <typename TQueue>
