@@ -3,12 +3,20 @@ set(GAIA_TEST_SOURCES
 	src/test_core.cpp
 	src/test_ecs_entity.cpp
 	src/test_query_core.cpp
-	src/test_query_prefab.cpp
+	src/test_query_prefab_lifecycle.cpp
+	src/test_query_prefab_usage.cpp
+	src/test_query_prefab_inherit.cpp
+	src/test_query_prefab_cache.cpp
 	src/test_mutation_runtime.cpp
 	src/test_system.cpp
-	src/test_observer.cpp
+	src/test_observer_basic.cpp
+	src/test_observer_trav.cpp
+	src/test_observer_prefab.cpp
 	src/test_misc.cpp
 	src/test_mt.cpp
+	src/test_serialization.cpp
+	src/test_parent.cpp
+	src/test_storage.cpp
 )
 
 function(gaia_configure_test_target target_name)
