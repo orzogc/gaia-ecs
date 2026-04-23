@@ -186,6 +186,8 @@ namespace gaia {
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_del;
 			//! Component to OnSet observer mapping.
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_set;
+			//! True when any OnSet observer is registered. Avoids a map probe on the common no-observer write path.
+			bool m_hasOnSetObservers = false;
 			//! Semantic `Is` target to OnAdd observer mapping.
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_add_is;
 			//! Semantic `Is` target to OnDel observer mapping.
@@ -297,6 +299,8 @@ namespace gaia {
 			}
 
 			GAIA_NODISCARD bool has_on_set_observers(Entity term) const {
+				if (!m_hasOnSetObservers)
+					return false;
 				return m_observer_map_set.find(EntityLookupKey(term)) != m_observer_map_set.end();
 			}
 
@@ -321,6 +325,7 @@ namespace gaia {
 				m_observer_map_add = {};
 				m_observer_map_del = {};
 				m_observer_map_set = {};
+				m_hasOnSetObservers = false;
 				m_observer_map_add_is = {};
 				m_observer_map_del_is = {};
 				m_diff_index_add = {};

@@ -1136,6 +1136,7 @@ namespace gaia {
 					break;
 				case ObserverEvent::OnSet:
 					add_observer_to_map(m_observer_map_set, term, observer);
+					m_hasOnSetObservers = true;
 					break;
 			}
 			if (!wasObserved && canMarkObserved)
@@ -1150,6 +1151,8 @@ namespace gaia {
 			const auto erasedOnAdd = m_observer_map_add.erase(termKey);
 			const auto erasedOnDel = m_observer_map_del.erase(termKey);
 			const auto erasedOnSet = m_observer_map_set.erase(termKey);
+			if (erasedOnSet != 0)
+				m_hasOnSetObservers = !m_observer_map_set.empty();
 			if (is_semantic_is_term(term)) {
 				const auto isKey = EntityLookupKey(world.get(term.gen()));
 				m_observer_map_add_is.erase(isKey);
@@ -1185,6 +1188,7 @@ namespace gaia {
 			remove_observer_from_map(m_observer_map_add);
 			remove_observer_from_map(m_observer_map_del);
 			remove_observer_from_map(m_observer_map_set);
+			m_hasOnSetObservers = !m_observer_map_set.empty();
 			remove_observer_from_map(m_observer_map_add_is);
 			remove_observer_from_map(m_observer_map_del_is);
 			auto remove_observer_from_diff_index = [&](auto& index) {
