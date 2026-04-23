@@ -3744,6 +3744,7 @@ Parameter | Description
 **GAIA_GENERATE_CC** | Generates `compile_commands.json`
 **GAIA_GENERATE_DOCS** | Builds the [documentation](#documentation)
 **GAIA_GENERATE_SINGLE_HEADER** | Generates a [single-header](#single-header) version of the framework
+**GAIA_FORMAT_SINGLE_HEADER** | Formats the generated single header with `clang-format` when available (`ON` by default)
 **GAIA_PROFILER_CPU** | Enables CPU [profiling](#profiling) features
 **GAIA_PROFILER_MEM** | Enabled memory [profiling](#profiling) features
 **GAIA_PROFILER_BUILD** | Builds the [profiler](#profiling) ([Tracy](https://github.com/wolfpld/tracy) by default)
@@ -3762,16 +3763,20 @@ cmake -DCMAKE_BUILD_TYPE=Release -DGAIA_USE_SANITIZER=address -S . -B "build"
 
 To generate the amalgamated header use the following command inside your root directory on Unix:
 ```bash
-./make_single_header.sh [clang-format-executable]
+./make_single_header.sh [--format|--no-format] [clang-format-executable]
 ```
 
 On Windows you can call:
 ```bash
-./make_single_header.bat [clang-format-executable] 
+./make_single_header.bat [--format|--no-format] [clang-format-executable]
 ```
 
+Default behavior is to format the generated header when `clang-format` is available. Use `--no-format` to skip the formatting pass.
+
 Creation of the single header can be automated via `-DGAIA_GENERATE_SINGLE_HEADER=ON` (ON by default).
-If `clang-format` is not available the header is still generated, it just skips the formatting pass.
+
+Formatting is controlled by `-DGAIA_FORMAT_SINGLE_HEADER=ON/OFF` and defaults to `ON`.
+If formatting is enabled but `clang-format` is not available the header is still generated, it just skips the formatting pass.
 
 ## Conan
 Gaia-ECS also ships with a Conan 2 recipe in [`pkg/conan`](pkg/conan).

@@ -6,15 +6,18 @@
 # file under include/ are inlined. Everything else — system headers, external
 # dependencies, preprocessor definitions, conditionals — passes through verbatim.
 #
-# The output is formatted with clang-format using the project's .clang-format
-# config (auto-discovered via --style=file) when clang-format is available.
+# The output can be formatted with clang-format using the project's
+# .clang-format config (via --style=file).
+# Formatting stays enabled by default when clang-format is available.
 #
 # Usage:
-#   ./make_single_header.sh [clang-format-executable]
+#   ./make_single_header.sh [--format|--no-format] [clang-format-executable]
 #
 # Examples:
-#   ./make_single_header.sh                # auto-detects clang-format on PATH
-#   ./make_single_header.sh clang-format-17
+#   ./make_single_header.sh                          # default: format when clang-format is available
+#   ./make_single_header.sh clang-format-17          # same, but with an explicit formatter
+#   ./make_single_header.sh --format clang-format-17 # explicit format request
+#   ./make_single_header.sh --no-format              # skip formatting
 
 set -euo pipefail
 
@@ -26,11 +29,56 @@ INCLUDE_DIR="$REPO_ROOT/include"
 # ---------------------------------------------------------------------------
 # Resolve clang-format
 # ---------------------------------------------------------------------------
+print_usage() {
+    cat <<'EOF'
+Usage:
+  ./make_single_header.sh [--format|--no-format] [clang-format-executable]
+
+Options:
+  --format      Enable formatting (default when clang-format is available).
+  --no-format   Skip formatting.
+  -h, --help    Print this help.
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format)
+                FORMAT_MODE="on"
+                ;;
+            --no-format)
+                FORMAT_MODE="off"
+                ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
+            *)
+                if [[ -n "$CLANG_FORMAT_ARG" ]]; then
+                    echo "ERROR: unexpected argument '$1'." >&2
+                    print_usage >&2
+                    exit 1
+                fi
+                CLANG_FORMAT_ARG="$1"
+                ;;
+        esac
+        shift
+    done
+}
+
 resolve_clang_format() {
     local arg="${1:-}"
+
+    if [[ "$FORMAT_MODE" == "off" ]]; then
+        CLANG_FORMAT=""
+        return
+    fi
+
     if [[ -n "$arg" ]]; then
         if ! command -v "$arg" &>/dev/null; then
-            echo "ERROR: '$arg' not found on PATH." >&2; exit 1
+            echo "ERROR: '$arg' not found on PATH." >&2
+            exit 1
         fi
         CLANG_FORMAT="$arg"
         return
@@ -130,8 +178,11 @@ walker() {
 # Main
 # ---------------------------------------------------------------------------
 CLANG_FORMAT=""
+CLANG_FORMAT_ARG=""
+FORMAT_MODE="auto"
 VISITED_FILE=""
-resolve_clang_format "${1:-}"
+parse_args "$@"
+resolve_clang_format "$CLANG_FORMAT_ARG"
 
 VISITED_FILE="$(mktemp)"
 trap 'rm -f "$VISITED_FILE"' EXIT
@@ -140,6 +191,8 @@ echo "Input        : $INPUT"
 echo "Output       : $OUTPUT"
 if [[ -n "$CLANG_FORMAT" ]]; then
     echo "clang-format : $CLANG_FORMAT"
+elif [[ "$FORMAT_MODE" == "off" ]]; then
+    echo "clang-format : disabled"
 else
     echo "clang-format : not found - formatting will be skipped"
 fi

@@ -1,19 +1,104 @@
-param(
-    [Parameter(Position = 0)]
-    [string]$ClangFormatArg
-)
-
 $ErrorActionPreference = 'Stop'
+$script:ThisScriptPath = $PSCommandPath
+if ([string]::IsNullOrWhiteSpace($script:ThisScriptPath)) {
+    $script:ThisScriptPath = $MyInvocation.PSCommandPath
+}
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $input = Join-Path $repoRoot 'include/gaia.h'
 $output = Join-Path $repoRoot 'single_include/gaia.h'
 $includeDir = Join-Path $repoRoot 'include'
 
+function Show-Usage {
+    Write-Host 'Usage:'
+    Write-Host '  ./make_single_header.ps1 [--format|--no-format] [clang-format-executable]'
+    Write-Host ''
+    Write-Host 'Options:'
+    Write-Host '  --format      Enable formatting (default when clang-format is available).'
+    Write-Host '  --no-format   Skip formatting.'
+    Write-Host '  -h, --help    Print this help.'
+    Write-Host ''
+    Write-Host 'Examples:'
+    Write-Host '  ./make_single_header.ps1                          # default: format when clang-format is available'
+    Write-Host '  ./make_single_header.ps1 clang-format-17          # same, but with an explicit formatter'
+    Write-Host '  ./make_single_header.ps1 --format clang-format-17 # explicit format request'
+    Write-Host '  ./make_single_header.ps1 --no-format              # skip formatting'
+}
+
+function Get-ScriptArguments {
+    $commandLineArgs = [Environment]::GetCommandLineArgs()
+    $scriptPath = [System.IO.Path]::GetFullPath($script:ThisScriptPath)
+    $scriptArgs = [System.Collections.Generic.List[string]]::new()
+    $seenScript = $false
+
+    foreach ($arg in $commandLineArgs) {
+        if (-not $seenScript) {
+            if ([string]::Equals([System.IO.Path]::GetFullPath($arg), $scriptPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $seenScript = $true
+            }
+            continue
+        }
+
+        $scriptArgs.Add($arg)
+    }
+
+    return $scriptArgs.ToArray()
+}
+
+function Parse-Arguments {
+    param(
+        [string[]]$CliArgs
+    )
+
+    $formatMode = 'auto'
+    $clangFormatArg = $null
+
+    foreach ($arg in $CliArgs) {
+        if ([string]::IsNullOrWhiteSpace($arg)) {
+            continue
+        }
+
+        switch ($arg) {
+            '--format' {
+                $formatMode = 'on'
+                continue
+            }
+            '--no-format' {
+                $formatMode = 'off'
+                continue
+            }
+            '-h' {
+                Show-Usage
+                exit 0
+            }
+            '--help' {
+                Show-Usage
+                exit 0
+            }
+            default {
+                if ($clangFormatArg) {
+                    throw "ERROR: unexpected argument '$arg'."
+                }
+                $clangFormatArg = $arg
+            }
+        }
+    }
+
+    return @{
+        FormatMode = $formatMode
+        ClangFormatArg = $clangFormatArg
+    }
+}
+
 function Resolve-ClangFormat {
     param(
-        [string]$Arg
+        [string]$Arg,
+        [string]$FormatMode
     )
+
+    if ($FormatMode -eq 'off') {
+        return $null
+    }
 
     if ($Arg) {
         if (Test-Path -LiteralPath $Arg -PathType Leaf) {
@@ -72,12 +157,18 @@ function Resolve-IncludePath {
     return $null
 }
 
-$clangFormat = Resolve-ClangFormat $ClangFormatArg
+$scriptArgs = Get-ScriptArguments
+$argsParsed = Parse-Arguments $scriptArgs
+$formatMode = $argsParsed.FormatMode
+$clangFormat = Resolve-ClangFormat -Arg $argsParsed.ClangFormatArg -FormatMode $formatMode
 
 Write-Host "Input        : $input"
 Write-Host "Output       : $output"
 if ($clangFormat) {
     Write-Host "clang-format : $clangFormat"
+}
+elseif ($formatMode -eq 'off') {
+    Write-Host 'clang-format : disabled'
 }
 else {
     Write-Host 'clang-format : not found - formatting will be skipped'
