@@ -486,7 +486,7 @@ namespace gaia {
 
 			//! Checks whether @a jobData has been submitted but not yet queued for execution.
 			//! \param jobData Job to inspect.
-			//! \return True when the state bits equal @ref Submitted.
+			//! \return True when the state bits equal JobState::Submitted.
 			GAIA_NODISCARD static bool submitted(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Submitted;
@@ -494,7 +494,7 @@ namespace gaia {
 
 			//! Checks whether @a jobData is queued for worker processing.
 			//! \param jobData Job to inspect.
-			//! \return True when the state bits equal @ref Processing.
+			//! \return True when the state bits equal JobState::Processing.
 			GAIA_NODISCARD static bool processing(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Processing;
@@ -510,7 +510,7 @@ namespace gaia {
 
 			//! Checks whether @a jobData has finished executing.
 			//! \param jobData Job to inspect.
-			//! \return True when the state bits equal @ref Done.
+			//! \return True when the state bits equal JobState::Done.
 			GAIA_NODISCARD static bool done(const JobContainer& jobData) {
 				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
 				return state == JobState::Done;
