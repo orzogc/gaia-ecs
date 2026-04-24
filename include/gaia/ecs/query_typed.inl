@@ -558,6 +558,90 @@ namespace gaia {
 				}
 			}
 
+			//! Returns a typed direct-chunk view element.
+			//! SoA views are chunk-relative, so they need the absolute row offset. AoS views are already sliced.
+			template <typename T, typename View>
+			GAIA_NODISCARD inline decltype(auto) typed_direct_chunk_arg_at(View& view, uint32_t row, uint16_t from) {
+				using U = typename actual_type_t<T>::Type;
+				if constexpr (mem::is_soa_layout_v<U>)
+					return view[from + row];
+				else
+					return view[row];
+			}
+
+			//! Invokes a row callback from prepared direct chunk views.
+			template <typename Func, typename ViewsTuple, typename... T, size_t... I>
+			inline void invoke_typed_direct_chunk_row(
+					Func& func, ViewsTuple& views, uint32_t row, uint16_t from, core::func_type_list<T...>,
+					std::index_sequence<I...>) {
+				func(typed_direct_chunk_arg_at<T>(std::get<I>(views), row, from)...);
+			}
+
+			//! Runs a typed row callback directly on a chunk without constructing Iter.
+			template <typename Func, typename... T>
+			inline void
+			run_typed_direct_chunk_rows(Chunk* pChunk, uint16_t from, uint16_t to, Func& func, core::func_type_list<T...>) {
+				if constexpr (sizeof...(T) > 0) {
+					auto views = std::make_tuple(pChunk->template sview_auto<T>(from, to)...);
+					const auto cnt = (uint32_t)(to - from);
+					GAIA_FOR(cnt)
+					invoke_typed_direct_chunk_row(
+							func, views, (uint32_t)i, from, core::func_type_list<T...>{}, std::index_sequence_for<T...>{});
+				} else {
+					const auto cnt = (uint32_t)(to - from);
+					GAIA_FOR(cnt)
+					func();
+				}
+			}
+
+			//! Runs the prepared direct typed row path for simple cached queries.
+			template <typename Func, typename... T>
+			inline void QueryImpl::run_query_on_chunks_direct_typed(
+					QueryInfo& queryInfo, const TypedQueryExecState& state, Func& func, core::func_type_list<T...> types) {
+				auto& world = *queryInfo.world();
+				GAIA_ASSERT(!queryInfo.has_filters());
+				if (state.hasWriteArgs)
+					::gaia::ecs::update_version(*m_worldVersion);
+
+				auto cacheView = queryInfo.cache_archetype_view();
+				if (cacheView.empty())
+					return;
+
+				uint32_t idxFrom = 0;
+				uint32_t idxTo = (uint32_t)cacheView.size();
+				if (queryInfo.ctx().data.groupBy != EntityBad && m_groupIdSet != 0) {
+					const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
+					if (pGroupData == nullptr)
+						return;
+					idxFrom = pGroupData->idxFirst;
+					idxTo = pGroupData->idxLast + 1;
+				}
+
+				lock(*m_storage.world());
+				for (uint32_t i = idxFrom; i < idxTo; ++i) {
+					const auto* pArchetype = cacheView[i];
+					if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, Constraints::EnabledOnly))
+						continue;
+
+					const auto& chunks = pArchetype->chunks();
+					for (auto* pChunk: chunks) {
+						const auto from = Iter::start_index(pChunk);
+						const auto to = Iter::end_index(pChunk);
+						if GAIA_UNLIKELY (from == to)
+							continue;
+
+						GAIA_PROF_SCOPE(query_func);
+						run_typed_direct_chunk_rows(pChunk, from, to, func, types);
+						finish_typed_chunk_state(*this, world, pChunk, from, to, state);
+					}
+				}
+
+				unlock(*m_storage.world());
+				commit_cmd_buffer_st(*m_storage.world());
+				commit_cmd_buffer_mt(*m_storage.world());
+				m_changedWorldVersion = *m_worldVersion;
+			}
+
 			inline void QueryImpl::run_query_on_chunks_direct(
 					QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
 					void (*runChunk)(QueryImpl&, Iter& it, void*, const TypedQueryExecState&)) {
@@ -664,6 +748,13 @@ namespace gaia {
 				const auto runDirectChunk = typed_run_direct_chunk_ptr<Func>(InputArgs{});
 				const auto runMappedChunk = typed_run_mapped_chunk_ptr<Func>(InputArgs{});
 				const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
+				if constexpr (ExecType == QueryExecType::Default) {
+					if (state.canUseDirectChunkEval && !queryInfo.has_filters() && !can_use_direct_entity_seed_eval(queryInfo) &&
+							can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+						run_query_on_chunks_direct_typed(queryInfo, state, func, InputArgs{});
+						return;
+					}
+				}
 				each_inter<ExecType>(
 						queryInfo, &func, state, runDirectFastChunk, runDirectChunk, runMappedChunk, state.needsInheritedArgIds,
 						invokeInherited);

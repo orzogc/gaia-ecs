@@ -2757,6 +2757,10 @@ namespace gaia {
 					return data.sortByFunc == nullptr && !has_depth_order_hierarchy_enabled_barrier(queryInfo);
 				}
 
+				template <typename Func, typename... T>
+				void run_query_on_chunks_direct_typed(
+						QueryInfo& queryInfo, const TypedQueryExecState& state, Func& func, core::func_type_list<T...>);
+
 				void run_query_on_chunks_direct(
 						QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));

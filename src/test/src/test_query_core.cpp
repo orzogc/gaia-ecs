@@ -3,6 +3,11 @@
 namespace {
 	//! Marker type used by tests to request World::uquery().
 	struct QueryUncached {};
+
+	struct DirectTypedPositionSoA {
+		GAIA_LAYOUT(SoA);
+		float x, y, z;
+	};
 } // namespace
 
 TEST_CASE("Query - QueryResult") {
@@ -50,6 +55,82 @@ TEST_CASE("Query - QueryResult") {
 			++matches;
 		});
 		CHECK(matches == 1);
+	}
+}
+
+TEST_CASE("Query - direct typed chunk rows") {
+	constexpr uint32_t N = 1'800;
+	constexpr uint32_t Disabled = 17;
+
+	SUBCASE("AoS") {
+		TestWorld twld;
+		cnt::darr<ecs::Entity> ents;
+		ents.reserve(N);
+
+		GAIA_FOR(N) {
+			const auto f = (float)i;
+			const auto e = wld.add();
+			ents.push_back(e);
+			wld.add<Position>(e, {f, f * 2.0f, f * 3.0f});
+		}
+
+		GAIA_FOR(Disabled)
+		wld.enable(ents[i], false);
+
+		auto q = wld.query().all<Position&>();
+		CHECK(q.count() == N - Disabled);
+
+		uint32_t cnt = 0;
+		q.each([&](Position& p) {
+			p.x += 1.0f;
+			p.y += 2.0f;
+			p.z += 3.0f;
+			++cnt;
+		});
+		CHECK(cnt == N - Disabled);
+
+		cnt = 0;
+		auto qRead = wld.query().all<Position>();
+		qRead.each([&](const Position& p) {
+			CHECK(p.x == p.y * 0.5f);
+			CHECK(p.z == p.y * 1.5f);
+			++cnt;
+		});
+		CHECK(cnt == N - Disabled);
+	}
+
+	SUBCASE("SoA") {
+		TestWorld twld;
+		cnt::darr<ecs::Entity> ents;
+		ents.reserve(N);
+
+		GAIA_FOR(N) {
+			const auto f = (float)i;
+			const auto e = wld.add();
+			ents.push_back(e);
+			wld.add<DirectTypedPositionSoA>(e, {f, f * 2.0f, f * 3.0f});
+		}
+
+		GAIA_FOR(Disabled)
+		wld.enable(ents[i], false);
+
+		auto q = wld.query().all<DirectTypedPositionSoA>();
+		CHECK(q.count() == N - Disabled);
+
+		uint32_t cnt = 0;
+		float sumX = 0.0f;
+		q.each([&](const DirectTypedPositionSoA& p) {
+			CHECK(p.x >= (float)Disabled);
+			CHECK(p.x == p.y * 0.5f);
+			CHECK(p.z == p.y * 1.5f);
+			sumX += p.x;
+			++cnt;
+		});
+		float expectedSumX = 0.0f;
+		for (uint32_t i = Disabled; i < N; ++i)
+			expectedSumX += (float)i;
+		CHECK(sumX == expectedSumX);
+		CHECK(cnt == N - Disabled);
 	}
 }
 
