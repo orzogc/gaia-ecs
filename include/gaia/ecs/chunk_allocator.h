@@ -29,22 +29,29 @@ namespace gaia {
 
 		static constexpr uint32_t MemoryBlockAlignment = 64;
 		static constexpr uint32_t MinMemoryBlockSize = 1024 * 8;
-		//! Size of one allocated block of memory in kiB
-		static constexpr uint32_t MaxMemoryBlockSize = MinMemoryBlockSize * 4;
+		//! Number of chunk allocator block size classes: 8, 16, 32 and 64 KiB-class blocks.
+		static constexpr uint32_t MemoryBlockSizeClasses = 4;
+		//! Size of the largest allocated block of memory in bytes. Kept below 64 KiB because chunk sizes are 16-bit.
+		static constexpr uint32_t MaxMemoryBlockSize = UINT16_MAX & ~(MemoryBlockAlignment - 1);
 		//! Reserved bytes at the start of each block for allocator metadata and chunk header alignment headroom.
 		//! Validated against the actual chunk layout in Chunk::chunk_header_size().
 		static constexpr uint32_t MemoryBlockUsableOffset = 40;
 
 		constexpr uint16_t mem_block_size(uint32_t sizeType) {
-			constexpr uint16_t sizes[] = {MinMemoryBlockSize, MinMemoryBlockSize * 2, MaxMemoryBlockSize};
+			constexpr uint16_t sizes[] = {
+					MinMemoryBlockSize, MinMemoryBlockSize * 2, MinMemoryBlockSize * 4, MaxMemoryBlockSize};
 			return sizes[sizeType];
 		}
 
 		constexpr uint8_t mem_block_size_type(uint32_t sizeBytes) {
 			GAIA_ASSERT(sizeBytes > 0);
-			// Ceil division by smallest block size
-			const uint32_t blocks = (sizeBytes + MinMemoryBlockSize - 1) / MinMemoryBlockSize;
-			return blocks > 2 ? 2 : static_cast<uint8_t>(blocks - 1);
+			if (sizeBytes <= MinMemoryBlockSize)
+				return 0;
+			if (sizeBytes <= MinMemoryBlockSize * 2)
+				return 1;
+			if (sizeBytes <= MinMemoryBlockSize * 4)
+				return 2;
+			return 3;
 		}
 
 #if GAIA_ECS_CHUNK_ALLOCATOR
@@ -66,7 +73,7 @@ namespace gaia {
 		};
 
 		struct GAIA_API ChunkAllocatorStats final {
-			ChunkAllocatorPageStats stats[3];
+			ChunkAllocatorPageStats stats[MemoryBlockSizeClasses];
 		};
 
 		using ChunkAllocator = core::dyn_singleton<detail::ChunkAllocatorImpl>;
@@ -95,7 +102,7 @@ namespace gaia {
 				//! Implicit list of blocks
 				BlockArray m_blocks;
 
-				//! Block size type, 0=8K, 1=16K blocks, 2=32K blocks
+				//! Block size type, 0=8K, 1=16K, 2=32K, 3=64K-class blocks
 				uint32_t m_sizeType : 2;
 				//! Number of blocks in the block array
 				uint32_t m_blockCnt : NBlocks_Bits;
@@ -244,7 +251,7 @@ namespace gaia {
 
 				void verify() const {
 	#if GAIA_ASSERT_ENABLED
-					GAIA_ASSERT(m_sizeType < 3);
+					GAIA_ASSERT(m_sizeType < MemoryBlockSizeClasses);
 					GAIA_ASSERT(m_blockCnt <= NBlocks);
 					GAIA_ASSERT(m_usedBlocks <= m_blockCnt);
 					GAIA_ASSERT(m_freeBlocks <= m_blockCnt);
@@ -348,7 +355,7 @@ namespace gaia {
 				friend ::gaia::ecs::ChunkAllocator;
 
 				//! Container for pages storing various-sized chunks
-				MemoryPageContainer m_pages[3];
+				MemoryPageContainer m_pages[MemoryBlockSizeClasses];
 
 				//! When true, destruction has been requested
 				bool m_isDone = false;
@@ -470,9 +477,8 @@ namespace gaia {
 				//! Returns allocator statistics
 				ChunkAllocatorStats stats() const {
 					ChunkAllocatorStats stats{};
-					stats.stats[0] = page_stats(0);
-					stats.stats[1] = page_stats(1);
-					stats.stats[2] = page_stats(2);
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
+						stats.stats[sizeType] = page_stats(sizeType);
 					return stats;
 				}
 
@@ -509,14 +515,13 @@ namespace gaia {
 					};
 
 					auto memStats = stats();
-					diagPage(memStats.stats[0], 0);
-					diagPage(memStats.stats[1], 1);
-					diagPage(memStats.stats[2], 2);
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
+						diagPage(memStats.stats[sizeType], sizeType);
 				}
 
 				void verify() const {
 	#if GAIA_ASSERT_ENABLED
-					for (uint32_t sizeType = 0; sizeType < 3; ++sizeType)
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
 						verify_container(m_pages[sizeType], sizeType);
 	#endif
 				}
@@ -554,7 +559,7 @@ namespace gaia {
 				}
 
 				static constexpr uint32_t warm_pages_to_keep(uint32_t sizeType) {
-					constexpr uint8_t WarmPagesPerSizeClass[] = {1, 1, 0};
+					constexpr uint8_t WarmPagesPerSizeClass[] = {1, 1, 0, 0};
 					return WarmPagesPerSizeClass[sizeType];
 				}
 

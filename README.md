@@ -148,7 +148,7 @@ A vehicle is any entity with Position and Velocity. Add Driving and it's a car. 
 ## Implementation
 **Gaia-ECS** is a hybrid ECS combining archetype-based storage with optional out-of-line component payload storage. Unique combinations of components are grouped into archetypes — think of them as [database tables](https://en.wikipedia.org/wiki/Table_(database)) where components are columns and entities are rows.
 
-Each archetype is made up of chunks: fixed-size blocks of memory sized so that a full chunk fits in L1 cache on most CPUs. Components of the same type are laid out linearly within a chunk, minimizing heap allocations and keeping iteration cache-friendly.
+Each archetype is made up of chunks: fixed-size allocation blocks selected per archetype from a small set of size classes. Compact archetypes use small cache-friendly chunks, while wider dense archetypes can use larger chunks to reduce per-chunk iteration overhead. Components of the same type are laid out linearly within a chunk, minimizing heap allocations and keeping iteration cache-friendly.
 
 The main strengths of this layout are fast iteration, predictable memory usage, and natural parallelism. The tradeoff is that adding or removing fragmenting ids requires moving data between archetypes — mitigated here by an archetype graph and support for batched component changes.
 

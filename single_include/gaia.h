@@ -27124,22 +27124,29 @@ namespace gaia {
 
 		static constexpr uint32_t MemoryBlockAlignment = 64;
 		static constexpr uint32_t MinMemoryBlockSize = 1024 * 8;
-		//! Size of one allocated block of memory in kiB
-		static constexpr uint32_t MaxMemoryBlockSize = MinMemoryBlockSize * 4;
+		//! Number of chunk allocator block size classes: 8, 16, 32 and 64 KiB-class blocks.
+		static constexpr uint32_t MemoryBlockSizeClasses = 4;
+		//! Size of the largest allocated block of memory in bytes. Kept below 64 KiB because chunk sizes are 16-bit.
+		static constexpr uint32_t MaxMemoryBlockSize = UINT16_MAX & ~(MemoryBlockAlignment - 1);
 		//! Reserved bytes at the start of each block for allocator metadata and chunk header alignment headroom.
 		//! Validated against the actual chunk layout in Chunk::chunk_header_size().
 		static constexpr uint32_t MemoryBlockUsableOffset = 40;
 
 		constexpr uint16_t mem_block_size(uint32_t sizeType) {
-			constexpr uint16_t sizes[] = {MinMemoryBlockSize, MinMemoryBlockSize * 2, MaxMemoryBlockSize};
+			constexpr uint16_t sizes[] = {
+					MinMemoryBlockSize, MinMemoryBlockSize * 2, MinMemoryBlockSize * 4, MaxMemoryBlockSize};
 			return sizes[sizeType];
 		}
 
 		constexpr uint8_t mem_block_size_type(uint32_t sizeBytes) {
 			GAIA_ASSERT(sizeBytes > 0);
-			// Ceil division by smallest block size
-			const uint32_t blocks = (sizeBytes + MinMemoryBlockSize - 1) / MinMemoryBlockSize;
-			return blocks > 2 ? 2 : static_cast<uint8_t>(blocks - 1);
+			if (sizeBytes <= MinMemoryBlockSize)
+				return 0;
+			if (sizeBytes <= MinMemoryBlockSize * 2)
+				return 1;
+			if (sizeBytes <= MinMemoryBlockSize * 4)
+				return 2;
+			return 3;
 		}
 
 #if GAIA_ECS_CHUNK_ALLOCATOR
@@ -27161,7 +27168,7 @@ namespace gaia {
 		};
 
 		struct GAIA_API ChunkAllocatorStats final {
-			ChunkAllocatorPageStats stats[3];
+			ChunkAllocatorPageStats stats[MemoryBlockSizeClasses];
 		};
 
 		using ChunkAllocator = core::dyn_singleton<detail::ChunkAllocatorImpl>;
@@ -27190,7 +27197,7 @@ namespace gaia {
 				//! Implicit list of blocks
 				BlockArray m_blocks;
 
-				//! Block size type, 0=8K, 1=16K blocks, 2=32K blocks
+				//! Block size type, 0=8K, 1=16K, 2=32K, 3=64K-class blocks
 				uint32_t m_sizeType : 2;
 				//! Number of blocks in the block array
 				uint32_t m_blockCnt : NBlocks_Bits;
@@ -27339,7 +27346,7 @@ namespace gaia {
 
 				void verify() const {
 	#if GAIA_ASSERT_ENABLED
-					GAIA_ASSERT(m_sizeType < 3);
+					GAIA_ASSERT(m_sizeType < MemoryBlockSizeClasses);
 					GAIA_ASSERT(m_blockCnt <= NBlocks);
 					GAIA_ASSERT(m_usedBlocks <= m_blockCnt);
 					GAIA_ASSERT(m_freeBlocks <= m_blockCnt);
@@ -27443,7 +27450,7 @@ namespace gaia {
 				friend ::gaia::ecs::ChunkAllocator;
 
 				//! Container for pages storing various-sized chunks
-				MemoryPageContainer m_pages[3];
+				MemoryPageContainer m_pages[MemoryBlockSizeClasses];
 
 				//! When true, destruction has been requested
 				bool m_isDone = false;
@@ -27565,9 +27572,8 @@ namespace gaia {
 				//! Returns allocator statistics
 				ChunkAllocatorStats stats() const {
 					ChunkAllocatorStats stats{};
-					stats.stats[0] = page_stats(0);
-					stats.stats[1] = page_stats(1);
-					stats.stats[2] = page_stats(2);
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
+						stats.stats[sizeType] = page_stats(sizeType);
 					return stats;
 				}
 
@@ -27604,14 +27610,13 @@ namespace gaia {
 					};
 
 					auto memStats = stats();
-					diagPage(memStats.stats[0], 0);
-					diagPage(memStats.stats[1], 1);
-					diagPage(memStats.stats[2], 2);
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
+						diagPage(memStats.stats[sizeType], sizeType);
 				}
 
 				void verify() const {
 	#if GAIA_ASSERT_ENABLED
-					for (uint32_t sizeType = 0; sizeType < 3; ++sizeType)
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType)
 						verify_container(m_pages[sizeType], sizeType);
 	#endif
 				}
@@ -27649,7 +27654,7 @@ namespace gaia {
 				}
 
 				static constexpr uint32_t warm_pages_to_keep(uint32_t sizeType) {
-					constexpr uint8_t WarmPagesPerSizeClass[] = {1, 1, 0};
+					constexpr uint8_t WarmPagesPerSizeClass[] = {1, 1, 0, 0};
 					return WarmPagesPerSizeClass[sizeType];
 				}
 
@@ -32216,50 +32221,39 @@ namespace gaia {
 					return best;
 				};
 
-				// Calculate the number of entities per chunks precisely so we can fit as many of them into chunk as possible.
-				// There are multiple chunk size we can pick from. We start at the smallest one, and try do upsize if we can't
-				// fit at least MinEntitiesPerChunk.
-				constexpr uint32_t MinEntitiesPerChunk = 384;
+				// Calculate the number of entities per chunk precisely so we can fit as many of them into a
+				// chunk as possible. Start at the smallest size class and only upsize when the archetype is
+				// wide enough that a smaller chunk can't hold the target row count.
+				constexpr uint32_t MinEntitiesPerChunk = 1536;
 				uint32_t maxGenItemsInArchetype = 0;
 
-				// Always go big for the root archetype so we can fit as many entities as possible into it
-				if (archetypeId == 0) {
-					const uint32_t size2 = Chunk::chunk_data_bytes(mem_block_size(2));
-					maxGenItemsInArchetype =
-							(size2 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-					maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size2);
-					if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
-						maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
-				} else {
-					// Theoretical maximum number of components we can fit into one chunk.
+				auto compute_max_entities_for_size_type = [&](uint32_t sizeType) -> uint32_t {
+					const uint32_t dataLimit = Chunk::chunk_data_bytes(mem_block_size(sizeType));
+					const uint32_t fixedSize = offs.firstByte_EntityData + uniCompsSize + 1;
+					GAIA_ASSERT(dataLimit > fixedSize);
+
+					// Theoretical maximum number of generic component rows we can fit into one chunk.
 					// This can be further reduced due to alignment and padding.
-					const uint32_t size0 = Chunk::chunk_data_bytes(mem_block_size(0));
-					maxGenItemsInArchetype =
-							(size0 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-					maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size0);
+					const uint32_t itemSize = genCompsSize + (uint32_t)sizeof(Entity);
+					const uint32_t maxEntities = (dataLimit - fixedSize) / itemSize;
+					return compute_max_entities_for_chunk(maxEntities > 0 ? maxEntities : 1, dataLimit);
+				};
 
-					// If we can't fit MinEntitiesPerChunk, go with a larger one
-					if (maxGenItemsInArchetype < MinEntitiesPerChunk) {
-						const uint32_t size1 = Chunk::chunk_data_bytes(mem_block_size(1));
-						maxGenItemsInArchetype =
-								(size1 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-						maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size1);
-					}
-
-					// If we still can't fit MinEntitiesPerChunk, go with the largest one
-					if (maxGenItemsInArchetype < MinEntitiesPerChunk) {
-						const uint32_t size2 = Chunk::chunk_data_bytes(mem_block_size(2));
-						maxGenItemsInArchetype =
-								(size2 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-						maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size2);
-
-						// NOTE: No we only check against MAX_CHUNK_ENTITIES for the largest size chunk because
-						//       MAX_CHUNK_ENTITIES is calculated relative to its size. Therefore, smaller chunks
-						//       can't possibly fit more.
-						if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
-							maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
+				if (archetypeId == 0) {
+					// Keep the root archetype compact enough to avoid growing the maximum row snapshot used by iterators.
+					maxGenItemsInArchetype = compute_max_entities_for_size_type(2);
+				} else {
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType) {
+						maxGenItemsInArchetype = compute_max_entities_for_size_type(sizeType);
+						if (maxGenItemsInArchetype >= MinEntitiesPerChunk)
+							break;
 					}
 				}
+
+				// MAX_CHUNK_ENTITIES is intentionally based on the 32 KiB class to keep iterator snapshots bounded.
+				// Wide archetypes can still use the 64 KiB-class blocks because their row count stays below this cap.
+				if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
+					maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
 
 				// Update the offsets according to the recalculated maxGenItemsInArchetype
 				auto currOff = offs.firstByte_EntityData + ((uint32_t)sizeof(Entity) * maxGenItemsInArchetype);
@@ -50789,6 +50783,8 @@ namespace gaia {
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_del;
 			//! Component to OnSet observer mapping.
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_set;
+			//! True when any OnSet observer is registered. Avoids a map probe on the common no-observer write path.
+			bool m_hasOnSetObservers = false;
 			//! Semantic `Is` target to OnAdd observer mapping.
 			cnt::map<EntityLookupKey, cnt::darray<Entity>> m_observer_map_add_is;
 			//! Semantic `Is` target to OnDel observer mapping.
@@ -50900,6 +50896,8 @@ namespace gaia {
 			}
 
 			GAIA_NODISCARD bool has_on_set_observers(Entity term) const {
+				if (!m_hasOnSetObservers)
+					return false;
 				return m_observer_map_set.find(EntityLookupKey(term)) != m_observer_map_set.end();
 			}
 
@@ -50924,6 +50922,7 @@ namespace gaia {
 				m_observer_map_add = {};
 				m_observer_map_del = {};
 				m_observer_map_set = {};
+				m_hasOnSetObservers = false;
 				m_observer_map_add_is = {};
 				m_observer_map_del_is = {};
 				m_diff_index_add = {};
@@ -63362,6 +63361,7 @@ namespace gaia {
 					break;
 				case ObserverEvent::OnSet:
 					add_observer_to_map(m_observer_map_set, term, observer);
+					m_hasOnSetObservers = true;
 					break;
 			}
 			if (!wasObserved && canMarkObserved)
@@ -63376,6 +63376,8 @@ namespace gaia {
 			const auto erasedOnAdd = m_observer_map_add.erase(termKey);
 			const auto erasedOnDel = m_observer_map_del.erase(termKey);
 			const auto erasedOnSet = m_observer_map_set.erase(termKey);
+			if (erasedOnSet != 0)
+				m_hasOnSetObservers = !m_observer_map_set.empty();
 			if (is_semantic_is_term(term)) {
 				const auto isKey = EntityLookupKey(world.get(term.gen()));
 				m_observer_map_add_is.erase(isKey);
@@ -63411,6 +63413,7 @@ namespace gaia {
 			remove_observer_from_map(m_observer_map_add);
 			remove_observer_from_map(m_observer_map_del);
 			remove_observer_from_map(m_observer_map_set);
+			m_hasOnSetObservers = !m_observer_map_set.empty();
 			remove_observer_from_map(m_observer_map_add_is);
 			remove_observer_from_map(m_observer_map_del_is);
 			auto remove_observer_from_diff_index = [&](auto& index) {

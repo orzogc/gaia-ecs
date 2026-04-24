@@ -594,50 +594,39 @@ namespace gaia {
 					return best;
 				};
 
-				// Calculate the number of entities per chunks precisely so we can fit as many of them into chunk as possible.
-				// There are multiple chunk size we can pick from. We start at the smallest one, and try do upsize if we can't
-				// fit at least MinEntitiesPerChunk.
-				constexpr uint32_t MinEntitiesPerChunk = 384;
+				// Calculate the number of entities per chunk precisely so we can fit as many of them into a
+				// chunk as possible. Start at the smallest size class and only upsize when the archetype is
+				// wide enough that a smaller chunk can't hold the target row count.
+				constexpr uint32_t MinEntitiesPerChunk = 1536;
 				uint32_t maxGenItemsInArchetype = 0;
 
-				// Always go big for the root archetype so we can fit as many entities as possible into it
-				if (archetypeId == 0) {
-					const uint32_t size2 = Chunk::chunk_data_bytes(mem_block_size(2));
-					maxGenItemsInArchetype =
-							(size2 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-					maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size2);
-					if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
-						maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
-				} else {
-					// Theoretical maximum number of components we can fit into one chunk.
+				auto compute_max_entities_for_size_type = [&](uint32_t sizeType) -> uint32_t {
+					const uint32_t dataLimit = Chunk::chunk_data_bytes(mem_block_size(sizeType));
+					const uint32_t fixedSize = offs.firstByte_EntityData + uniCompsSize + 1;
+					GAIA_ASSERT(dataLimit > fixedSize);
+
+					// Theoretical maximum number of generic component rows we can fit into one chunk.
 					// This can be further reduced due to alignment and padding.
-					const uint32_t size0 = Chunk::chunk_data_bytes(mem_block_size(0));
-					maxGenItemsInArchetype =
-							(size0 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-					maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size0);
+					const uint32_t itemSize = genCompsSize + (uint32_t)sizeof(Entity);
+					const uint32_t maxEntities = (dataLimit - fixedSize) / itemSize;
+					return compute_max_entities_for_chunk(maxEntities > 0 ? maxEntities : 1, dataLimit);
+				};
 
-					// If we can't fit MinEntitiesPerChunk, go with a larger one
-					if (maxGenItemsInArchetype < MinEntitiesPerChunk) {
-						const uint32_t size1 = Chunk::chunk_data_bytes(mem_block_size(1));
-						maxGenItemsInArchetype =
-								(size1 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-						maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size1);
-					}
-
-					// If we still can't fit MinEntitiesPerChunk, go with the largest one
-					if (maxGenItemsInArchetype < MinEntitiesPerChunk) {
-						const uint32_t size2 = Chunk::chunk_data_bytes(mem_block_size(2));
-						maxGenItemsInArchetype =
-								(size2 - offs.firstByte_EntityData - uniCompsSize - 1) / (genCompsSize + (uint32_t)sizeof(Entity));
-						maxGenItemsInArchetype = compute_max_entities_for_chunk(maxGenItemsInArchetype, size2);
-
-						// NOTE: No we only check against MAX_CHUNK_ENTITIES for the largest size chunk because
-						//       MAX_CHUNK_ENTITIES is calculated relative to its size. Therefore, smaller chunks
-						//       can't possibly fit more.
-						if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
-							maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
+				if (archetypeId == 0) {
+					// Keep the root archetype compact enough to avoid growing the maximum row snapshot used by iterators.
+					maxGenItemsInArchetype = compute_max_entities_for_size_type(2);
+				} else {
+					for (uint32_t sizeType = 0; sizeType < MemoryBlockSizeClasses; ++sizeType) {
+						maxGenItemsInArchetype = compute_max_entities_for_size_type(sizeType);
+						if (maxGenItemsInArchetype >= MinEntitiesPerChunk)
+							break;
 					}
 				}
+
+				// MAX_CHUNK_ENTITIES is intentionally based on the 32 KiB class to keep iterator snapshots bounded.
+				// Wide archetypes can still use the 64 KiB-class blocks because their row count stays below this cap.
+				if (maxGenItemsInArchetype > ChunkHeader::MAX_CHUNK_ENTITIES)
+					maxGenItemsInArchetype = ChunkHeader::MAX_CHUNK_ENTITIES;
 
 				// Update the offsets according to the recalculated maxGenItemsInArchetype
 				auto currOff = offs.firstByte_EntityData + ((uint32_t)sizeof(Entity) * maxGenItemsInArchetype);
