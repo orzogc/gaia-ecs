@@ -788,10 +788,13 @@ namespace gaia {
 				if (state.hasWriteArgs)
 					::gaia::ecs::update_version(*m_worldVersion);
 
-				const bool hasFilters = queryInfo.has_filters();
 				auto cacheView = queryInfo.cache_archetype_view();
 				if (plan.idxFrom >= plan.idxTo)
 					return;
+
+				GAIA_ASSERT(
+						plan.kind == TypedQueryPlanKind::DirectDense || plan.kind == TypedQueryPlanKind::DirectDenseFiltered);
+				const bool hasFilters = plan.kind == TypedQueryPlanKind::DirectDenseFiltered;
 
 				lock(*m_storage.world());
 				Iter it;
