@@ -2792,7 +2792,7 @@ namespace gaia {
 				GAIA_NODISCARD TypedQueryPlan
 				prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const;
 
-				template <typename Func, typename... T>
+				template <bool HasFilters, typename Func, typename... T>
 				void run_query_on_chunks_direct_typed(
 						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
 						core::func_type_list<T...>);

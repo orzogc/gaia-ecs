@@ -696,19 +696,23 @@ namespace gaia {
 			}
 
 			//! Runs the prepared direct typed row path for simple cached queries.
-			template <typename Func, typename... T>
+			template <bool HasFilters, typename Func, typename... T>
 			inline void QueryImpl::run_query_on_chunks_direct_typed(
 					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
 					core::func_type_list<T...> types) {
 				auto& world = *queryInfo.world();
-				GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
-				GAIA_ASSERT(!queryInfo.has_filters());
-				if (state.hasWriteArgs)
-					::gaia::ecs::update_version(*m_worldVersion);
+				if constexpr (HasFilters) {
+					GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDenseFiltered);
+				} else {
+					GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
+				}
 
 				auto cacheView = queryInfo.cache_archetype_view();
 				if (plan.idxFrom >= plan.idxTo)
 					return;
+
+				if (state.hasWriteArgs)
+					::gaia::ecs::update_version(*m_worldVersion);
 
 				lock(*m_storage.world());
 				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
@@ -722,6 +726,11 @@ namespace gaia {
 						const auto to = Iter::end_index(pChunk);
 						if GAIA_UNLIKELY (from == to)
 							continue;
+
+						if constexpr (HasFilters) {
+							if GAIA_UNLIKELY (!match_filters(*pChunk, queryInfo, m_changedWorldVersion))
+								continue;
+						}
 
 						GAIA_PROF_SCOPE(query_func);
 						run_typed_direct_chunk_rows(pChunk, from, to, func, types);
@@ -883,7 +892,12 @@ namespace gaia {
 				const auto plan = prepare_typed_query_plan(queryInfo, state);
 				if constexpr (ExecType == QueryExecType::Default) {
 					if (plan.kind == TypedQueryPlanKind::DirectDense) {
-						run_query_on_chunks_direct_typed(queryInfo, plan, state, func, InputArgs{});
+						run_query_on_chunks_direct_typed<false>(queryInfo, plan, state, func, InputArgs{});
+						return;
+					}
+
+					if (plan.kind == TypedQueryPlanKind::DirectDenseFiltered) {
+						run_query_on_chunks_direct_typed<true>(queryInfo, plan, state, func, InputArgs{});
 						return;
 					}
 				}
