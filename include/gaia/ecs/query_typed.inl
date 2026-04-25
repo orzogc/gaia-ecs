@@ -819,12 +819,11 @@ namespace gaia {
 
 			template <QueryExecType ExecType>
 			inline void QueryImpl::each_inter(
-					QueryInfo& queryInfo, void* pFunc, const TypedQueryExecState& state,
+					QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
-				const auto plan = prepare_typed_query_plan(queryInfo, state);
 				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
 					GAIA_PROF_SCOPE(query_func);
 					each_direct_inter(
@@ -858,8 +857,8 @@ namespace gaia {
 				TypedQueryArgMeta metas[MAX_ITEMS_IN_QUERY]{};
 				const auto argCount = init_typed_query_arg_metas(metas, world, InputArgs{});
 				const auto state = build_typed_query_exec_state(*this, world, queryInfo, metas, argCount);
+				const auto plan = prepare_typed_query_plan(queryInfo, state);
 				if constexpr (ExecType == QueryExecType::Default) {
-					const auto plan = prepare_typed_query_plan(queryInfo, state);
 					if (plan.kind == TypedQueryPlanKind::DirectDense) {
 						run_query_on_chunks_direct_typed(queryInfo, plan, state, func, InputArgs{});
 						return;
@@ -871,7 +870,7 @@ namespace gaia {
 				const auto runMappedChunk = typed_run_mapped_chunk_ptr<Func>(InputArgs{});
 				const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
 				each_inter<ExecType>(
-						queryInfo, &func, state, runDirectFastChunk, runDirectChunk, runMappedChunk, state.needsInheritedArgIds,
+						queryInfo, plan, &func, state, runDirectFastChunk, runDirectChunk, runMappedChunk, state.needsInheritedArgIds,
 						invokeInherited);
 			}
 
@@ -883,26 +882,27 @@ namespace gaia {
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
 				auto& queryInfo = fetch();
 				match_all(queryInfo);
+				const auto plan = prepare_typed_query_plan(queryInfo, state);
 
 				switch (execType) {
 					case QueryExecType::Parallel:
 						each_inter<QueryExecType::Parallel>(
-								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
 								invokeInherited);
 						break;
 					case QueryExecType::ParallelPerf:
 						each_inter<QueryExecType::ParallelPerf>(
-								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
 								invokeInherited);
 						break;
 					case QueryExecType::ParallelEff:
 						each_inter<QueryExecType::ParallelEff>(
-								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
 								invokeInherited);
 						break;
 					default:
 						each_inter<QueryExecType::Default>(
-								queryInfo, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runDirectChunk, runMappedChunk, needsInheritedArgIds,
 								invokeInherited);
 						break;
 				}

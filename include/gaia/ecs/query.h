@@ -2805,7 +2805,7 @@ namespace gaia {
 
 				template <QueryExecType ExecType>
 				void each_inter(
-						QueryInfo& queryInfo, void* pFunc, const TypedQueryExecState& state,
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 						void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
