@@ -818,8 +818,8 @@ namespace gaia {
 			template <typename ArchetypeLookup>
 			void match(
 					const ArchetypeLookup& entityToArchetypeMap, std::span<const Archetype*> allArchetypes,
-					ArchetypeId archetypeLastId, const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings,
-					uint8_t runtimeVarBindingMask) {
+					const EntityToArchetypeVersionMap* pEntityToArchetypeMapVersions, ArchetypeId archetypeLastId,
+					const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings, uint8_t runtimeVarBindingMask) {
 				auto& ctxData = m_plan.ctx.data;
 
 				// Recompile if necessary
@@ -870,7 +870,14 @@ namespace gaia {
 				ctx.pWorld = world();
 				// ctx.targetEntities = {};
 				ctx.allArchetypes = allArchetypes;
-				ctx.archetypeLookup = vm::make_archetype_lookup_view(entityToArchetypeMap);
+				if constexpr (std::is_same_v<ArchetypeLookup, EntityToArchetypeMap>) {
+					GAIA_ASSERT(pEntityToArchetypeMapVersions != nullptr);
+					ctx.archetypeLookup = vm::make_archetype_lookup_view(entityToArchetypeMap, *pEntityToArchetypeMapVersions);
+				} else {
+					(void)pEntityToArchetypeMapVersions;
+					ctx.archetypeLookup = vm::make_archetype_lookup_view(entityToArchetypeMap);
+				}
+
 				ctx.pMatchesArr = &matchScratch.matchesArr;
 				ctx.pMatchesStampByArchetypeId = &matchScratch.matchStamps;
 				ctx.matchesVersion = matchScratch.next_match_version();
@@ -983,13 +990,16 @@ namespace gaia {
 
 			void ensure_matches(
 					const EntityToArchetypeMap& entityToArchetypeMap, std::span<const Archetype*> allArchetypes,
-					ArchetypeId archetypeLastId, const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings,
-					uint8_t runtimeVarBindingMask) {
-				match(entityToArchetypeMap, allArchetypes, archetypeLastId, runtimeVarBindings, runtimeVarBindingMask);
+					const EntityToArchetypeVersionMap& entityToArchetypeMapVersions, ArchetypeId archetypeLastId,
+					const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings, uint8_t runtimeVarBindingMask) {
+				match(
+						entityToArchetypeMap, allArchetypes, &entityToArchetypeMapVersions, archetypeLastId, runtimeVarBindings,
+						runtimeVarBindingMask);
 			}
 
 			void ensure_matches_transient(
 					const EntityToArchetypeMap& entityToArchetypeMap, std::span<const Archetype*> allArchetypes,
+					const EntityToArchetypeVersionMap& entityToArchetypeMapVersions,
 					const cnt::sarray<Entity, MaxVarCnt>& runtimeVarBindings, uint8_t runtimeVarBindingMask) {
 				auto& ctxData = m_plan.ctx.data;
 
@@ -1008,7 +1018,7 @@ namespace gaia {
 				vm::MatchingCtx ctx{};
 				ctx.pWorld = world();
 				ctx.allArchetypes = allArchetypes;
-				ctx.archetypeLookup = vm::make_archetype_lookup_view(entityToArchetypeMap);
+				ctx.archetypeLookup = vm::make_archetype_lookup_view(entityToArchetypeMap, entityToArchetypeMapVersions);
 				ctx.pMatchesArr = &matchScratch.matchesArr;
 				ctx.pMatchesStampByArchetypeId = &matchScratch.matchStamps;
 				ctx.matchesVersion = matchScratch.next_match_version();
@@ -1188,8 +1198,8 @@ namespace gaia {
 				const auto* pArchetype = &archetype;
 				const cnt::sarray<Entity, MaxVarCnt> noRuntimeVarBindings{};
 				match(
-						singleArchetypeLookup, std::span((const Archetype**)&pArchetype, 1), archetype.id(), noRuntimeVarBindings,
-						0);
+						singleArchetypeLookup, std::span((const Archetype**)&pArchetype, 1), nullptr, archetype.id(),
+						noRuntimeVarBindings, 0);
 				ctxData.lastMatchedArchetypeIdx_All = GAIA_MOV(lastMatchedArchetypeIdx_All);
 				ctxData.lastMatchedArchetypeIdx_Or = GAIA_MOV(lastMatchedArchetypeIdx_Or);
 				ctxData.lastMatchedArchetypeIdx_Not = GAIA_MOV(lastMatchedArchetypeIdx_Not);
@@ -1853,23 +1863,8 @@ namespace gaia {
 			void remove(Archetype* pArchetype) {
 				GAIA_PROF_SCOPE(queryinfo::remove);
 
-				const bool removedFromSeed = del_archetype_from_seed_cache(pArchetype);
-				const bool removedFromResult = del_archetype_from_cache(pArchetype);
-				if (!removedFromSeed && !removedFromResult)
-					return;
-
-				// An archetype was removed from the world so the last matching archetype index needs to be
-				// lowered by one for every component context.
-				auto clearMatches = [](QueryArchetypeCacheIndexMap& matches) {
-					for (auto& pair: matches) {
-						auto& lastMatchedArchetypeIdx = pair.second;
-						if (lastMatchedArchetypeIdx > 0)
-							--lastMatchedArchetypeIdx;
-					}
-				};
-				clearMatches(m_plan.ctx.data.lastMatchedArchetypeIdx_All);
-				clearMatches(m_plan.ctx.data.lastMatchedArchetypeIdx_Or);
-				clearMatches(m_plan.ctx.data.lastMatchedArchetypeIdx_Not);
+				(void)del_archetype_from_seed_cache(pArchetype);
+				(void)del_archetype_from_cache(pArchetype);
 			}
 
 			//! Returns a view of indices mapping for component entities in a given archetype

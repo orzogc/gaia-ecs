@@ -1791,33 +1791,29 @@ TEST_CASE("Query - cached local and shared query state is immediately updated by
 	CHECK(qUncached.count() == 1);
 }
 
-TEST_CASE("Query - remove decrements ALL/OR/NOT cached cursors") {
-	TestWorld twld;
+TEST_CASE("Query - cached cursor resets after lookup bucket revision changes") {
+	ecs::QueryArchetypeCacheIndexMap cursors;
+	const auto key = ecs::EntityLookupKey(ecs::Entity(42, 0));
 
-	// Build a cached query and force it to populate archetype cache.
-	auto q = wld.query().no<Rotation>();
-	(void)q.count();
+	CHECK(ecs::vm::detail::handle_last_archetype_match(&cursors, key, 5, 1) == 0);
+	CHECK(cursors[key].index == 5);
+	CHECK(cursors[key].revision == 1);
 
-	auto& info = q.fetch();
-	CHECK(info.begin() != info.end());
-	if (info.begin() == info.end())
-		return;
+	CHECK(ecs::vm::detail::handle_last_archetype_match(&cursors, key, 7, 1) == 5);
+	CHECK(cursors[key].index == 7);
+	CHECK(cursors[key].revision == 1);
 
-	// QueryInfo::remove early-outs if the archetype is not in cache.
-	auto* pArchetype = const_cast<ecs::Archetype*>(*info.begin());
+	CHECK(ecs::vm::detail::handle_last_archetype_match(&cursors, key, 6, 2) == 0);
+	CHECK(cursors[key].index == 6);
+	CHECK(cursors[key].revision == 2);
 
-	// Seed all cursor maps with the same test key.
-	auto keyEntity = wld.add();
-	auto key = ecs::EntityLookupKey(keyEntity);
-	info.ctx().data.lastMatchedArchetypeIdx_All[key] = 5;
-	info.ctx().data.lastMatchedArchetypeIdx_Or[key] = 5;
-	info.ctx().data.lastMatchedArchetypeIdx_Not[key] = 5;
+	CHECK(ecs::vm::detail::handle_last_archetype_match(&cursors, ecs::EntityBadLookupKey, 4, 1) == 0);
+	CHECK(cursors[ecs::EntityBadLookupKey].index == 4);
+	CHECK(cursors[ecs::EntityBadLookupKey].revision == 1);
 
-	info.remove(pArchetype);
-
-	CHECK(info.ctx().data.lastMatchedArchetypeIdx_All[key] == 4);
-	CHECK(info.ctx().data.lastMatchedArchetypeIdx_Or[key] == 4);
-	CHECK(info.ctx().data.lastMatchedArchetypeIdx_Not[key] == 4);
+	CHECK(ecs::vm::detail::handle_last_archetype_match(&cursors, ecs::EntityBadLookupKey, 3, 2) == 0);
+	CHECK(cursors[ecs::EntityBadLookupKey].index == 3);
+	CHECK(cursors[ecs::EntityBadLookupKey].revision == 2);
 }
 
 TEST_CASE("Query - cached structural query drops deleted archetypes after gc") {
@@ -1839,6 +1835,284 @@ TEST_CASE("Query - cached structural query drops deleted archetypes after gc") {
 
 	CHECK(q.count() == 0);
 	CHECK(info.cache_archetype_view().empty());
+}
+
+TEST_CASE("Query - cached structural query matches uncached count across archetype reuse") {
+	struct CTransform {
+		float x = 0.0f;
+		float y = 0.0f;
+	};
+	struct CProjectile {
+		float vx = 0.0f;
+		float vy = 0.0f;
+	};
+
+	enum class Mode : uint8_t { PersistentCached, LocalCachedEachFrame };
+
+	auto runScenario = [](Mode mode, int& failCycle, uint32_t& cachedCountOut, uint32_t& referenceCountOut) {
+		ecs::World world;
+		auto qReference = world.uquery().all<CTransform&>().all<CProjectile&>();
+		ecs::Query qPersistent;
+		if (mode == Mode::PersistentCached)
+			qPersistent = world.query().all<CTransform&>().all<CProjectile&>();
+
+		for (int cycle = 0; cycle < 100; ++cycle) {
+			{
+				auto& cb = world.cmd_buffer_st();
+				const auto e = cb.add();
+				cb.add<CTransform>(e, {1.0f, 2.0f});
+				cb.add<CProjectile>(e, {3.0f, 4.0f});
+				cb.commit();
+			}
+
+			uint32_t cachedCount = 0;
+			if (mode == Mode::PersistentCached) {
+				cachedCount = qPersistent.count();
+			} else {
+				auto qLocal = world.query().all<CTransform&>().all<CProjectile&>();
+				cachedCount = qLocal.count();
+			}
+
+			const uint32_t referenceCount = qReference.count();
+			if (cachedCount != referenceCount) {
+				failCycle = cycle;
+				cachedCountOut = cachedCount;
+				referenceCountOut = referenceCount;
+				return false;
+			}
+
+			cnt::darr<ecs::Entity> toDelete;
+			qReference.each([&](ecs::Iter& it) {
+				const auto entities = it.view<ecs::Entity>();
+				GAIA_EACH(it) {
+					toDelete.push_back(entities[i]);
+				}
+			});
+
+			auto& cb = world.cmd_buffer_st();
+			for (const auto e: toDelete)
+				cb.del(e);
+			cb.commit();
+
+			world.update();
+			if ((cycle % 7) == 0)
+				world.update();
+		}
+
+		return true;
+	};
+
+	int failCycle = -1;
+	uint32_t cachedCount = 0;
+	uint32_t referenceCount = 0;
+	CHECK(runScenario(Mode::PersistentCached, failCycle, cachedCount, referenceCount));
+	CHECK(failCycle == -1);
+	CHECK(cachedCount == referenceCount);
+
+	failCycle = -1;
+	cachedCount = 0;
+	referenceCount = 0;
+	CHECK(runScenario(Mode::LocalCachedEachFrame, failCycle, cachedCount, referenceCount));
+	CHECK(failCycle == -1);
+	CHECK(cachedCount == referenceCount);
+}
+
+TEST_CASE("Query - cached structural queries stay coherent across deterministic archetype changes") {
+	struct CacheStressA {
+		uint32_t v = 0;
+	};
+	struct CacheStressB {
+		uint32_t v = 0;
+	};
+	struct CacheStressC {
+		uint32_t v = 0;
+	};
+	struct CacheStressD {
+		uint32_t v = 0;
+	};
+
+	TestWorld twld;
+
+	const auto compA = wld.add<CacheStressA>().entity;
+	const auto compB = wld.add<CacheStressB>().entity;
+	const auto compC = wld.add<CacheStressC>().entity;
+	const auto compD = wld.add<CacheStressD>().entity;
+	const auto rel0 = wld.add();
+	const auto rel1 = wld.add();
+	const auto tgt0 = wld.add();
+	const auto tgt1 = wld.add();
+
+	auto qA = wld.query().all(compA);
+	auto qAB = wld.query().all(compA).all(compB);
+	auto qOrBC = wld.query().or_(compB).or_(compC);
+	auto qNoD = wld.query().all(compA).no(compD);
+	auto qPairExact = wld.query().all(ecs::Pair(rel0, tgt0));
+	auto qPairRelAny = wld.query().all(ecs::Pair(rel0, ecs::All));
+	auto qPairTgtAny = wld.query().all(ecs::Pair(ecs::All, tgt0));
+
+	cnt::darr<ecs::Entity> live;
+	cnt::darr<ecs::Entity> cachedEntities;
+	cnt::darr<ecs::Entity> referenceEntities;
+
+	uint32_t rng = 0x12345678;
+	auto nextRand = [&]() {
+		rng = rng * 1664525U + 1013904223U;
+		return rng;
+	};
+
+	auto collect = [](ecs::Query& query, cnt::darr<ecs::Entity>& out) {
+		out.clear();
+		query.each([&](ecs::Entity entity) {
+			out.push_back(entity);
+		});
+	};
+
+	auto sameEntitySet = [](const cnt::darr<ecs::Entity>& left, const cnt::darr<ecs::Entity>& right) {
+		if (left.size() != right.size())
+			return false;
+
+		for (const auto entity: left) {
+			bool found = false;
+			for (const auto candidate: right) {
+				if (candidate != entity)
+					continue;
+
+				found = true;
+				break;
+			}
+
+			if (!found)
+				return false;
+		}
+
+		return true;
+	};
+
+	auto addEntity = [&](uint32_t seed, uint32_t cycle) {
+		const auto entity = wld.add();
+		if ((seed & 0x01U) != 0)
+			wld.add<CacheStressA>(entity, {cycle});
+		if ((seed & 0x02U) != 0)
+			wld.add<CacheStressB>(entity, {cycle + 1});
+		if ((seed & 0x04U) != 0)
+			wld.add<CacheStressC>(entity, {cycle + 2});
+		if ((seed & 0x08U) != 0)
+			wld.add<CacheStressD>(entity, {cycle + 3});
+		if ((seed & 0x10U) != 0)
+			wld.add(entity, ecs::Pair(rel0, tgt0));
+		if ((seed & 0x20U) != 0)
+			wld.add(entity, ecs::Pair(rel0, tgt1));
+		if ((seed & 0x40U) != 0)
+			wld.add(entity, ecs::Pair(rel1, tgt0));
+
+		live.push_back(entity);
+	};
+
+	auto pickLive = [&]() {
+		return nextRand() % live.size();
+	};
+
+	auto mutateLiveEntity = [&](uint32_t cycle) {
+		if (live.empty())
+			return;
+
+		const auto liveIdx = pickLive();
+		const auto entity = live[liveIdx];
+		if (!wld.has(entity)) {
+			core::swap_erase(live, liveIdx);
+			return;
+		}
+
+		switch (nextRand() % 8U) {
+			case 0:
+				if (wld.has<CacheStressA>(entity))
+					wld.del<CacheStressA>(entity);
+				else
+					wld.add<CacheStressA>(entity, {cycle});
+				break;
+			case 1:
+				if (wld.has<CacheStressB>(entity))
+					wld.del<CacheStressB>(entity);
+				else
+					wld.add<CacheStressB>(entity, {cycle});
+				break;
+			case 2:
+				if (wld.has<CacheStressC>(entity))
+					wld.del<CacheStressC>(entity);
+				else
+					wld.add<CacheStressC>(entity, {cycle});
+				break;
+			case 3:
+				if (wld.has<CacheStressD>(entity))
+					wld.del<CacheStressD>(entity);
+				else
+					wld.add<CacheStressD>(entity, {cycle});
+				break;
+			case 4:
+				if (wld.has(entity, ecs::Pair(rel0, tgt0)))
+					wld.del(entity, ecs::Pair(rel0, tgt0));
+				else
+					wld.add(entity, ecs::Pair(rel0, tgt0));
+				break;
+			case 5:
+				if (wld.has(entity, ecs::Pair(rel0, tgt1)))
+					wld.del(entity, ecs::Pair(rel0, tgt1));
+				else
+					wld.add(entity, ecs::Pair(rel0, tgt1));
+				break;
+			case 6:
+				if (wld.has(entity, ecs::Pair(rel1, tgt0)))
+					wld.del(entity, ecs::Pair(rel1, tgt0));
+				else
+					wld.add(entity, ecs::Pair(rel1, tgt0));
+				break;
+			default:
+				wld.del(entity);
+				core::swap_erase(live, liveIdx);
+				break;
+		}
+	};
+
+	auto compare = [&](const char* label, uint32_t cycle, ecs::Query& cached, ecs::Query reference) {
+		CAPTURE(label);
+		CAPTURE(cycle);
+
+		collect(cached, cachedEntities);
+		collect(reference, referenceEntities);
+
+		CHECK(cachedEntities.size() == referenceEntities.size());
+		CHECK(sameEntitySet(cachedEntities, referenceEntities));
+		CHECK(wld.verify_query_cache());
+	};
+
+	for (uint32_t cycle = 0; cycle < 160; ++cycle) {
+		const auto addCount = 1 + (nextRand() % 3U);
+		for (uint32_t i = 0; i < addCount; ++i)
+			addEntity(nextRand(), cycle);
+
+		const auto mutationCount = 1 + (nextRand() % 4U);
+		for (uint32_t i = 0; i < mutationCount; ++i)
+			mutateLiveEntity(cycle);
+
+		if ((cycle % 5U) == 0)
+			wld.update();
+		if ((cycle % 17U) == 0)
+			twld.update();
+
+		compare("all A", cycle, qA, wld.uquery().all(compA));
+		compare("all A B", cycle, qAB, wld.uquery().all(compA).all(compB));
+		compare("or B C", cycle, qOrBC, wld.uquery().or_(compB).or_(compC));
+		compare("all A no D", cycle, qNoD, wld.uquery().all(compA).no(compD));
+		compare("pair exact", cycle, qPairExact, wld.uquery().all(ecs::Pair(rel0, tgt0)));
+		compare("pair rel wildcard", cycle, qPairRelAny, wld.uquery().all(ecs::Pair(rel0, ecs::All)));
+		compare("pair tgt wildcard", cycle, qPairTgtAny, wld.uquery().all(ecs::Pair(ecs::All, tgt0)));
+
+		auto qLocal = wld.query().all(compA).all(ecs::Pair(rel0, ecs::All));
+		compare("local all A pair rel wildcard", cycle, qLocal, wld.uquery().all(compA).all(ecs::Pair(rel0, ecs::All)));
+	}
+
+	twld.update();
+	CHECK(wld.verify_query_cache());
 }
 
 TEST_CASE("Query - cached structural query across immediate add and gc") {

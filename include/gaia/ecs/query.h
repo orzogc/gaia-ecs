@@ -589,6 +589,8 @@ namespace gaia {
 				uint32_t* m_worldVersion{};
 				//! Map of component ids to archetypes (stable pointer to parent world's archetype component-to-archetype map)
 				const EntityToArchetypeMap* m_entityToArchetypeMap{};
+				//! Revision table for component-id lookup buckets that can reorder after removal.
+				const EntityToArchetypeVersionMap* m_entityToArchetypeMapVersions{};
 				//! All world archetypes
 				const ArchetypeDArray* m_allArchetypes{};
 				//! Optional user-defined names for Var0..Var7.
@@ -809,12 +811,14 @@ namespace gaia {
 
 					if (!uses_query_cache_storage()) {
 						queryInfo.ensure_matches_transient(
-								*m_entityToArchetypeMap, all_archetypes_view(), m_varBindings, m_varBindingsMask);
+								*m_entityToArchetypeMap, all_archetypes_view(), *m_entityToArchetypeMapVersions, m_varBindings,
+								m_varBindingsMask);
 						return;
 					}
 
 					queryInfo.ensure_matches(
-							*m_entityToArchetypeMap, all_archetypes_view(), last_archetype_id(), m_varBindings, m_varBindingsMask);
+							*m_entityToArchetypeMap, all_archetypes_view(), *m_entityToArchetypeMapVersions, last_archetype_id(),
+							m_varBindings, m_varBindingsMask);
 					m_storage.m_pCache->sync_archetype_cache(queryInfo);
 				}
 
@@ -4230,9 +4234,11 @@ namespace gaia {
 
 				QueryImpl(
 						World& world, QueryCache& queryCache, ArchetypeId& nextArchetypeId, uint32_t& worldVersion,
-						const EntityToArchetypeMap& entityToArchetypeMap, const ArchetypeDArray& allArchetypes):
+						const EntityToArchetypeMap& entityToArchetypeMap,
+						const EntityToArchetypeVersionMap& entityToArchetypeMapVersions, const ArchetypeDArray& allArchetypes):
 						m_nextArchetypeId(&nextArchetypeId), m_worldVersion(&worldVersion),
-						m_entityToArchetypeMap(&entityToArchetypeMap), m_allArchetypes(&allArchetypes) {
+						m_entityToArchetypeMap(&entityToArchetypeMap),
+						m_entityToArchetypeMapVersions(&entityToArchetypeMapVersions), m_allArchetypes(&allArchetypes) {
 					m_storage.init(&world, &queryCache);
 				}
 

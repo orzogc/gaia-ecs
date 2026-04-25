@@ -193,6 +193,75 @@ namespace gaia {
 			//! Returns a QueryInfo object associated with @a handle.
 			//! \param handle Query handle
 			//! \return Query info
+			const QueryInfo* try_get(QueryHandle handle) const {
+				if (!valid(handle))
+					return nullptr;
+
+				const auto& info = m_queryArr[handle.id()];
+				GAIA_ASSERT(info.idx == handle.id());
+				GAIA_ASSERT(info.gen == handle.gen());
+				return &info;
+			}
+
+#if GAIA_ECS_TEST_HOOKS
+			//! Verifies the bidirectional archetype reverse index used by cached queries.
+			GAIA_NODISCARD bool verify_archetype_tracking() const {
+				for (const auto& pair: m_queryToArchetype) {
+					const auto handle = pair.first.handle();
+					const auto* pInfo = try_get(handle);
+					if (pInfo == nullptr || pInfo->refs() == 0)
+						return false;
+
+					const auto& tracked = pair.second.archetypes;
+					for (uint32_t i = 0; i < tracked.size(); ++i) {
+						const auto* pArchetype = tracked[i];
+						if (pArchetype == nullptr)
+							return false;
+
+						for (uint32_t j = i + 1; j < tracked.size(); ++j) {
+							if (tracked[j] == pArchetype)
+								return false;
+						}
+
+						if (!archetype_span_contains(pInfo->cache_archetype_view(), pArchetype))
+							return false;
+
+						const auto archetypeKey = ArchetypeIdLookupKey(pArchetype->id(), pArchetype->id_hash());
+						const auto reverseIt = m_archetypeToQuery.find(archetypeKey);
+						if (reverseIt == m_archetypeToQuery.end() || !core::has(reverseIt->second, handle))
+							return false;
+					}
+				}
+
+				for (const auto& pair: m_archetypeToQuery) {
+					const auto& handles = pair.second;
+					for (uint32_t i = 0; i < handles.size(); ++i) {
+						const auto handle = handles[i];
+						const auto* pInfo = try_get(handle);
+						if (pInfo == nullptr || pInfo->refs() == 0)
+							return false;
+
+						for (uint32_t j = i + 1; j < handles.size(); ++j) {
+							if (handles[j] == handle)
+								return false;
+						}
+
+						const auto trackedIt = m_queryToArchetype.find(QueryHandleLookupKey(handle));
+						if (trackedIt == m_queryToArchetype.end())
+							return false;
+
+						if (!tracked_archetypes_contain(trackedIt->second.archetypes, pair.first))
+							return false;
+					}
+				}
+
+				return true;
+			}
+#endif
+
+			//! Returns a QueryInfo object associated with @a handle.
+			//! \param handle Query handle
+			//! \return Query info
 			QueryInfo& get(QueryHandle handle) {
 				GAIA_ASSERT(valid(handle));
 
@@ -399,7 +468,7 @@ namespace gaia {
 
 					auto& tracked = trackedIt->second.archetypes;
 					core::swap_erase(tracked, core::get_index(tracked, pArchetype));
-					if (trackedIt->second.archetypes.empty())
+					if (tracked.empty())
 						m_queryToArchetype.erase(trackedIt);
 				}
 
@@ -453,6 +522,29 @@ namespace gaia {
 			}
 
 		private:
+#if GAIA_ECS_TEST_HOOKS
+			GAIA_NODISCARD static bool
+			archetype_span_contains(std::span<const Archetype*> archetypes, const Archetype* pArchetype) {
+				for (const auto* pCachedArchetype: archetypes) {
+					if (pCachedArchetype == pArchetype)
+						return true;
+				}
+				return false;
+			}
+
+			GAIA_NODISCARD static bool tracked_archetypes_contain(
+					const cnt::darray<const Archetype*>& archetypes, const ArchetypeIdLookupKey& archetypeKey) {
+				for (const auto* pArchetype: archetypes) {
+					if (pArchetype == nullptr)
+						return false;
+
+					if (ArchetypeIdLookupKey(pArchetype->id(), pArchetype->id_hash()) == archetypeKey)
+						return true;
+				}
+				return false;
+			}
+#endif
+
 			//! Classifies only the pair selector shapes that matter to create-time wildcard routing.
 			static CreateSelectorKind classify_create_selector(Entity entity) {
 				if (!entity.pair())

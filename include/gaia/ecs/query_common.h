@@ -98,8 +98,20 @@ namespace gaia {
 
 		using QueryLookupHash = core::direct_hash_key<uint64_t>;
 		using QueryEntityArray = cnt::sarray<Entity, MAX_ITEMS_IN_QUERY>;
-		using QueryArchetypeCacheIndexMap = cnt::map<EntityLookupKey, uint32_t>;
 		using QuerySerMap = cnt::map<QueryId, QuerySerBuffer>;
+
+		//! Incremental query-matching cursor for one entity-to-archetype lookup bucket.
+		struct QueryArchetypeCacheCursor {
+			//! Number of bucket records that were already matched at @a revision.
+			uint32_t index = 0;
+			//! Lookup-bucket revision associated with @a index.
+			uint32_t revision = 0;
+		};
+
+		using QueryArchetypeCacheIndexMap = cnt::map<EntityLookupKey, QueryArchetypeCacheCursor>;
+		//! Revision table for entity-to-archetype lookup buckets whose record order changed.
+		using EntityToArchetypeVersionMap = cnt::map<EntityLookupKey, uint32_t>;
+
 		static constexpr uint16_t ComponentIndexBad = (uint16_t)-1;
 
 		struct ComponentIndexEntry {

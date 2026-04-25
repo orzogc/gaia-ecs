@@ -37,6 +37,8 @@ namespace gaia {
 						const void*, std::span<const Archetype*>, Entity, const EntityLookupKey&);
 
 				const void* pData = nullptr;
+				//! Optional lookup-bucket revision table used to validate cached incremental cursors.
+				const EntityToArchetypeVersionMap* pVersions = nullptr;
 				FetchByKeyFn fetchByKey = nullptr;
 
 				GAIA_NODISCARD bool empty() const {
@@ -49,6 +51,14 @@ namespace gaia {
 						return {};
 
 					return fetchByKey(pData, arr, ent, key);
+				}
+
+				GAIA_NODISCARD uint32_t revision(const EntityLookupKey& key) const {
+					if (pVersions == nullptr || pVersions->empty())
+						return 0;
+
+					const auto it = pVersions->find(key);
+					return it == pVersions->end() ? 0 : it->second;
 				}
 			};
 
@@ -155,12 +165,13 @@ namespace gaia {
 				return fetch_archetypes_for_select(*(const SingleArchetypeLookup*)pData, arr, ent, key);
 			}
 
-			inline ArchetypeLookupView make_archetype_lookup_view(const EntityToArchetypeMap& map) {
-				return ArchetypeLookupView{&map, fetch_archetypes_for_select_from_map};
+			inline ArchetypeLookupView
+			make_archetype_lookup_view(const EntityToArchetypeMap& map, const EntityToArchetypeVersionMap& versions) {
+				return ArchetypeLookupView{&map, &versions, fetch_archetypes_for_select_from_map};
 			}
 
 			inline ArchetypeLookupView make_archetype_lookup_view(const SingleArchetypeLookup& map) {
-				return ArchetypeLookupView{&map, fetch_archetypes_for_select_from_single};
+				return ArchetypeLookupView{&map, nullptr, fetch_archetypes_for_select_from_single};
 			}
 
 			namespace detail {
@@ -467,17 +478,21 @@ namespace gaia {
 				}
 
 				inline uint32_t handle_last_archetype_match(
-						QueryArchetypeCacheIndexMap* pCont, EntityLookupKey entityKey, uint32_t srcArchetypeCnt) {
+						QueryArchetypeCacheIndexMap* pCont, EntityLookupKey entityKey, uint32_t srcArchetypeCnt,
+						uint32_t srcRevision) {
 					if (pCont == nullptr)
 						return 0;
 
 					const auto cache_it = pCont->find(entityKey);
 					uint32_t lastMatchedIdx = 0;
 					if (cache_it == pCont->end())
-						pCont->emplace(entityKey, srcArchetypeCnt);
+						pCont->emplace(entityKey, QueryArchetypeCacheCursor{srcArchetypeCnt, srcRevision});
 					else {
-						lastMatchedIdx = cache_it->second;
-						cache_it->second = srcArchetypeCnt;
+						auto& cursor = cache_it->second;
+						if (cursor.revision == srcRevision)
+							lastMatchedIdx = cursor.index;
+						cursor.index = srcArchetypeCnt;
+						cursor.revision = srcRevision;
 					}
 					return lastMatchedIdx;
 				}
@@ -494,8 +509,10 @@ namespace gaia {
 					static bool eval(uint32_t expectedMatches, uint32_t totalMatches) {
 						return expectedMatches == totalMatches;
 					}
-					static uint32_t handle_last_match(MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt) {
-						return handle_last_archetype_match(ctx.pLastMatchedArchetypeIdx_All, entityKey, srcArchetypeCnt);
+					static uint32_t handle_last_match(
+							MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt, uint32_t srcRevision) {
+						return handle_last_archetype_match(
+								ctx.pLastMatchedArchetypeIdx_All, entityKey, srcArchetypeCnt, srcRevision);
 					}
 				};
 				// Operator OR (used by query::or_)
@@ -514,8 +531,10 @@ namespace gaia {
 						(void)expectedMatches;
 						return totalMatches > 0;
 					}
-					static uint32_t handle_last_match(MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt) {
-						return handle_last_archetype_match(ctx.pLastMatchedArchetypeIdx_Or, entityKey, srcArchetypeCnt);
+					static uint32_t handle_last_match(
+							MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt, uint32_t srcRevision) {
+						return handle_last_archetype_match(
+								ctx.pLastMatchedArchetypeIdx_Or, entityKey, srcArchetypeCnt, srcRevision);
 					}
 				};
 				// Operator NOT (used by query::no)
@@ -533,8 +552,10 @@ namespace gaia {
 						(void)expectedMatches;
 						return totalMatches == 0;
 					}
-					static uint32_t handle_last_match(MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt) {
-						return handle_last_archetype_match(ctx.pLastMatchedArchetypeIdx_Not, entityKey, srcArchetypeCnt);
+					static uint32_t handle_last_match(
+							MatchingCtx& ctx, EntityLookupKey entityKey, uint32_t srcArchetypeCnt, uint32_t srcRevision) {
+						return handle_last_archetype_match(
+								ctx.pLastMatchedArchetypeIdx_Not, entityKey, srcArchetypeCnt, srcRevision);
 					}
 				};
 
@@ -2023,7 +2044,8 @@ namespace gaia {
 				template <typename OpKind, MatchingStyle Style>
 				inline void match_archetype_inter(
 						MatchingCtx& ctx, EntityLookupKey entityKey, std::span<const ComponentIndexEntry> records) {
-					uint32_t lastMatchedIdx = OpKind::handle_last_match(ctx, entityKey, (uint32_t)records.size());
+					const uint32_t lookupRevision = ctx.archetypeLookup.revision(entityKey);
+					uint32_t lastMatchedIdx = OpKind::handle_last_match(ctx, entityKey, (uint32_t)records.size(), lookupRevision);
 					if (lastMatchedIdx >= records.size())
 						return;
 
@@ -2034,7 +2056,9 @@ namespace gaia {
 				template <typename OpKind, MatchingStyle Style>
 				inline void
 				match_archetype_inter(MatchingCtx& ctx, EntityLookupKey entityKey, std::span<const Archetype*> archetypes) {
-					uint32_t lastMatchedIdx = OpKind::handle_last_match(ctx, entityKey, (uint32_t)archetypes.size());
+					const uint32_t lookupRevision = ctx.archetypeLookup.revision(entityKey);
+					uint32_t lastMatchedIdx =
+							OpKind::handle_last_match(ctx, entityKey, (uint32_t)archetypes.size(), lookupRevision);
 					if (lastMatchedIdx >= archetypes.size())
 						return;
 
