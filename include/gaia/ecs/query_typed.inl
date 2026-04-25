@@ -687,11 +687,6 @@ namespace gaia {
 					return plan;
 				}
 
-				if (hasFilters) {
-					plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
-					return plan;
-				}
-
 				return plan;
 			}
 

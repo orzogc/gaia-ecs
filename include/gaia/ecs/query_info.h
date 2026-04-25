@@ -811,6 +811,7 @@ namespace gaia {
 			//! This is necessary so we do not iterate all chunks over and over again when running queries.
 			//! \param entityToArchetypeMap Lookup of archetypes by entity
 			//! \param allArchetypes List of all archetypes
+			//! \param pEntityToArchetypeMapVersions Optional version map for archetype lookup validation
 			//! \param archetypeLastId Last recorded archetype id
 			//! \param runtimeVarBindings Runtime variable bindings for dynamic queries
 			//! \param runtimeVarBindingMask Mask indicating which runtime variables are bound
