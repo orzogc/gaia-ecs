@@ -14,7 +14,11 @@ namespace gaia {
 				GAIA_FOR(argCount) {
 					state.argIds[i] = pMetas[i].termId;
 					state.writeFlags[i] = pMetas[i].isWrite;
-					state.hasWriteArgs = state.hasWriteArgs || pMetas[i].isWrite;
+					if (pMetas[i].isWrite) {
+						state.hasWriteArgs = true;
+						if (state.firstWriteArg == MAX_ITEMS_IN_QUERY)
+							state.firstWriteArg = (uint32_t)i;
+					}
 					state.needsInheritedArgIds = state.needsInheritedArgIds || !pMetas[i].isEntity;
 					directChunkDescs[i] = {pMetas[i].termId, pMetas[i].isEntity, pMetas[i].isPair};
 				}
@@ -294,7 +298,7 @@ namespace gaia {
 
 			inline void finish_typed_iter_state(QueryImpl& query, Iter& it, const TypedQueryExecState& state) {
 				(void)query;
-				query.finish_typed_iter_writes_runtime(it, state.argIds, state.writeFlags, state.argCount);
+				query.finish_typed_iter_writes_runtime(it, state.argIds, state.writeFlags, state.argCount, state.firstWriteArg);
 				it.clear_touched_writes();
 			}
 
@@ -302,7 +306,7 @@ namespace gaia {
 					QueryImpl& query, World& world, Chunk* pChunk, uint16_t from, uint16_t to, const TypedQueryExecState& state) {
 				(void)query;
 				query.finish_typed_chunk_writes_runtime(
-						world, pChunk, from, to, state.argIds, state.writeFlags, state.argCount);
+						world, pChunk, from, to, state.argIds, state.writeFlags, state.argCount, state.firstWriteArg);
 			}
 
 			template <typename InvokeRow, typename OnRowDone>
@@ -462,8 +466,8 @@ namespace gaia {
 
 			inline void QueryImpl::finish_typed_chunk_writes_runtime(
 					World& world, Chunk* pChunk, uint16_t from, uint16_t to, const Entity* pArgIds, const bool* pWriteFlags,
-					uint32_t argCnt) {
-				if (from >= to)
+					uint32_t argCnt, uint32_t firstWriteArg) {
+				if (firstWriteArg >= argCnt || from >= to)
 					return;
 
 				Entity seenTerms[ChunkHeader::MAX_COMPONENTS]{};
@@ -488,7 +492,7 @@ namespace gaia {
 						world_finish_write(world, term, entities[row]);
 				};
 
-				GAIA_FOR(argCnt) {
+				for (uint32_t i = firstWriteArg; i < argCnt; ++i) {
 					if (!pWriteFlags[i])
 						continue;
 					const auto term = pArgIds[i];
@@ -503,15 +507,21 @@ namespace gaia {
 				const auto argCount = init_typed_query_arg_metas(metas, world, core::func_type_list<T...>{});
 				Entity argIds[MAX_ITEMS_IN_QUERY]{};
 				bool writeFlags[MAX_ITEMS_IN_QUERY]{};
+				uint32_t firstWriteArg = argCount;
 				GAIA_FOR(argCount) {
 					argIds[i] = metas[i].termId;
 					writeFlags[i] = metas[i].isWrite;
+					if (metas[i].isWrite && firstWriteArg == argCount)
+						firstWriteArg = (uint32_t)i;
 				}
-				finish_typed_chunk_writes_runtime(world, pChunk, from, to, argIds, writeFlags, argCount);
+				finish_typed_chunk_writes_runtime(world, pChunk, from, to, argIds, writeFlags, argCount, firstWriteArg);
 			}
 
 			inline void QueryImpl::finish_typed_iter_writes_runtime(
-					Iter& it, const Entity* pArgIds, const bool* pWriteFlags, uint32_t argCnt) {
+					Iter& it, const Entity* pArgIds, const bool* pWriteFlags, uint32_t argCnt, uint32_t firstWriteArg) {
+				if (firstWriteArg >= argCnt)
+					return;
+
 				auto* pChunk = const_cast<Chunk*>(it.chunk());
 				if (pChunk == nullptr || it.row_begin() >= it.row_end())
 					return;
@@ -544,7 +554,7 @@ namespace gaia {
 					}
 				};
 
-				GAIA_FOR(argCnt) {
+				for (uint32_t i = firstWriteArg; i < argCnt; ++i) {
 					if (!pWriteFlags[i])
 						continue;
 
@@ -594,31 +604,49 @@ namespace gaia {
 				}
 			}
 
+			//! Selects the simple typed query runner once before execution.
+			inline QueryImpl::TypedQueryPlan
+			QueryImpl::prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const {
+				TypedQueryPlan plan{};
+				if (!state.canUseDirectChunkEval || queryInfo.has_filters() || can_use_direct_entity_seed_eval(queryInfo) ||
+						!can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+					return plan;
+				}
+
+				const auto& data = queryInfo.ctx().data;
+				uint32_t idxFrom = 0;
+				uint32_t idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
+				if (data.groupBy != EntityBad && m_groupIdSet != 0) {
+					const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
+					if (pGroupData == nullptr)
+						return plan;
+					idxFrom = pGroupData->idxFirst;
+					idxTo = pGroupData->idxLast + 1;
+				}
+
+				plan.kind = TypedQueryPlanKind::DirectDense;
+				plan.idxFrom = idxFrom;
+				plan.idxTo = idxTo;
+				return plan;
+			}
+
 			//! Runs the prepared direct typed row path for simple cached queries.
 			template <typename Func, typename... T>
 			inline void QueryImpl::run_query_on_chunks_direct_typed(
-					QueryInfo& queryInfo, const TypedQueryExecState& state, Func& func, core::func_type_list<T...> types) {
+					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
+					core::func_type_list<T...> types) {
 				auto& world = *queryInfo.world();
+				GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
 				GAIA_ASSERT(!queryInfo.has_filters());
 				if (state.hasWriteArgs)
 					::gaia::ecs::update_version(*m_worldVersion);
 
 				auto cacheView = queryInfo.cache_archetype_view();
-				if (cacheView.empty())
+				if (plan.idxFrom >= plan.idxTo)
 					return;
 
-				uint32_t idxFrom = 0;
-				uint32_t idxTo = (uint32_t)cacheView.size();
-				if (queryInfo.ctx().data.groupBy != EntityBad && m_groupIdSet != 0) {
-					const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
-					if (pGroupData == nullptr)
-						return;
-					idxFrom = pGroupData->idxFirst;
-					idxTo = pGroupData->idxLast + 1;
-				}
-
 				lock(*m_storage.world());
-				for (uint32_t i = idxFrom; i < idxTo; ++i) {
+				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 					const auto* pArchetype = cacheView[i];
 					if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, Constraints::EnabledOnly))
 						continue;
@@ -632,6 +660,53 @@ namespace gaia {
 
 						GAIA_PROF_SCOPE(query_func);
 						run_typed_direct_chunk_rows(pChunk, from, to, func, types);
+						finish_typed_chunk_state(*this, world, pChunk, from, to, state);
+					}
+				}
+
+				unlock(*m_storage.world());
+				commit_cmd_buffer_st(*m_storage.world());
+				commit_cmd_buffer_mt(*m_storage.world());
+				m_changedWorldVersion = *m_worldVersion;
+			}
+
+			inline void QueryImpl::run_query_on_chunks_direct_iter(
+					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
+					void (*runChunk)(QueryImpl&, Iter& it, void*, const TypedQueryExecState&)) {
+				auto& world = *queryInfo.world();
+				GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
+				GAIA_ASSERT(!queryInfo.has_filters());
+				if (state.hasWriteArgs)
+					::gaia::ecs::update_version(*m_worldVersion);
+
+				auto cacheView = queryInfo.cache_archetype_view();
+				if (plan.idxFrom >= plan.idxTo)
+					return;
+
+				lock(*m_storage.world());
+				Iter it;
+				it.set_world(queryInfo.world());
+				const Archetype* pLastArchetype = nullptr;
+				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
+					const auto* pArchetype = cacheView[i];
+					if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, Constraints::EnabledOnly))
+						continue;
+
+					const auto& chunks = pArchetype->chunks();
+					for (auto* pChunk: chunks) {
+						const auto from = Iter::start_index(pChunk);
+						const auto to = Iter::end_index(pChunk);
+						if GAIA_UNLIKELY (from == to)
+							continue;
+
+						GAIA_PROF_SCOPE(query_func);
+						if (pArchetype != pLastArchetype) {
+							it.set_archetype(pArchetype);
+							pLastArchetype = pArchetype;
+						}
+						it.set_chunk(pChunk, from, to);
+						it.set_group_id(0);
+						runChunk(*this, it, pFunc, state);
 						finish_typed_chunk_state(*this, world, pChunk, from, to, state);
 					}
 				}
@@ -744,17 +819,18 @@ namespace gaia {
 				TypedQueryArgMeta metas[MAX_ITEMS_IN_QUERY]{};
 				const auto argCount = init_typed_query_arg_metas(metas, world, InputArgs{});
 				const auto state = build_typed_query_exec_state(*this, world, queryInfo, metas, argCount);
+				if constexpr (ExecType == QueryExecType::Default) {
+					const auto plan = prepare_typed_query_plan(queryInfo, state);
+					if (plan.kind == TypedQueryPlanKind::DirectDense) {
+						run_query_on_chunks_direct_typed(queryInfo, plan, state, func, InputArgs{});
+						return;
+					}
+				}
+
 				const auto runDirectFastChunk = typed_run_direct_fast_chunk_ptr<Func>(InputArgs{});
 				const auto runDirectChunk = typed_run_direct_chunk_ptr<Func>(InputArgs{});
 				const auto runMappedChunk = typed_run_mapped_chunk_ptr<Func>(InputArgs{});
 				const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
-				if constexpr (ExecType == QueryExecType::Default) {
-					if (state.canUseDirectChunkEval && !queryInfo.has_filters() && !can_use_direct_entity_seed_eval(queryInfo) &&
-							can_use_direct_chunk_iteration_fastpath(queryInfo)) {
-						run_query_on_chunks_direct_typed(queryInfo, state, func, InputArgs{});
-						return;
-					}
-				}
 				each_inter<ExecType>(
 						queryInfo, &func, state, runDirectFastChunk, runDirectChunk, runMappedChunk, state.needsInheritedArgIds,
 						invokeInherited);
@@ -829,6 +905,14 @@ namespace gaia {
 				if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
 					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, cb);
 					return;
+				}
+
+				if constexpr (ExecType == QueryExecType::Default) {
+					const auto plan = prepare_typed_query_plan(queryInfo, state);
+					if (plan.kind == TypedQueryPlanKind::DirectDense) {
+						run_query_on_chunks_direct_iter(queryInfo, plan, state, pFunc, runDirectFastChunk);
+						return;
+					}
 				}
 
 				run_query_on_chunks<ExecType, IterModeEnabled>(queryInfo, cb);

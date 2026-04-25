@@ -6,6 +6,7 @@ namespace gaia {
 			uint32_t argCount = 0;
 			Entity argIds[MAX_ITEMS_IN_QUERY]{};
 			bool writeFlags[MAX_ITEMS_IN_QUERY]{};
+			uint32_t firstWriteArg = MAX_ITEMS_IN_QUERY;
 			bool hasWriteArgs = false;
 			bool needsInheritedArgIds = false;
 			bool canUseDirectChunkEval = false;

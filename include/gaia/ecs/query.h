@@ -1642,13 +1642,13 @@ namespace gaia {
 
 				static void finish_typed_chunk_writes_runtime(
 						World& world, Chunk* pChunk, uint16_t from, uint16_t to, const Entity* pArgIds, const bool* pWriteFlags,
-						uint32_t argCnt);
+						uint32_t argCnt, uint32_t firstWriteArg);
 
 				template <typename... T>
 				static void finish_typed_chunk_writes(World& world, Chunk* pChunk, uint16_t from, uint16_t to);
 
-				static void
-				finish_typed_iter_writes_runtime(Iter& it, const Entity* pArgIds, const bool* pWriteFlags, uint32_t argCnt);
+				static void finish_typed_iter_writes_runtime(
+						Iter& it, const Entity* pArgIds, const bool* pWriteFlags, uint32_t argCnt, uint32_t firstWriteArg);
 
 				enum class ExecPayloadKind : uint8_t { Plain, Grouped, NonTrivial };
 
@@ -1667,6 +1667,19 @@ namespace gaia {
 				GAIA_NODISCARD static bool needs_nontrivial_payload(const QueryInfo& queryInfo, Constraints constraints) {
 					return exec_payload_kind(queryInfo, constraints) == ExecPayloadKind::NonTrivial;
 				}
+
+				enum class TypedQueryPlanKind : uint8_t {
+					//! Use the generic typed query execution path.
+					General,
+					//! Direct dense cached archetype/chunk iteration without filters, grouping, sorting, or entity seeds.
+					DirectDense
+				};
+
+				struct TypedQueryPlan final {
+					TypedQueryPlanKind kind = TypedQueryPlanKind::General;
+					uint32_t idxFrom = 0;
+					uint32_t idxTo = 0;
+				};
 
 				struct IterModeEnabled final {};
 				struct IterModeDisabledOnly final {};
@@ -2757,12 +2770,20 @@ namespace gaia {
 					return data.sortByFunc == nullptr && !has_depth_order_hierarchy_enabled_barrier(queryInfo);
 				}
 
+				GAIA_NODISCARD TypedQueryPlan
+				prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const;
+
 				template <typename Func, typename... T>
 				void run_query_on_chunks_direct_typed(
-						QueryInfo& queryInfo, const TypedQueryExecState& state, Func& func, core::func_type_list<T...>);
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
+						core::func_type_list<T...>);
 
 				void run_query_on_chunks_direct(
 						QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
+						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
+
+				void run_query_on_chunks_direct_iter(
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
 
 				template <QueryExecType ExecType>
