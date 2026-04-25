@@ -46445,7 +46445,7 @@ namespace gaia {
 
 				template <QueryExecType ExecType>
 				void each_iter_inter_erased(
-						QueryInfo& queryInfo, void* pFunc, const TypedQueryExecState& state,
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 						void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&));
 
@@ -50180,6 +50180,7 @@ namespace gaia {
 						plan.idxTo = 0;
 						return plan;
 					}
+
 					if (hasFilters) {
 						plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
 						return plan;
@@ -50483,12 +50484,11 @@ namespace gaia {
 
 			template <QueryExecType ExecType>
 			inline void QueryImpl::each_iter_inter_erased(
-					QueryInfo& queryInfo, void* pFunc, const TypedQueryExecState& state,
+					QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
 				TypedIterErasedCallback cb{this, pFunc, &state, runDirectFastChunk, runMappedChunk};
 
-				const auto plan = prepare_typed_query_plan(queryInfo, state);
 				if (plan.kind == TypedQueryPlanKind::Empty)
 					return;
 
@@ -50513,22 +50513,24 @@ namespace gaia {
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
 				auto& queryInfo = fetch();
 				match_all(queryInfo);
+				const auto plan = prepare_typed_query_plan(queryInfo, state);
 
 				switch (execType) {
 					case QueryExecType::Parallel:
 						each_iter_inter_erased<QueryExecType::Parallel>(
-								queryInfo, pFunc, state, runDirectFastChunk, runMappedChunk);
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runMappedChunk);
 						break;
 					case QueryExecType::ParallelPerf:
 						each_iter_inter_erased<QueryExecType::ParallelPerf>(
-								queryInfo, pFunc, state, runDirectFastChunk, runMappedChunk);
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runMappedChunk);
 						break;
 					case QueryExecType::ParallelEff:
 						each_iter_inter_erased<QueryExecType::ParallelEff>(
-								queryInfo, pFunc, state, runDirectFastChunk, runMappedChunk);
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runMappedChunk);
 						break;
 					default:
-						each_iter_inter_erased<QueryExecType::Default>(queryInfo, pFunc, state, runDirectFastChunk, runMappedChunk);
+						each_iter_inter_erased<QueryExecType::Default>(
+								queryInfo, plan, pFunc, state, runDirectFastChunk, runMappedChunk);
 						break;
 				}
 			}
