@@ -824,7 +824,8 @@ namespace gaia {
 					void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
-				if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
+				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
 					GAIA_PROF_SCOPE(query_func);
 					each_direct_inter(
 							queryInfo, Constraints::EnabledOnly, pFunc, state, runDirectChunk, needsInheritedArgIds, invokeInherited);
@@ -833,7 +834,7 @@ namespace gaia {
 
 				if (state.canUseDirectChunkEval) {
 					if constexpr (ExecType == QueryExecType::Default) {
-						if (can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+						if (plan.kind == TypedQueryPlanKind::DirectDense || plan.kind == TypedQueryPlanKind::DirectDenseFiltered) {
 							run_query_on_chunks_direct(queryInfo, state, pFunc, runDirectFastChunk);
 							return;
 						}
@@ -940,13 +941,13 @@ namespace gaia {
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
 				TypedIterErasedCallback cb{this, pFunc, &state, runDirectFastChunk, runMappedChunk};
 
-				if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
+				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
 					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, cb);
 					return;
 				}
 
 				if constexpr (ExecType == QueryExecType::Default) {
-					const auto plan = prepare_typed_query_plan(queryInfo, state);
 					if (plan.kind == TypedQueryPlanKind::DirectDense) {
 						run_query_on_chunks_direct_iter(queryInfo, plan, state, pFunc, runDirectFastChunk);
 						return;
