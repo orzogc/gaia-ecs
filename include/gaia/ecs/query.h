@@ -1671,12 +1671,25 @@ namespace gaia {
 				enum class TypedQueryPlanKind : uint8_t {
 					//! Use the generic typed query execution path.
 					General,
-					//! Direct dense cached archetype/chunk iteration without filters, grouping, sorting, or entity seeds.
-					DirectDense
+					//! Direct entity-seed evaluation.
+					EntitySeed,
+					//! Direct dense cached archetype/chunk iteration without filters, sorting, or entity seeds.
+					DirectDense,
+					//! Direct dense cached archetype/chunk iteration with chunk filters.
+					DirectDenseFiltered,
+					//! Cached dense iteration that needs mapped term/component access.
+					MappedDense,
+					//! Mapped dense iteration with chunk filters.
+					MappedDenseFiltered,
+					//! Sorted payload or sorted/depth-order iteration barrier.
+					Sorted,
+					//! Traversal or inherited payload requiring the mapped generic path.
+					Traversal
 				};
 
 				struct TypedQueryPlan final {
 					TypedQueryPlanKind kind = TypedQueryPlanKind::General;
+					ExecPayloadKind payloadKind = ExecPayloadKind::Plain;
 					uint32_t idxFrom = 0;
 					uint32_t idxTo = 0;
 				};

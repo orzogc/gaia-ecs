@@ -604,29 +604,67 @@ namespace gaia {
 				}
 			}
 
-			//! Selects the simple typed query runner once before execution.
+			//! Selects the query plan based on current query setup.
 			inline QueryImpl::TypedQueryPlan
 			QueryImpl::prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const {
 				TypedQueryPlan plan{};
-				if (!state.canUseDirectChunkEval || queryInfo.has_filters() || can_use_direct_entity_seed_eval(queryInfo) ||
-						!can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+
+				const bool hasFilters = queryInfo.has_filters();
+				const bool canDirectEntitySeed = !hasFilters && can_use_direct_entity_seed_eval(queryInfo);
+				const bool canDirectChunks = can_use_direct_chunk_iteration_fastpath(queryInfo);
+
+				if (state.canUseDirectChunkEval && !hasFilters && !canDirectEntitySeed && canDirectChunks) {
+					const auto& data = queryInfo.ctx().data;
+					uint32_t idxFrom = 0;
+					uint32_t idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
+					if (data.groupBy != EntityBad && m_groupIdSet != 0) {
+						const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
+						if (pGroupData == nullptr)
+							return plan;
+
+						plan.payloadKind = ExecPayloadKind::Grouped;
+						idxFrom = pGroupData->idxFirst;
+						idxTo = pGroupData->idxLast + 1;
+					}
+
+					plan.kind = TypedQueryPlanKind::DirectDense;
+					plan.idxFrom = idxFrom;
+					plan.idxTo = idxTo;
 					return plan;
 				}
 
-				const auto& data = queryInfo.ctx().data;
-				uint32_t idxFrom = 0;
-				uint32_t idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
-				if (data.groupBy != EntityBad && m_groupIdSet != 0) {
-					const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
-					if (pGroupData == nullptr)
-						return plan;
-					idxFrom = pGroupData->idxFirst;
-					idxTo = pGroupData->idxLast + 1;
+				if (canDirectEntitySeed) {
+					plan.kind = TypedQueryPlanKind::EntitySeed;
+					return plan;
 				}
 
-				plan.kind = TypedQueryPlanKind::DirectDense;
-				plan.idxFrom = idxFrom;
-				plan.idxTo = idxTo;
+				if (queryInfo.has_sorted_payload()) {
+					plan.kind = TypedQueryPlanKind::Sorted;
+					plan.payloadKind = ExecPayloadKind::NonTrivial;
+					return plan;
+				}
+
+				if (has_depth_order_hierarchy_enabled_barrier(queryInfo)) {
+					plan.kind = TypedQueryPlanKind::Traversal;
+					plan.payloadKind = ExecPayloadKind::NonTrivial;
+					return plan;
+				}
+
+				if (!can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+					plan.kind = TypedQueryPlanKind::Sorted;
+					return plan;
+				}
+
+				if (!state.canUseDirectChunkEval) {
+					plan.kind = hasFilters ? TypedQueryPlanKind::MappedDenseFiltered : TypedQueryPlanKind::MappedDense;
+					return plan;
+				}
+
+				if (hasFilters) {
+					plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
+					return plan;
+				}
+
 				return plan;
 			}
 
