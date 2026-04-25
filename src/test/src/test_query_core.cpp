@@ -58,6 +58,24 @@ TEST_CASE("Query - QueryResult") {
 	}
 }
 
+TEST_CASE("Query - typed query plan classification") {
+	using PlanKind = ecs::detail::QueryImpl::TypedQueryPlanKind;
+
+	TestWorld twld;
+	const auto e = wld.add();
+	wld.add<Position>(e, {1.0f, 2.0f, 3.0f});
+
+	auto q = wld.query().all<Position>();
+	const auto directPlan = q.test_typed_plan([](const Position&) {});
+	CHECK(directPlan.kind == PlanKind::DirectDense);
+	CHECK(directPlan.idxFrom < directPlan.idxTo);
+
+	auto qChanged = wld.query().all<Position>().changed<Position>();
+	const auto filteredPlan = qChanged.test_typed_plan([](const Position&) {});
+	CHECK(filteredPlan.kind == PlanKind::DirectDenseFiltered);
+	CHECK(filteredPlan.idxFrom < filteredPlan.idxTo);
+}
+
 TEST_CASE("Query - direct typed chunk rows") {
 	constexpr uint32_t N = 1'800;
 	constexpr uint32_t Disabled = 17;

@@ -2796,7 +2796,7 @@ namespace gaia {
 						core::func_type_list<T...>);
 
 				void run_query_on_chunks_direct(
-						QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
 
 				void run_query_on_chunks_direct_iter(
@@ -4241,6 +4241,11 @@ namespace gaia {
 						m_entityToArchetypeMapVersions(&entityToArchetypeMapVersions), m_allArchetypes(&allArchetypes) {
 					m_storage.init(&world, &queryCache);
 				}
+
+#if GAIA_ECS_TEST_HOOKS
+				template <typename Func>
+				GAIA_NODISCARD TypedQueryPlan test_typed_plan(Func func);
+#endif
 
 				//! Returns the cache handle id of this query.
 				//! \return Query id, or QueryIdBad for uncached queries.

@@ -46415,7 +46415,7 @@ namespace gaia {
 						core::func_type_list<T...>);
 
 				void run_query_on_chunks_direct(
-						QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
+						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
 
 				void run_query_on_chunks_direct_iter(
@@ -47860,6 +47860,11 @@ namespace gaia {
 						m_entityToArchetypeMapVersions(&entityToArchetypeMapVersions), m_allArchetypes(&allArchetypes) {
 					m_storage.init(&world, &queryCache);
 				}
+
+#if GAIA_ECS_TEST_HOOKS
+				template <typename Func>
+				GAIA_NODISCARD TypedQueryPlan test_typed_plan(Func func);
+#endif
 
 				//! Returns the cache handle id of this query.
 				//! \return Query id, or QueryIdBad for uncached queries.
@@ -49547,6 +49552,25 @@ namespace gaia {
 				return state;
 			}
 
+#if GAIA_ECS_TEST_HOOKS
+			template <typename Func>
+			inline QueryImpl::TypedQueryPlan QueryImpl::test_typed_plan(Func func) {
+				auto& queryInfo = fetch();
+				match_all(queryInfo);
+
+				using InputArgs = decltype(core::func_args(&Func::operator()));
+	#if GAIA_ASSERT_ENABLED
+				GAIA_ASSERT(typed_query_args_match_query(queryInfo, InputArgs{}));
+	#endif
+				auto& world = *const_cast<World*>(queryInfo.world());
+				TypedQueryArgMeta metas[MAX_ITEMS_IN_QUERY]{};
+				const auto argCount = init_typed_query_arg_metas(metas, world, InputArgs{});
+				const auto state = build_typed_query_exec_state(*this, world, queryInfo, metas, argCount);
+				(void)func;
+				return prepare_typed_query_plan(queryInfo, state);
+			}
+#endif
+
 			inline void finish_typed_chunk_state(
 					QueryImpl& query, World& world, Chunk* pChunk, uint16_t from, uint16_t to, const TypedQueryExecState& state);
 
@@ -50129,24 +50153,31 @@ namespace gaia {
 				const bool hasFilters = queryInfo.has_filters();
 				const bool canDirectEntitySeed = !hasFilters && can_use_direct_entity_seed_eval(queryInfo);
 				const bool canDirectChunks = can_use_direct_chunk_iteration_fastpath(queryInfo);
-
-				if (state.canUseDirectChunkEval && !hasFilters && !canDirectEntitySeed && canDirectChunks) {
+				auto setDenseRange = [&]() -> bool {
 					const auto& data = queryInfo.ctx().data;
-					uint32_t idxFrom = 0;
-					uint32_t idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
+					plan.idxFrom = 0;
+					plan.idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
 					if (data.groupBy != EntityBad && m_groupIdSet != 0) {
 						const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
 						if (pGroupData == nullptr)
-							return plan;
+							return false;
 
 						plan.payloadKind = ExecPayloadKind::Grouped;
-						idxFrom = pGroupData->idxFirst;
-						idxTo = pGroupData->idxLast + 1;
+						plan.idxFrom = pGroupData->idxFirst;
+						plan.idxTo = pGroupData->idxLast + 1;
+					}
+					return true;
+				};
+
+				if (state.canUseDirectChunkEval && !canDirectEntitySeed && canDirectChunks) {
+					if (!setDenseRange())
+						return plan;
+					if (hasFilters) {
+						plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
+						return plan;
 					}
 
 					plan.kind = TypedQueryPlanKind::DirectDense;
-					plan.idxFrom = idxFrom;
-					plan.idxTo = idxTo;
 					return plan;
 				}
 
@@ -50273,7 +50304,7 @@ namespace gaia {
 			}
 
 			inline void QueryImpl::run_query_on_chunks_direct(
-					QueryInfo& queryInfo, const TypedQueryExecState& state, void* pFunc,
+					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 					void (*runChunk)(QueryImpl&, Iter& it, void*, const TypedQueryExecState&)) {
 				auto& world = *queryInfo.world();
 				if (state.hasWriteArgs)
@@ -50281,25 +50312,15 @@ namespace gaia {
 
 				const bool hasFilters = queryInfo.has_filters();
 				auto cacheView = queryInfo.cache_archetype_view();
-				if (cacheView.empty())
+				if (plan.idxFrom >= plan.idxTo)
 					return;
-
-				uint32_t idxFrom = 0;
-				uint32_t idxTo = (uint32_t)cacheView.size();
-				if (queryInfo.ctx().data.groupBy != EntityBad && m_groupIdSet != 0) {
-					const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
-					if (pGroupData == nullptr)
-						return;
-					idxFrom = pGroupData->idxFirst;
-					idxTo = pGroupData->idxLast + 1;
-				}
 
 				lock(*m_storage.world());
 				Iter it;
 				it.set_world(queryInfo.world());
 				const Archetype* pLastArchetype = nullptr;
 
-				for (uint32_t i = idxFrom; i < idxTo; ++i) {
+				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 					const auto* pArchetype = cacheView[i];
 					if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, Constraints::EnabledOnly))
 						continue;
@@ -50351,7 +50372,7 @@ namespace gaia {
 				if (state.canUseDirectChunkEval) {
 					if constexpr (ExecType == QueryExecType::Default) {
 						if (plan.kind == TypedQueryPlanKind::DirectDense || plan.kind == TypedQueryPlanKind::DirectDenseFiltered) {
-							run_query_on_chunks_direct(queryInfo, state, pFunc, runDirectFastChunk);
+							run_query_on_chunks_direct(queryInfo, plan, state, pFunc, runDirectFastChunk);
 							return;
 						}
 					}
