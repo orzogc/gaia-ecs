@@ -74,6 +74,13 @@ TEST_CASE("Query - typed query plan classification") {
 	const auto filteredPlan = qChanged.test_typed_plan([](const Position&) {});
 	CHECK(filteredPlan.kind == PlanKind::DirectDenseFiltered);
 	CHECK(filteredPlan.idxFrom < filteredPlan.idxTo);
+
+	const auto eats = wld.add();
+	const auto missingGroup = wld.add();
+	auto qGrouped = wld.query().all<Position>().group_by(eats).group_id(missingGroup);
+	const auto emptyPlan = qGrouped.test_typed_plan([](const Position&) {});
+	CHECK(emptyPlan.kind == PlanKind::Empty);
+	CHECK(emptyPlan.idxFrom == emptyPlan.idxTo);
 }
 
 TEST_CASE("Query - direct typed chunk rows") {

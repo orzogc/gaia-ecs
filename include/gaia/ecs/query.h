@@ -1673,6 +1673,8 @@ namespace gaia {
 				}
 
 				enum class TypedQueryPlanKind : uint8_t {
+					//! Query plan has no matching archetype range for the selected execution mode.
+					Empty,
 					//! Use the generic typed query execution path.
 					General,
 					//! Direct entity-seed evaluation.

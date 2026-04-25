@@ -45293,6 +45293,8 @@ namespace gaia {
 				}
 
 				enum class TypedQueryPlanKind : uint8_t {
+					//! Query plan has no matching archetype range for the selected execution mode.
+					Empty,
 					//! Use the generic typed query execution path.
 					General,
 					//! Direct entity-seed evaluation.
@@ -50172,8 +50174,12 @@ namespace gaia {
 				};
 
 				if (state.canUseDirectChunkEval && !canDirectEntitySeed && canDirectChunks) {
-					if (!setDenseRange())
+					if (!setDenseRange()) {
+						plan.kind = TypedQueryPlanKind::Empty;
+						plan.idxFrom = 0;
+						plan.idxTo = 0;
 						return plan;
+					}
 					if (hasFilters) {
 						plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
 						return plan;
@@ -50362,6 +50368,9 @@ namespace gaia {
 					void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
+				if (plan.kind == TypedQueryPlanKind::Empty)
+					return;
+
 				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
 					GAIA_PROF_SCOPE(query_func);
 					each_direct_inter(
@@ -50480,6 +50489,9 @@ namespace gaia {
 				TypedIterErasedCallback cb{this, pFunc, &state, runDirectFastChunk, runMappedChunk};
 
 				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				if (plan.kind == TypedQueryPlanKind::Empty)
+					return;
+
 				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
 					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, cb);
 					return;
