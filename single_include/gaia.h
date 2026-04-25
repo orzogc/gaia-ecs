@@ -50153,6 +50153,7 @@ namespace gaia {
 				const bool hasFilters = queryInfo.has_filters();
 				const bool canDirectEntitySeed = !hasFilters && can_use_direct_entity_seed_eval(queryInfo);
 				const bool canDirectChunks = can_use_direct_chunk_iteration_fastpath(queryInfo);
+
 				auto setDenseRange = [&]() -> bool {
 					const auto& data = queryInfo.ctx().data;
 					plan.idxFrom = 0;
@@ -50198,7 +50199,7 @@ namespace gaia {
 					return plan;
 				}
 
-				if (!can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+				if (!canDirectChunks) {
 					plan.kind = TypedQueryPlanKind::Sorted;
 					return plan;
 				}
