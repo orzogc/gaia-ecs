@@ -262,7 +262,9 @@ namespace gaia {
 					const auto pageAddr = (uintptr_t)m_data;
 					GAIA_ASSERT(pageAddr % MemoryBlockAlignment == 0);
 
-					[[maybe_unused]] uint64_t freeMask = 0;
+		#if GAIA_DEBUG
+					uint64_t freeMask = 0;
+		#endif
 
 					if (m_freeBlocks != 0) {
 						uint32_t next = m_nextFreeBlock;
@@ -291,9 +293,11 @@ namespace gaia {
 		#endif
 					}
 
+		#if GAIA_DEBUG
 					GAIA_ASSERT((m_usedMask & freeMask) == 0);
 					const auto liveMask = m_blockCnt == 64 ? ~uint64_t(0) : ((uint64_t(1) << m_blockCnt) - 1);
 					GAIA_ASSERT((m_usedMask | freeMask) == liveMask);
+		#endif
 	#endif
 				}
 
