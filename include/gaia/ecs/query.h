@@ -1720,9 +1720,7 @@ namespace gaia {
 				template <typename Func, typename TMode>
 				static void run_query_func(World* pWorld, Func func, ChunkBatch& batch) {
 					Iter it;
-					it.set_world(pWorld);
-					it.set_constraints(iter_mode_constraints<TMode>());
-					it.set_write_im(false);
+					it.init_query_state(pWorld, iter_mode_constraints<TMode>(), false);
 					it.set_archetype(batch.pArchetype);
 					it.set_chunk(batch.pChunk, batch.from, batch.to);
 					it.set_group_id(batch.groupId);
@@ -1737,9 +1735,7 @@ namespace gaia {
 				template <typename Func>
 				static void run_query_arch_func(World* pWorld, Func func, ChunkBatch& batch, Constraints constraints) {
 					Iter it;
-					it.set_world(pWorld);
-					it.set_constraints(constraints);
-					it.set_write_im(false);
+					it.init_query_state(pWorld, constraints, false);
 					it.set_archetype(batch.pArchetype);
 					// it.set_chunk(nullptr, 0, 0); We do not need this, and calling it would assert
 					it.set_group_id(batch.groupId);
@@ -1758,9 +1754,7 @@ namespace gaia {
 					GAIA_ASSERT(chunkCnt > 0);
 
 					Iter it;
-					it.set_world(pWorld);
-					it.set_constraints(iter_mode_constraints<TMode>());
-					it.set_write_im(false);
+					it.init_query_state(pWorld, iter_mode_constraints<TMode>(), false);
 
 					const Archetype* pLastArchetype = nullptr;
 					const uint8_t* pLastIndices = nullptr;
@@ -2324,9 +2318,7 @@ namespace gaia {
 					GAIA_ASSERT(chunkCnt > 0);
 
 					Iter it;
-					it.set_world(pWorld);
-					it.set_constraints(constraints);
-					it.set_write_im(false);
+					it.init_query_state(pWorld, constraints, false);
 
 					const Archetype* pLastArchetype = nullptr;
 					const uint8_t* pLastIndices = nullptr;
@@ -2834,11 +2826,80 @@ namespace gaia {
 						const TypedQueryExecState& state,
 						void (*runChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&));
 
+				//! Runs a plain default public Iter callback over cached chunks without creating chunk batches.
+				//! \tparam Func Public iterator callback type.
+				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param constraints Entity-row subset exposed to the callback.
+				//! \param func Callback invoked once for each matching chunk.
+				template <typename Func>
+				void run_query_on_chunks_runtime_direct_plain(QueryInfo& queryInfo, Constraints constraints, Func& func) {
+					::gaia::ecs::update_version(*m_worldVersion);
+
+					auto cacheView = queryInfo.cache_archetype_view();
+					lock(*m_storage.world());
+
+					Iter it;
+					it.init_query_state(queryInfo.world(), constraints, false);
+
+					for (uint32_t i = 0; i < cacheView.size(); ++i) {
+						auto* pArchetype = const_cast<Archetype*>(cacheView[i]);
+						if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, constraints))
+							continue;
+
+						auto indicesView = queryInfo.indices_mapping_view(i);
+						const auto* pIndices = indicesView.data();
+						const auto& chunks = pArchetype->chunks();
+						for (auto* pChunk: chunks) {
+							const auto from = detail::ChunkIterImpl::start_index(pChunk, constraints);
+							const auto to = detail::ChunkIterImpl::end_index(pChunk, constraints);
+							if GAIA_UNLIKELY (from == to)
+								continue;
+
+							it.set_query_chunk(pArchetype, pIndices, pChunk, from, to);
+							{
+								GAIA_PROF_SCOPE(query_func);
+								func(it);
+							}
+							finish_iter_writes(it);
+							it.clear_touched_writes();
+						}
+					}
+
+					unlock(*m_storage.world());
+					commit_cmd_buffer_st(*m_storage.world());
+					commit_cmd_buffer_mt(*m_storage.world());
+					m_changedWorldVersion = *m_worldVersion;
+				}
+
+				//! Runs a public iterator callback through the fastest supported runtime path.
+				//! \tparam ExecType Query execution mode requested by the public API.
+				//! \tparam Func Public iterator callback type.
+				//! \param func Callback invoked for each iterator step.
+				//! \param constraints Entity-row subset exposed to the callback.
 				template <QueryExecType ExecType, typename Func>
 				void each_runtime_inter(Func func, Constraints constraints = Constraints::EnabledOnly) {
+					if constexpr (ExecType == QueryExecType::Default) {
+						if (constraints == Constraints::EnabledOnly) {
+							auto& queryInfo = fetch();
+							match_all(queryInfo);
+							if (!queryInfo.has_filters() && !queryInfo.has_entity_filter_terms() &&
+									!queryInfo.has_inherited_data_payload() &&
+									exec_payload_kind(queryInfo, constraints) == ExecPayloadKind::Plain &&
+									can_use_direct_chunk_iteration_fastpath(queryInfo)) {
+								run_query_on_chunks_runtime_direct_plain(queryInfo, constraints, func);
+								return;
+							}
+						}
+					}
+
 					each_runtime_erased(ExecType, static_cast<void*>(&func), &invoke_runtime_iter<Func, Iter>, constraints);
 				}
 
+				//! Invokes a type-erased public iterator callback.
+				//! \tparam Func Stored callback type.
+				//! \tparam TIter Iterator type passed to the callback.
+				//! \param pFunc Pointer to the stored callback object.
+				//! \param it Iterator passed to the callback.
 				template <typename Func, typename TIter>
 				static void invoke_runtime_iter(void* pFunc, TIter& it) {
 					auto& func = *static_cast<Func*>(pFunc);
@@ -2893,10 +2954,27 @@ namespace gaia {
 					}
 				};
 
+				//! Runs a type-erased public iterator callback through generic query execution.
+				//! \param execType Query execution mode requested by the public API.
+				//! \param pFunc Pointer to the stored callback object.
+				//! \param invoke Type-erased callback invoker.
+				//! \param constraints Entity-row subset exposed to the callback.
 				void each_runtime_erased(
 						QueryExecType execType, void* pFunc, void (*invoke)(void*, Iter&), Constraints constraints) {
 					auto& queryInfo = fetch();
 					match_all(queryInfo);
+					each_runtime_erased(queryInfo, execType, pFunc, invoke, constraints);
+				}
+
+				//! Runs a type-erased public iterator callback using an already prepared query cache.
+				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param execType Query execution mode requested by the public API.
+				//! \param pFunc Pointer to the stored callback object.
+				//! \param invoke Type-erased callback invoker.
+				//! \param constraints Entity-row subset exposed to the callback.
+				void each_runtime_erased(
+						QueryInfo& queryInfo, QueryExecType execType, void* pFunc, void (*invoke)(void*, Iter&),
+						Constraints constraints) {
 					RuntimeIterCallback cb{pFunc, invoke};
 
 					if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
@@ -3748,8 +3826,7 @@ namespace gaia {
 
 						const auto& chunks = pArchetype->chunks();
 						Iter it;
-						it.set_world(queryInfo.world());
-						it.set_constraints(constraints);
+						it.init_query_state(queryInfo.world(), constraints, false);
 						it.set_archetype(pArchetype);
 
 						if (!hasEntityFilters) {
@@ -3957,8 +4034,7 @@ namespace gaia {
 
 						const auto& chunks = pArchetype->chunks();
 						Iter it;
-						it.set_world(queryInfo.world());
-						it.set_constraints(constraints);
+						it.init_query_state(queryInfo.world(), constraints, false);
 						it.set_archetype(pArchetype);
 
 						if (!hasEntityFilters) {
@@ -4073,9 +4149,7 @@ namespace gaia {
 						QueryInfo& queryInfo, std::span<const detail::BfsChunkRun> runs, Constraints constraints, Func func) {
 					auto& world = *queryInfo.world();
 					Iter it;
-					it.set_world(&world);
-					it.set_constraints(constraints);
-					it.set_write_im(false);
+					it.init_query_state(&world, constraints, false);
 					const Archetype* pLastArchetype = nullptr;
 					uint8_t indices[ChunkHeader::MAX_COMPONENTS];
 					Entity termIds[ChunkHeader::MAX_COMPONENTS];
@@ -4144,9 +4218,7 @@ namespace gaia {
 					auto& world = *queryInfo.world();
 					auto& walkData = ensure_each_walk_data();
 					Iter it;
-					it.set_world(&world);
-					it.set_constraints(constraints);
-					it.set_write_im(false);
+					it.init_query_state(&world, constraints, false);
 					if (!walkData.cachedRuns.empty()) {
 						each_chunk_runs_iter(queryInfo, walkData.cachedRuns, constraints, func);
 						return;
@@ -5134,7 +5206,7 @@ namespace gaia {
 					}
 
 					Iter it;
-					it.set_world(queryInfo.world());
+					it.init_query_state(queryInfo.world(), Constraints::EnabledOnly, false);
 					for (uint32_t qi = idxFrom; qi < idxTo; ++qi) {
 						const auto* pArchetype = cacheView[qi];
 						const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(qi);
@@ -5226,7 +5298,7 @@ namespace gaia {
 					}
 
 					Iter it;
-					it.set_world(queryInfo.world());
+					it.init_query_state(queryInfo.world(), Constraints::EnabledOnly, false);
 					for (uint32_t qi = idxFrom; qi < idxTo; ++qi) {
 						const auto* pArchetype = cacheView[qi];
 						const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(qi);

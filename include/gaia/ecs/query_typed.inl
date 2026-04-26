@@ -235,8 +235,7 @@ namespace gaia {
 					QueryImpl& query, World& world, Constraints constraints, Func& func, std::span<const BfsChunkRun> runs,
 					const TypedQueryExecState& state) {
 				Iter it;
-				it.set_world(&world);
-				it.set_constraints(constraints);
+				it.init_query_state(&world, constraints, false);
 				const Archetype* pLastArchetype = nullptr;
 				for (const auto& run: runs) {
 					if (run.pArchetype != pLastArchetype) {
@@ -255,8 +254,7 @@ namespace gaia {
 					QueryImpl& query, QueryInfo& queryInfo, World& world, Constraints constraints, Func& func,
 					std::span<const BfsChunkRun> runs, const TypedQueryExecState& state) {
 				Iter it;
-				it.set_world(&world);
-				it.set_constraints(constraints);
+				it.init_query_state(&world, constraints, false);
 				const Archetype* pLastArchetype = nullptr;
 				uint8_t indices[ChunkHeader::MAX_COMPONENTS];
 				Entity termIds[ChunkHeader::MAX_COMPONENTS];
@@ -286,9 +284,7 @@ namespace gaia {
 				auto& world = *queryInfo.world();
 				auto& walkData = ensure_each_walk_data();
 				Iter it;
-				it.set_world(&world);
-				it.set_constraints(constraints);
-				it.set_write_im(false);
+				it.init_query_state(&world, constraints, false);
 				if (!walkData.cachedRuns.empty()) {
 					const auto& runs = walkData.cachedRuns;
 					const Archetype* pLastArchetype = nullptr;
@@ -759,7 +755,7 @@ namespace gaia {
 
 				lock(*m_storage.world());
 				Iter it;
-				it.set_world(queryInfo.world());
+				it.init_query_state(queryInfo.world(), Constraints::EnabledOnly, false);
 				const Archetype* pLastArchetype = nullptr;
 				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 					const auto* pArchetype = cacheView[i];
@@ -808,7 +804,7 @@ namespace gaia {
 
 				lock(*m_storage.world());
 				Iter it;
-				it.set_world(queryInfo.world());
+				it.init_query_state(queryInfo.world(), Constraints::EnabledOnly, false);
 				const Archetype* pLastArchetype = nullptr;
 
 				for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
@@ -1089,8 +1085,7 @@ namespace gaia {
 							const auto runs = cached_direct_seed_runs(queryInfo, *pSeedTerm, seedInfo, constraints);
 							if (state.canUseDirectChunkEval) {
 								Iter it;
-								it.set_world(&world);
-								it.set_constraints(constraints);
+								it.init_query_state(&world, constraints, false);
 								const Archetype* pLastArchetype = nullptr;
 								for (const auto& run: runs) {
 									if (run.pArchetype != pLastArchetype) {
@@ -1103,8 +1098,7 @@ namespace gaia {
 								}
 							} else {
 								Iter it;
-								it.set_world(&world);
-								it.set_constraints(constraints);
+								it.init_query_state(&world, constraints, false);
 								const Archetype* pLastArchetype = nullptr;
 								uint8_t indices[ChunkHeader::MAX_COMPONENTS];
 								Entity termIds[ChunkHeader::MAX_COMPONENTS];
@@ -1206,8 +1200,7 @@ namespace gaia {
 				const auto meta = typed_query_arg_meta<ContainerItemType>(world);
 				const DirectChunkArgEvalDesc desc{meta.termId, meta.isEntity, meta.isPair};
 				Iter it;
-				it.set_world(queryInfo.world());
-				it.set_constraints(constraints);
+				it.init_query_state(queryInfo.world(), constraints, false);
 				const bool canUseDirectChunkEval = !UseFilters && !queryInfo.has_entity_filter_terms() &&
 																					 can_use_direct_chunk_term_eval_descs(world, queryInfo, &desc, 1) &&
 																					 can_use_direct_chunk_iteration_fastpath(queryInfo);

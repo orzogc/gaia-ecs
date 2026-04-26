@@ -989,6 +989,37 @@ namespace gaia {
 					}
 				}
 
+				//! Initializes stable query execution state stored by the iterator.
+				//! \param pWorld World associated with the query iteration.
+				//! \param constraints Entity-row subset exposed by the iterator.
+				//! \param writeIm True to finish mutable views immediately. False to defer write finalization.
+				void init_query_state(const World* pWorld, Constraints constraints, bool writeIm) {
+					set_world(pWorld);
+					m_constraints = constraints;
+					m_writeIm = writeIm;
+					clear_touched_writes();
+				}
+
+				//! Binds the iterator to the next query chunk and keeps archetype/mapping state on the iterator.
+				//! \param pArchetype Archetype owning the chunk.
+				//! \param pCompIndices Query-term to archetype-component index mapping for @a pArchetype.
+				//! \param pChunk Chunk exposed by this iterator step.
+				//! \param from First row exposed from @a pChunk.
+				//! \param to One-past-the-end row exposed from @a pChunk.
+				void set_query_chunk(
+						const Archetype* pArchetype, const uint8_t* pCompIndices, Chunk* pChunk, uint16_t from, uint16_t to) {
+					GAIA_ASSERT(pArchetype != nullptr);
+					GAIA_ASSERT(pChunk != nullptr);
+					if (m_pArchetype != pArchetype)
+						m_pArchetype = pArchetype;
+					if (m_pCompIndices != pCompIndices)
+						m_pCompIndices = pCompIndices;
+					m_pChunk = pChunk;
+					m_entitySnapshotValid = false;
+					m_from = from;
+					m_to = to;
+				}
+
 				GAIA_NODISCARD bool write_im() const {
 					return m_writeIm;
 				}
