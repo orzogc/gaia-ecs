@@ -1519,7 +1519,7 @@ namespace gaia {
 						if (compIdx != BadIndex && chunk.changed(queryVersion, compIdx))
 							return true;
 
-						return chunk.changed(changedWorldVersion);
+						return chunk.entity_order_changed(changedWorldVersion);
 					}
 
 					// See if any component has changed
@@ -1546,9 +1546,9 @@ namespace gaia {
 						lastIdx = compIdx;
 					}
 
-					// If the component hasn't been modified, the entity itself still might have been moved.
-					// For that reason we also need to check the entity version.
-					return chunk.changed(changedWorldVersion);
+					// If none of the tracked components changed, row movement can still make the
+					// filtered query observable because newly added or moved entities must be seen.
+					return chunk.entity_order_changed(changedWorldVersion);
 				}
 
 				GAIA_NODISCARD bool can_process_archetype(const QueryInfo& queryInfo, const Archetype& archetype) const {

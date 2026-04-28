@@ -119,8 +119,9 @@ TEST_CASE("Query - query plan classification") {
 	CHECK(filteredPlan.idxFrom < filteredPlan.idxTo);
 
 	const auto filteredIterPlan = qChanged.test_iter_plan();
-	CHECK(filteredIterPlan.mode == PlanMode::General);
+	CHECK(filteredIterPlan.mode == PlanMode::DirectDense);
 	CHECK((filteredIterPlan.flags & ecs::detail::QueryImpl::QueryPlanFlag_Filtered) != 0);
+	CHECK(filteredIterPlan.idxFrom < filteredIterPlan.idxTo);
 
 	const auto eats = wld.add();
 	const auto missingGroup = wld.add();

@@ -45174,7 +45174,7 @@ namespace gaia {
 						if (compIdx != BadIndex && chunk.changed(queryVersion, compIdx))
 							return true;
 
-						return chunk.changed(changedWorldVersion);
+						return chunk.entity_order_changed(changedWorldVersion);
 					}
 
 					// See if any component has changed
@@ -45201,9 +45201,9 @@ namespace gaia {
 						lastIdx = compIdx;
 					}
 
-					// If the component hasn't been modified, the entity itself still might have been moved.
-					// For that reason we also need to check the entity version.
-					return chunk.changed(changedWorldVersion);
+					// If none of the tracked components changed, row movement can still make the
+					// filtered query observable because newly added or moved entities must be seen.
+					return chunk.entity_order_changed(changedWorldVersion);
 				}
 
 				GAIA_NODISCARD bool can_process_archetype(const QueryInfo& queryInfo, const Archetype& archetype) const {
@@ -45327,31 +45327,58 @@ namespace gaia {
 					return exec_payload_kind(queryInfo, constraints) == ExecPayloadKind::NonTrivial;
 				}
 
-				enum class TypedQueryPlanKind : uint8_t {
-					//! Query plan has no matching archetype range for the selected execution mode.
+				//! Prepared query runner mode shared by typed callbacks and public Iter callbacks.
+				//!
+				//! The mode is selected after the query cache has been matched. It describes the runner family
+				//! independently from orthogonal query properties such as filters. Public C++ templates are
+				//! expected to remain thin adapters on top of this prepared execution metadata.
+				enum class QueryPlanMode : uint8_t {
+					//! The selected group/range has no matching archetypes, so execution can return immediately.
 					Empty,
-					//! Use the generic typed query execution path.
+					//! Use the generic query execution path because no specialized runner is valid.
 					General,
-					//! Direct entity-seed evaluation.
+					//! Direct entity-seed evaluation over explicitly selected entities.
 					EntitySeed,
-					//! Direct dense cached archetype/chunk iteration without filters, sorting, or entity seeds.
+					//! Direct cached archetype/chunk iteration with query-term indices matching storage layout.
 					DirectDense,
-					//! Direct dense cached archetype/chunk iteration with chunk filters.
-					DirectDenseFiltered,
-					//! Cached dense iteration that needs mapped term/component access.
+					//! Cached archetype/chunk iteration that needs query-term to archetype-component remapping.
 					MappedDense,
-					//! Mapped dense iteration with chunk filters.
-					MappedDenseFiltered,
-					//! Sorted payload or sorted/depth-order iteration barrier.
+					//! Sorted payload or depth-order barrier execution that must preserve cache-provided order.
 					Sorted,
-					//! Traversal or inherited payload requiring the mapped generic path.
+					//! Traversal or inherited payload execution that requires the mapped generic path.
 					Traversal
 				};
 
-				struct TypedQueryPlan final {
-					TypedQueryPlanKind kind = TypedQueryPlanKind::General;
+				//! Orthogonal flags attached to a prepared query plan.
+				//!
+				//! Flags describe properties that can apply to multiple runner modes. Keep them separate from
+				//! QueryPlanMode so filtered and unfiltered variants do not multiply execution-mode values.
+				enum QueryPlanFlags : uint8_t {
+					//! No additional query-plan properties are present.
+					QueryPlanFlag_None = 0,
+					//! The query has per-chunk filters such as changed terms.
+					QueryPlanFlag_Filtered = 1 << 0,
+					//! The query has entity-filter terms that require generic evaluation.
+					QueryPlanFlag_EntityFilter = 1 << 1,
+					//! The query carries inherited component data into iterator payloads.
+					QueryPlanFlag_InheritedPayload = 1 << 2,
+					//! The query uses grouped payload/ranges or grouped cache ordering.
+					QueryPlanFlag_Grouped = 1 << 3,
+					//! The query uses sorted payload or barrier/depth-order cache data.
+					QueryPlanFlag_Sorted = 1 << 4
+				};
+
+				//! Prepared query execution metadata shared by typed callbacks and public Iter callbacks.
+				struct QueryPlan final {
+					//! Runner family selected for the current matched query cache.
+					QueryPlanMode mode = QueryPlanMode::General;
+					//! Orthogonal plan properties such as filtering, entity filters, grouping, or payload requirements.
+					uint8_t flags = QueryPlanFlag_None;
+					//! Payload layout required by generic chunk-batch runners.
 					ExecPayloadKind payloadKind = ExecPayloadKind::Plain;
+					//! First cached archetype index to process.
 					uint32_t idxFrom = 0;
+					//! One-past-the-end cached archetype index to process.
 					uint32_t idxTo = 0;
 				};
 
@@ -46026,17 +46053,15 @@ namespace gaia {
 
 				template <bool HasFilters, typename Func>
 				void run_query_batch_no_group_id_runtime(
-						const QueryInfo& queryInfo, const uint32_t idxFrom, const uint32_t idxTo, Constraints constraints,
-						Func func) {
+						const QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
 					GAIA_PROF_SCOPE(query::run_query_batch_no_group_id);
 
 					auto cacheView = queryInfo.cache_archetype_view();
-					const auto payloadKind = exec_payload_kind(queryInfo, constraints);
 					auto sortView = queryInfo.cache_sort_view();
-					if (payloadKind != ExecPayloadKind::NonTrivial)
+					if (plan.payloadKind != ExecPayloadKind::NonTrivial)
 						sortView = {};
 					const bool hasInheritedData = queryInfo.has_inherited_data_payload();
-					const bool needsBarrierCache = payloadKind == ExecPayloadKind::NonTrivial &&
+					const bool needsBarrierCache = plan.payloadKind == ExecPayloadKind::NonTrivial &&
 																				 constraints == Constraints::EnabledOnly &&
 																				 has_depth_order_hierarchy_enabled_barrier(queryInfo);
 					if (needsBarrierCache)
@@ -46085,7 +46110,7 @@ namespace gaia {
 							}
 						}
 					} else {
-						for (uint32_t i = idxFrom; i < idxTo; ++i) {
+						for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 							auto* pArchetype = const_cast<Archetype*>(cacheView[i]);
 							const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(i);
 							if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, constraints, barrierPasses))
@@ -46136,18 +46161,16 @@ namespace gaia {
 
 				template <bool HasFilters, typename Func, QueryExecType ExecType>
 				void run_query_batch_no_group_id_runtime_par(
-						const QueryInfo& queryInfo, const uint32_t idxFrom, const uint32_t idxTo, Constraints constraints,
-						Func func) {
+						const QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
 					static_assert(ExecType != QueryExecType::Default);
 					GAIA_PROF_SCOPE(query::run_query_batch_no_group_id_par);
 
 					auto cacheView = queryInfo.cache_archetype_view();
-					const auto payloadKind = exec_payload_kind(queryInfo, constraints);
 					auto sortView = queryInfo.cache_sort_view();
-					if (payloadKind != ExecPayloadKind::NonTrivial)
+					if (plan.payloadKind != ExecPayloadKind::NonTrivial)
 						sortView = {};
 					const bool hasInheritedData = queryInfo.has_inherited_data_payload();
-					const bool needsBarrierCache = payloadKind == ExecPayloadKind::NonTrivial &&
+					const bool needsBarrierCache = plan.payloadKind == ExecPayloadKind::NonTrivial &&
 																				 constraints == Constraints::EnabledOnly &&
 																				 has_depth_order_hierarchy_enabled_barrier(queryInfo);
 					if (needsBarrierCache)
@@ -46186,7 +46209,7 @@ namespace gaia {
 									{pArchetype, view.pChunk, indicesView.data(), inheritedDataView, 0U, startRow, endRow});
 						}
 					} else {
-						for (uint32_t i = idxFrom; i < idxTo; ++i) {
+						for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 							const auto* pArchetype = cacheView[i];
 							const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(i);
 							if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, constraints, barrierPasses))
@@ -46246,14 +46269,13 @@ namespace gaia {
 
 				template <bool HasFilters, typename Func>
 				void run_query_batch_with_group_id_runtime(
-						const QueryInfo& queryInfo, const uint32_t idxFrom, const uint32_t idxTo, Constraints constraints,
-						Func func) {
+						const QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
 					GAIA_PROF_SCOPE(query::run_query_batch_with_group_id);
 
 					ChunkBatchArray chunkBatches;
 					auto cacheView = queryInfo.cache_archetype_view();
 					const bool hasInheritedData = queryInfo.has_inherited_data_payload();
-					const bool needsBarrierCache = needs_nontrivial_payload(queryInfo, constraints) &&
+					const bool needsBarrierCache = plan.payloadKind == ExecPayloadKind::NonTrivial &&
 																				 constraints == Constraints::EnabledOnly &&
 																				 has_depth_order_hierarchy_enabled_barrier(queryInfo);
 					if (needsBarrierCache)
@@ -46261,7 +46283,7 @@ namespace gaia {
 
 					lock(*m_storage.world());
 
-					for (uint32_t i = idxFrom; i < idxTo; ++i) {
+					for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 						const auto* pArchetype = cacheView[i];
 						const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(i);
 						if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, constraints, barrierPasses))
@@ -46313,21 +46335,20 @@ namespace gaia {
 
 				template <bool HasFilters, typename Func, QueryExecType ExecType>
 				void run_query_batch_with_group_id_runtime_par(
-						const QueryInfo& queryInfo, const uint32_t idxFrom, const uint32_t idxTo, Constraints constraints,
-						Func func) {
+						const QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
 					static_assert(ExecType != QueryExecType::Default);
 					GAIA_PROF_SCOPE(query::run_query_batch_with_group_id_par);
 
 					ChunkBatchArray chunkBatch;
 					auto cacheView = queryInfo.cache_archetype_view();
 					const bool hasInheritedData = queryInfo.has_inherited_data_payload();
-					const bool needsBarrierCache = needs_nontrivial_payload(queryInfo, constraints) &&
+					const bool needsBarrierCache = plan.payloadKind == ExecPayloadKind::NonTrivial &&
 																				 constraints == Constraints::EnabledOnly &&
 																				 has_depth_order_hierarchy_enabled_barrier(queryInfo);
 					if (needsBarrierCache)
 						const_cast<QueryInfo&>(queryInfo).ensure_depth_order_hierarchy_barrier_cache();
 
-					for (uint32_t i = idxFrom; i < idxTo; ++i) {
+					for (uint32_t i = plan.idxFrom; i < plan.idxTo; ++i) {
 						const auto* pArchetype = cacheView[i];
 						const bool barrierPasses = !needsBarrierCache || queryInfo.barrier_passes(i);
 						if GAIA_UNLIKELY (!can_process_archetype_inter(queryInfo, *pArchetype, constraints, barrierPasses))
@@ -46386,47 +46407,45 @@ namespace gaia {
 				}
 
 				template <bool HasFilters, QueryExecType ExecType, typename Func>
-				void run_query_runtime(const QueryInfo& queryInfo, Constraints constraints, Func func) {
+				void run_query_runtime_planned(
+						const QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
 					GAIA_PROF_SCOPE(query::run_query);
-
-					auto cache_view = queryInfo.cache_archetype_view();
-					if (cache_view.empty())
+					if (plan.mode == QueryPlanMode::Empty || plan.idxFrom >= plan.idxTo)
 						return;
 
 					const bool isGroupBy = queryInfo.ctx().data.groupBy != EntityBad;
 					const bool isGroupSet = m_groupIdSet != 0;
 					if (!isGroupBy || !isGroupSet) {
-						const auto idxFrom = 0;
-						const auto idxTo = (uint32_t)cache_view.size();
 						if constexpr (ExecType != QueryExecType::Default)
-							run_query_batch_no_group_id_runtime_par<HasFilters, Func, ExecType>(
-									queryInfo, idxFrom, idxTo, constraints, func);
+							run_query_batch_no_group_id_runtime_par<HasFilters, Func, ExecType>(queryInfo, plan, constraints, func);
 						else
-							run_query_batch_no_group_id_runtime<HasFilters>(queryInfo, idxFrom, idxTo, constraints, func);
+							run_query_batch_no_group_id_runtime<HasFilters>(queryInfo, plan, constraints, func);
 					} else {
-						const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
-						if (pGroupData == nullptr)
-							return;
-
-						const auto idxFrom = pGroupData->idxFirst;
-						const auto idxTo = pGroupData->idxLast + 1;
 						if constexpr (ExecType != QueryExecType::Default)
-							run_query_batch_with_group_id_runtime_par<HasFilters, Func, ExecType>(
-									queryInfo, idxFrom, idxTo, constraints, func);
+							run_query_batch_with_group_id_runtime_par<HasFilters, Func, ExecType>(queryInfo, plan, constraints, func);
 						else
-							run_query_batch_with_group_id_runtime<HasFilters>(queryInfo, idxFrom, idxTo, constraints, func);
+							run_query_batch_with_group_id_runtime<HasFilters>(queryInfo, plan, constraints, func);
 					}
 				}
 
+				//! Runs public iterator chunk execution from an already prepared plan.
+				//! \tparam ExecType Query execution mode requested by the public API.
+				//! \tparam Func Public iterator callback wrapper type.
+				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param plan Prepared query execution metadata.
+				//! \param constraints Entity-row subset exposed to the callback.
+				//! \param func Callback wrapper invoked for each iterator step.
 				template <QueryExecType ExecType, typename Func>
-				void run_query_on_chunks_runtime(QueryInfo& queryInfo, Constraints constraints, Func func) {
-					::gaia::ecs::update_version(*m_worldVersion);
+				void run_query_on_chunks_runtime_planned(
+						QueryInfo& queryInfo, const QueryPlan& plan, Constraints constraints, Func func) {
+					if (plan.mode == QueryPlanMode::Empty)
+						return;
 
-					const bool hasFilters = queryInfo.has_filters();
-					if (hasFilters)
-						run_query_runtime<true, ExecType>(queryInfo, constraints, func);
+					::gaia::ecs::update_version(*m_worldVersion);
+					if ((plan.flags & QueryPlanFlag_Filtered) != 0)
+						run_query_runtime_planned<true, ExecType>(queryInfo, plan, constraints, func);
 					else
-						run_query_runtime<false, ExecType>(queryInfo, constraints, func);
+						run_query_runtime_planned<false, ExecType>(queryInfo, plan, constraints, func);
 
 					m_changedWorldVersion = *m_worldVersion;
 				}
@@ -46436,25 +46455,28 @@ namespace gaia {
 					return data.sortByFunc == nullptr && !has_depth_order_hierarchy_enabled_barrier(queryInfo);
 				}
 
-				GAIA_NODISCARD TypedQueryPlan
-				prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const;
+				//! Selects the prepared execution plan for typed callbacks.
+				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param state Typed callback execution metadata derived from callback arguments.
+				//! \return Query execution plan shared by typed and public iterator adapters.
+				GAIA_NODISCARD QueryPlan prepare_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const;
 
 				template <bool HasFilters, typename Func, typename... T>
 				void run_query_on_chunks_direct_typed(
-						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
+						QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, Func& func,
 						core::func_type_list<T...>);
 
 				void run_query_on_chunks_direct(
-						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
+						QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
 
 				void run_query_on_chunks_direct_iter(
-						QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
+						QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 						void (*runChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&));
 
 				template <QueryExecType ExecType>
 				void each_inter(
-						QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
+						QueryInfo& queryInfo, const QueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 						void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
@@ -46472,7 +46494,7 @@ namespace gaia {
 
 				template <QueryExecType ExecType>
 				void each_iter_inter_erased(
-						QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
+						QueryInfo& queryInfo, const QueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 						void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 						void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&));
 
@@ -46481,13 +46503,76 @@ namespace gaia {
 						const TypedQueryExecState& state,
 						void (*runChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&));
 
-				//! Runs a plain default public Iter callback over cached chunks without creating chunk batches.
+				//! Selects the prepared execution plan for public iterator callbacks.
+				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param constraints Entity-row subset exposed to the callback.
+				//! \return Query execution plan shared by typed and public iterator adapters.
+				GAIA_NODISCARD QueryPlan prepare_query_plan(const QueryInfo& queryInfo, Constraints constraints) const {
+					QueryPlan plan{};
+					plan.idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
+					if (queryInfo.has_filters())
+						plan.flags |= QueryPlanFlag_Filtered;
+					if (queryInfo.has_entity_filter_terms())
+						plan.flags |= QueryPlanFlag_EntityFilter;
+					if (queryInfo.has_inherited_data_payload())
+						plan.flags |= QueryPlanFlag_InheritedPayload;
+					if (queryInfo.has_grouped_payload())
+						plan.flags |= QueryPlanFlag_Grouped;
+					if (queryInfo.has_sorted_payload() || has_depth_order_hierarchy_enabled_barrier(queryInfo))
+						plan.flags |= QueryPlanFlag_Sorted;
+					plan.payloadKind = exec_payload_kind(queryInfo, constraints);
+
+					const auto& data = queryInfo.ctx().data;
+					if (data.groupBy != EntityBad && m_groupIdSet != 0) {
+						plan.flags |= QueryPlanFlag_Grouped;
+						const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
+						if (pGroupData == nullptr) {
+							plan.mode = QueryPlanMode::Empty;
+							plan.idxFrom = 0;
+							plan.idxTo = 0;
+							return plan;
+						}
+						plan.payloadKind = ExecPayloadKind::Grouped;
+						plan.idxFrom = pGroupData->idxFirst;
+						plan.idxTo = pGroupData->idxLast + 1;
+					}
+
+					if ((plan.flags & QueryPlanFlag_Filtered) == 0 && can_use_direct_entity_seed_eval(queryInfo)) {
+						plan.mode = QueryPlanMode::EntitySeed;
+						return plan;
+					}
+
+					if ((plan.flags & QueryPlanFlag_Sorted) != 0) {
+						plan.mode = QueryPlanMode::Sorted;
+						return plan;
+					}
+
+					if ((plan.flags & QueryPlanFlag_InheritedPayload) != 0) {
+						plan.mode = QueryPlanMode::Traversal;
+						return plan;
+					}
+
+					if ((plan.flags & QueryPlanFlag_EntityFilter) != 0)
+						return plan;
+
+					if (plan.payloadKind != ExecPayloadKind::Plain)
+						return plan;
+
+					if (!can_use_direct_chunk_iteration_fastpath(queryInfo))
+						return plan;
+
+					plan.mode = QueryPlanMode::DirectDense;
+					return plan;
+				}
+
+				//! Runs a public Iter callback over cached chunks without creating chunk batches.
+				//! \tparam HasFilters When true, chunks must pass changed-filter checks before callback invocation.
 				//! \tparam Func Public iterator callback type.
 				//! \param queryInfo Prepared query cache and execution metadata.
 				//! \param constraints Entity-row subset exposed to the callback.
 				//! \param func Callback invoked once for each matching chunk.
-				template <typename Func>
-				void run_query_on_chunks_runtime_direct_plain(QueryInfo& queryInfo, Constraints constraints, Func& func) {
+				template <bool HasFilters, typename Func>
+				void run_query_on_chunks_runtime_direct_plain_impl(QueryInfo& queryInfo, Constraints constraints, Func& func) {
 					::gaia::ecs::update_version(*m_worldVersion);
 
 					auto cacheView = queryInfo.cache_archetype_view();
@@ -46509,6 +46594,10 @@ namespace gaia {
 							const auto to = detail::ChunkIterImpl::end_index(pChunk, constraints);
 							if GAIA_UNLIKELY (from == to)
 								continue;
+							if constexpr (HasFilters) {
+								if (!match_filters(*pChunk, queryInfo, m_changedWorldVersion))
+									continue;
+							}
 
 							it.set_query_chunk(pArchetype, pIndices, pChunk, from, to);
 							{
@@ -46534,17 +46623,20 @@ namespace gaia {
 				template <QueryExecType ExecType, typename Func>
 				void each_runtime_inter(Func func, Constraints constraints = Constraints::EnabledOnly) {
 					if constexpr (ExecType == QueryExecType::Default) {
-						if (constraints == Constraints::EnabledOnly) {
-							auto& queryInfo = fetch();
-							match_all(queryInfo);
-							if (!queryInfo.has_filters() && !queryInfo.has_entity_filter_terms() &&
-									!queryInfo.has_inherited_data_payload() &&
-									exec_payload_kind(queryInfo, constraints) == ExecPayloadKind::Plain &&
-									can_use_direct_chunk_iteration_fastpath(queryInfo)) {
-								run_query_on_chunks_runtime_direct_plain(queryInfo, constraints, func);
-								return;
-							}
+						auto& queryInfo = fetch();
+						match_all(queryInfo);
+						const auto plan = prepare_query_plan(queryInfo, constraints);
+						if (plan.mode == QueryPlanMode::DirectDense) {
+							if ((plan.flags & QueryPlanFlag_Filtered) != 0)
+								run_query_on_chunks_runtime_direct_plain_impl<true>(queryInfo, constraints, func);
+							else
+								run_query_on_chunks_runtime_direct_plain_impl<false>(queryInfo, constraints, func);
+							return;
 						}
+
+						each_runtime_erased(
+								queryInfo, plan, ExecType, static_cast<void*>(&func), &invoke_runtime_iter<Func, Iter>, constraints);
+						return;
 					}
 
 					each_runtime_erased(ExecType, static_cast<void*>(&func), &invoke_runtime_iter<Func, Iter>, constraints);
@@ -46618,73 +46710,39 @@ namespace gaia {
 						QueryExecType execType, void* pFunc, void (*invoke)(void*, Iter&), Constraints constraints) {
 					auto& queryInfo = fetch();
 					match_all(queryInfo);
-					each_runtime_erased(queryInfo, execType, pFunc, invoke, constraints);
+					const auto plan = prepare_query_plan(queryInfo, constraints);
+					each_runtime_erased(queryInfo, plan, execType, pFunc, invoke, constraints);
 				}
 
-				//! Runs a type-erased public iterator callback using an already prepared query cache.
+				//! Runs a type-erased public iterator callback using an already prepared query cache and plan.
 				//! \param queryInfo Prepared query cache and execution metadata.
+				//! \param plan Prepared query execution metadata.
 				//! \param execType Query execution mode requested by the public API.
 				//! \param pFunc Pointer to the stored callback object.
 				//! \param invoke Type-erased callback invoker.
 				//! \param constraints Entity-row subset exposed to the callback.
 				void each_runtime_erased(
-						QueryInfo& queryInfo, QueryExecType execType, void* pFunc, void (*invoke)(void*, Iter&),
-						Constraints constraints) {
+						QueryInfo& queryInfo, const QueryPlan& plan, QueryExecType execType, void* pFunc,
+						void (*invoke)(void*, Iter&), Constraints constraints) {
 					RuntimeIterCallback cb{pFunc, invoke};
 
-					if (!queryInfo.has_filters() && can_use_direct_entity_seed_eval(queryInfo)) {
+					if (plan.mode == QueryPlanMode::EntitySeed) {
 						each_direct_iter_inter(queryInfo, constraints, cb);
 						return;
 					}
 
-					switch (constraints) {
-						case Constraints::DisabledOnly:
-							switch (execType) {
-								case QueryExecType::Parallel:
-									run_query_on_chunks<QueryExecType::Parallel, IterModeDisabledOnly>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelPerf:
-									run_query_on_chunks<QueryExecType::ParallelPerf, IterModeDisabledOnly>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelEff:
-									run_query_on_chunks<QueryExecType::ParallelEff, IterModeDisabledOnly>(queryInfo, cb);
-									break;
-								default:
-									run_query_on_chunks<QueryExecType::Default, IterModeDisabledOnly>(queryInfo, cb);
-									break;
-							}
+					switch (execType) {
+						case QueryExecType::Parallel:
+							run_query_on_chunks_runtime_planned<QueryExecType::Parallel>(queryInfo, plan, constraints, cb);
 							break;
-						case Constraints::AcceptAll:
-							switch (execType) {
-								case QueryExecType::Parallel:
-									run_query_on_chunks<QueryExecType::Parallel, IterModeAcceptAll>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelPerf:
-									run_query_on_chunks<QueryExecType::ParallelPerf, IterModeAcceptAll>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelEff:
-									run_query_on_chunks<QueryExecType::ParallelEff, IterModeAcceptAll>(queryInfo, cb);
-									break;
-								default:
-									run_query_on_chunks<QueryExecType::Default, IterModeAcceptAll>(queryInfo, cb);
-									break;
-							}
+						case QueryExecType::ParallelPerf:
+							run_query_on_chunks_runtime_planned<QueryExecType::ParallelPerf>(queryInfo, plan, constraints, cb);
+							break;
+						case QueryExecType::ParallelEff:
+							run_query_on_chunks_runtime_planned<QueryExecType::ParallelEff>(queryInfo, plan, constraints, cb);
 							break;
 						default:
-							switch (execType) {
-								case QueryExecType::Parallel:
-									run_query_on_chunks<QueryExecType::Parallel, IterModeEnabled>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelPerf:
-									run_query_on_chunks<QueryExecType::ParallelPerf, IterModeEnabled>(queryInfo, cb);
-									break;
-								case QueryExecType::ParallelEff:
-									run_query_on_chunks<QueryExecType::ParallelEff, IterModeEnabled>(queryInfo, cb);
-									break;
-								default:
-									run_query_on_chunks<QueryExecType::Default, IterModeEnabled>(queryInfo, cb);
-									break;
-							}
+							run_query_on_chunks_runtime_planned<QueryExecType::Default>(queryInfo, plan, constraints, cb);
 							break;
 					}
 				}
@@ -47973,7 +48031,12 @@ namespace gaia {
 
 #if GAIA_ECS_TEST_HOOKS
 				template <typename Func>
-				GAIA_NODISCARD TypedQueryPlan test_typed_plan(Func func);
+				GAIA_NODISCARD QueryPlan test_typed_plan(Func func);
+
+				//! Returns the prepared public iterator plan for test diagnostics.
+				//! \param constraints Entity-row subset exposed by the iterator plan.
+				//! \return Query execution plan selected for public iterator callbacks.
+				GAIA_NODISCARD QueryPlan test_iter_plan(Constraints constraints = Constraints::EnabledOnly);
 #endif
 
 				//! Returns the cache handle id of this query.
@@ -49664,7 +49727,7 @@ namespace gaia {
 
 #if GAIA_ECS_TEST_HOOKS
 			template <typename Func>
-			inline QueryImpl::TypedQueryPlan QueryImpl::test_typed_plan(Func func) {
+			inline QueryImpl::QueryPlan QueryImpl::test_typed_plan(Func func) {
 				auto& queryInfo = fetch();
 				match_all(queryInfo);
 
@@ -49677,7 +49740,13 @@ namespace gaia {
 				const auto argCount = init_typed_query_arg_metas(metas, world, InputArgs{});
 				const auto state = build_typed_query_exec_state(*this, world, queryInfo, metas, argCount);
 				(void)func;
-				return prepare_typed_query_plan(queryInfo, state);
+				return prepare_query_plan(queryInfo, state);
+			}
+
+			inline QueryImpl::QueryPlan QueryImpl::test_iter_plan(Constraints constraints) {
+				auto& queryInfo = fetch();
+				match_all(queryInfo);
+				return prepare_query_plan(queryInfo, constraints);
 			}
 #endif
 
@@ -50251,12 +50320,27 @@ namespace gaia {
 				}
 			}
 
-			//! Selects the query plan based on current query setup.
-			inline QueryImpl::TypedQueryPlan
-			QueryImpl::prepare_typed_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const {
-				TypedQueryPlan plan{};
+			//! Selects the prepared execution plan for typed callbacks.
+			//! \param queryInfo Prepared query cache and execution metadata.
+			//! \param state Typed callback execution metadata derived from callback arguments.
+			//! \return Query execution plan shared by typed and public iterator adapters.
+			inline QueryImpl::QueryPlan
+			QueryImpl::prepare_query_plan(const QueryInfo& queryInfo, const TypedQueryExecState& state) const {
+				QueryPlan plan{};
+				plan.payloadKind = exec_payload_kind(queryInfo, Constraints::EnabledOnly);
 
 				const bool hasFilters = queryInfo.has_filters();
+				if (hasFilters)
+					plan.flags |= QueryPlanFlag_Filtered;
+				if (queryInfo.has_entity_filter_terms())
+					plan.flags |= QueryPlanFlag_EntityFilter;
+				if (queryInfo.has_inherited_data_payload())
+					plan.flags |= QueryPlanFlag_InheritedPayload;
+				if (queryInfo.has_grouped_payload())
+					plan.flags |= QueryPlanFlag_Grouped;
+				if (queryInfo.has_sorted_payload() || has_depth_order_hierarchy_enabled_barrier(queryInfo))
+					plan.flags |= QueryPlanFlag_Sorted;
+
 				const bool canDirectEntitySeed = !hasFilters && can_use_direct_entity_seed_eval(queryInfo);
 				const bool canDirectChunks = can_use_direct_chunk_iteration_fastpath(queryInfo);
 
@@ -50265,6 +50349,7 @@ namespace gaia {
 					plan.idxFrom = 0;
 					plan.idxTo = (uint32_t)queryInfo.cache_archetype_view().size();
 					if (data.groupBy != EntityBad && m_groupIdSet != 0) {
+						plan.flags |= QueryPlanFlag_Grouped;
 						const auto* pGroupData = queryInfo.selected_group_data(m_groupIdSet);
 						if (pGroupData == nullptr)
 							return false;
@@ -50278,45 +50363,45 @@ namespace gaia {
 
 				if (state.canUseDirectChunkEval && !canDirectEntitySeed && canDirectChunks) {
 					if (!setDenseRange()) {
-						plan.kind = TypedQueryPlanKind::Empty;
+						plan.mode = QueryPlanMode::Empty;
 						plan.idxFrom = 0;
 						plan.idxTo = 0;
 						return plan;
 					}
 
 					if (hasFilters) {
-						plan.kind = TypedQueryPlanKind::DirectDenseFiltered;
+						plan.mode = QueryPlanMode::DirectDense;
 						return plan;
 					}
 
-					plan.kind = TypedQueryPlanKind::DirectDense;
+					plan.mode = QueryPlanMode::DirectDense;
 					return plan;
 				}
 
 				if (canDirectEntitySeed) {
-					plan.kind = TypedQueryPlanKind::EntitySeed;
+					plan.mode = QueryPlanMode::EntitySeed;
 					return plan;
 				}
 
 				if (queryInfo.has_sorted_payload()) {
-					plan.kind = TypedQueryPlanKind::Sorted;
+					plan.mode = QueryPlanMode::Sorted;
 					plan.payloadKind = ExecPayloadKind::NonTrivial;
 					return plan;
 				}
 
 				if (has_depth_order_hierarchy_enabled_barrier(queryInfo)) {
-					plan.kind = TypedQueryPlanKind::Traversal;
+					plan.mode = QueryPlanMode::Traversal;
 					plan.payloadKind = ExecPayloadKind::NonTrivial;
 					return plan;
 				}
 
 				if (!canDirectChunks) {
-					plan.kind = TypedQueryPlanKind::Sorted;
+					plan.mode = QueryPlanMode::Sorted;
 					return plan;
 				}
 
 				if (!state.canUseDirectChunkEval) {
-					plan.kind = hasFilters ? TypedQueryPlanKind::MappedDenseFiltered : TypedQueryPlanKind::MappedDense;
+					plan.mode = QueryPlanMode::MappedDense;
 					return plan;
 				}
 
@@ -50326,13 +50411,14 @@ namespace gaia {
 			//! Runs the prepared direct typed row path for simple cached queries.
 			template <bool HasFilters, typename Func, typename... T>
 			inline void QueryImpl::run_query_on_chunks_direct_typed(
-					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, Func& func,
+					QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, Func& func,
 					core::func_type_list<T...> types) {
 				auto& world = *queryInfo.world();
 				if constexpr (HasFilters) {
-					GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDenseFiltered);
+					GAIA_ASSERT(plan.mode == QueryPlanMode::DirectDense);
+					GAIA_ASSERT((plan.flags & QueryPlanFlag_Filtered) != 0);
 				} else {
-					GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
+					GAIA_ASSERT(plan.mode == QueryPlanMode::DirectDense);
 				}
 
 				auto cacheView = queryInfo.cache_archetype_view();
@@ -50373,17 +50459,17 @@ namespace gaia {
 			}
 
 			inline void QueryImpl::run_query_on_chunks_direct_iter(
-					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
+					QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 					void (*runChunk)(QueryImpl&, Iter& it, void*, const TypedQueryExecState&)) {
 				auto& world = *queryInfo.world();
-				GAIA_ASSERT(plan.kind == TypedQueryPlanKind::DirectDense);
+				GAIA_ASSERT(plan.mode == QueryPlanMode::DirectDense);
 				GAIA_ASSERT(!queryInfo.has_filters());
-				if (state.hasWriteArgs)
-					::gaia::ecs::update_version(*m_worldVersion);
-
 				auto cacheView = queryInfo.cache_archetype_view();
 				if (plan.idxFrom >= plan.idxTo)
 					return;
+
+				if (state.hasWriteArgs)
+					::gaia::ecs::update_version(*m_worldVersion);
 
 				lock(*m_storage.world());
 				Iter it;
@@ -50420,19 +50506,18 @@ namespace gaia {
 			}
 
 			inline void QueryImpl::run_query_on_chunks_direct(
-					QueryInfo& queryInfo, const TypedQueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
+					QueryInfo& queryInfo, const QueryPlan& plan, const TypedQueryExecState& state, void* pFunc,
 					void (*runChunk)(QueryImpl&, Iter& it, void*, const TypedQueryExecState&)) {
 				auto& world = *queryInfo.world();
-				if (state.hasWriteArgs)
-					::gaia::ecs::update_version(*m_worldVersion);
-
 				auto cacheView = queryInfo.cache_archetype_view();
 				if (plan.idxFrom >= plan.idxTo)
 					return;
 
-				GAIA_ASSERT(
-						plan.kind == TypedQueryPlanKind::DirectDense || plan.kind == TypedQueryPlanKind::DirectDenseFiltered);
-				const bool hasFilters = plan.kind == TypedQueryPlanKind::DirectDenseFiltered;
+				if (state.hasWriteArgs)
+					::gaia::ecs::update_version(*m_worldVersion);
+
+				GAIA_ASSERT(plan.mode == QueryPlanMode::DirectDense);
+				const bool hasFilters = (plan.flags & QueryPlanFlag_Filtered) != 0;
 
 				lock(*m_storage.world());
 				Iter it;
@@ -50476,15 +50561,15 @@ namespace gaia {
 
 			template <QueryExecType ExecType>
 			inline void QueryImpl::each_inter(
-					QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
+					QueryInfo& queryInfo, const QueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runDirectChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&),
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
-				if (plan.kind == TypedQueryPlanKind::Empty)
+				if (plan.mode == QueryPlanMode::Empty)
 					return;
 
-				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
+				if (plan.mode == QueryPlanMode::EntitySeed) {
 					GAIA_PROF_SCOPE(query_func);
 					each_direct_inter(
 							queryInfo, Constraints::EnabledOnly, pFunc, state, runDirectChunk, needsInheritedArgIds, invokeInherited);
@@ -50493,7 +50578,7 @@ namespace gaia {
 
 				if (state.canUseDirectChunkEval) {
 					if constexpr (ExecType == QueryExecType::Default) {
-						if (plan.kind == TypedQueryPlanKind::DirectDense || plan.kind == TypedQueryPlanKind::DirectDenseFiltered) {
+						if (plan.mode == QueryPlanMode::DirectDense) {
 							run_query_on_chunks_direct(queryInfo, plan, state, pFunc, runDirectFastChunk);
 							return;
 						}
@@ -50517,15 +50602,13 @@ namespace gaia {
 				TypedQueryArgMeta metas[MAX_ITEMS_IN_QUERY]{};
 				const auto argCount = init_typed_query_arg_metas(metas, world, InputArgs{});
 				const auto state = build_typed_query_exec_state(*this, world, queryInfo, metas, argCount);
-				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				const auto plan = prepare_query_plan(queryInfo, state);
 				if constexpr (ExecType == QueryExecType::Default) {
-					if (plan.kind == TypedQueryPlanKind::DirectDense) {
-						run_query_on_chunks_direct_typed<false>(queryInfo, plan, state, func, InputArgs{});
-						return;
-					}
-
-					if (plan.kind == TypedQueryPlanKind::DirectDenseFiltered) {
-						run_query_on_chunks_direct_typed<true>(queryInfo, plan, state, func, InputArgs{});
+					if (plan.mode == QueryPlanMode::DirectDense) {
+						if ((plan.flags & QueryPlanFlag_Filtered) != 0)
+							run_query_on_chunks_direct_typed<true>(queryInfo, plan, state, func, InputArgs{});
+						else
+							run_query_on_chunks_direct_typed<false>(queryInfo, plan, state, func, InputArgs{});
 						return;
 					}
 				}
@@ -50547,7 +50630,7 @@ namespace gaia {
 					bool needsInheritedArgIds, void (*invokeInherited)(World&, Entity, const Entity*, void*)) {
 				auto& queryInfo = fetch();
 				match_all(queryInfo);
-				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				const auto plan = prepare_query_plan(queryInfo, state);
 
 				switch (execType) {
 					case QueryExecType::Parallel:
@@ -50601,21 +50684,21 @@ namespace gaia {
 
 			template <QueryExecType ExecType>
 			inline void QueryImpl::each_iter_inter_erased(
-					QueryInfo& queryInfo, const TypedQueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
+					QueryInfo& queryInfo, const QueryPlan& plan, void* pFunc, const TypedQueryExecState& state,
 					void (*runDirectFastChunk)(QueryImpl&, Iter&, void*, const TypedQueryExecState&),
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
 				TypedIterErasedCallback cb{this, pFunc, &state, runDirectFastChunk, runMappedChunk};
 
-				if (plan.kind == TypedQueryPlanKind::Empty)
+				if (plan.mode == QueryPlanMode::Empty)
 					return;
 
-				if (plan.kind == TypedQueryPlanKind::EntitySeed) {
+				if (plan.mode == QueryPlanMode::EntitySeed) {
 					each_direct_iter_inter(queryInfo, Constraints::EnabledOnly, cb);
 					return;
 				}
 
 				if constexpr (ExecType == QueryExecType::Default) {
-					if (plan.kind == TypedQueryPlanKind::DirectDense) {
+					if (plan.mode == QueryPlanMode::DirectDense) {
 						run_query_on_chunks_direct_iter(queryInfo, plan, state, pFunc, runDirectFastChunk);
 						return;
 					}
@@ -50630,7 +50713,7 @@ namespace gaia {
 					void (*runMappedChunk)(QueryImpl&, const QueryInfo&, Iter&, void*, const TypedQueryExecState&)) {
 				auto& queryInfo = fetch();
 				match_all(queryInfo);
-				const auto plan = prepare_typed_query_plan(queryInfo, state);
+				const auto plan = prepare_query_plan(queryInfo, state);
 
 				switch (execType) {
 					case QueryExecType::Parallel:

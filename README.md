@@ -1950,10 +1950,12 @@ q.each([&](Position& p, const Velocity& v) {
 >**NOTE:**<br/>If there are 100 Position components in the chunk and only one of them changes, the other 99 are considered changed as well. This chunk-wide behavior might seem counter-intuitive but it is in fact a performance optimization. The reason why this works is because it is easier to reason about a group of entities than checking each of them separately.
 
 Changes are triggered as a result of:
-1) adding or removing an entity
-2) using **World::set** (**World::sset** aka silent set doesn't notify of changes)
-3) using Iter::view_mut (**Iter::sview_mut** aka silent mutation doesn't notify of changes)
-3) automatically done for mutable components passed to query (see the example above)
+1) adding, removing, or moving an entity in a matching chunk
+2) using **World::set** on one of the components tracked by `changed<T>` (**World::sset** aka silent set doesn't notify of changes)
+3) using Iter::view_mut on one of the components tracked by `changed<T>` (**Iter::sview_mut** aka silent mutation doesn't notify of changes)
+3) automatically done for mutable tracked components passed to query (see the example above)
+
+Writes to unrelated components do not make `changed<T>` queries run for `T`; only the tracked component versions and row-order changes are considered.
 
 ### Grouping
 

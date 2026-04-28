@@ -2326,6 +2326,7 @@ TEST_CASE("Query Filter - no systems") {
 
 	auto e = wld.add();
 	wld.add<Position>(e);
+	wld.add<Acceleration>(e);
 
 	// System-less filters
 	{
@@ -2379,7 +2380,17 @@ TEST_CASE("Query Filter - no systems") {
 		q.each([&]([[maybe_unused]] const Position& a) {
 			++cnt;
 		});
-		CHECK(cnt == 0);
+		CHECK(cnt == 0); // no new change since the last time
+	}
+	{
+		wld.set<Acceleration>(e) = {4, 5, 6};
+	}
+	{
+		uint32_t cnt = 0;
+		q.each([&]([[maybe_unused]] const Position& a) {
+			++cnt;
+		});
+		CHECK(cnt == 0); // changing an unrelated component must not trigger changed<Position>
 	}
 	auto e2 = wld.copy(e);
 	(void)e2;
