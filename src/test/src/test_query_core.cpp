@@ -58,29 +58,84 @@ TEST_CASE("Query - QueryResult") {
 	}
 }
 
-TEST_CASE("Query - typed query plan classification") {
-	using PlanKind = ecs::detail::QueryImpl::TypedQueryPlanKind;
+TEST_CASE("Query - query plan classification") {
+	using PlanMode = ecs::detail::QueryImpl::QueryPlanMode;
+	using PayloadKind = ecs::detail::QueryImpl::ExecPayloadKind;
 
 	TestWorld twld;
 	const auto e = wld.add();
 	wld.add<Position>(e, {1.0f, 2.0f, 3.0f});
+	const auto eDisabled = wld.add();
+	wld.add<Position>(eDisabled, {4.0f, 5.0f, 6.0f});
+	wld.enable(eDisabled, false);
 
 	auto q = wld.query().all<Position>();
 	const auto directPlan = q.test_typed_plan([](const Position&) {});
-	CHECK(directPlan.kind == PlanKind::DirectDense);
+	CHECK(directPlan.mode == PlanMode::DirectDense);
+	CHECK(directPlan.flags == ecs::detail::QueryImpl::QueryPlanFlag_None);
 	CHECK(directPlan.idxFrom < directPlan.idxTo);
+
+	const auto iterPlan = q.test_iter_plan();
+	CHECK(iterPlan.mode == PlanMode::DirectDense);
+	CHECK(iterPlan.flags == ecs::detail::QueryImpl::QueryPlanFlag_None);
+	CHECK(iterPlan.idxFrom < iterPlan.idxTo);
+
+	const auto iterAcceptAllPlan = q.test_iter_plan(ecs::Constraints::AcceptAll);
+	CHECK(iterAcceptAllPlan.mode == PlanMode::DirectDense);
+	CHECK(iterAcceptAllPlan.flags == ecs::detail::QueryImpl::QueryPlanFlag_None);
+	CHECK(iterAcceptAllPlan.idxFrom < iterAcceptAllPlan.idxTo);
+
+	const auto iterDisabledPlan = q.test_iter_plan(ecs::Constraints::DisabledOnly);
+	CHECK(iterDisabledPlan.mode == PlanMode::DirectDense);
+	CHECK(iterDisabledPlan.flags == ecs::detail::QueryImpl::QueryPlanFlag_None);
+	CHECK(iterDisabledPlan.idxFrom < iterDisabledPlan.idxTo);
+
+	uint32_t enabledRows = 0;
+	q.each([&](ecs::Iter& it) {
+		enabledRows += it.size();
+	});
+	CHECK(enabledRows == 1);
+
+	uint32_t acceptAllRows = 0;
+	q.each(
+			[&](ecs::Iter& it) {
+				acceptAllRows += it.size();
+			},
+			ecs::Constraints::AcceptAll);
+	CHECK(acceptAllRows == 2);
+
+	uint32_t disabledRows = 0;
+	q.each(
+			[&](ecs::Iter& it) {
+				disabledRows += it.size();
+			},
+			ecs::Constraints::DisabledOnly);
+	CHECK(disabledRows == 1);
 
 	auto qChanged = wld.query().all<Position>().changed<Position>();
 	const auto filteredPlan = qChanged.test_typed_plan([](const Position&) {});
-	CHECK(filteredPlan.kind == PlanKind::DirectDenseFiltered);
+	CHECK(filteredPlan.mode == PlanMode::DirectDense);
+	CHECK((filteredPlan.flags & ecs::detail::QueryImpl::QueryPlanFlag_Filtered) != 0);
 	CHECK(filteredPlan.idxFrom < filteredPlan.idxTo);
+
+	const auto filteredIterPlan = qChanged.test_iter_plan();
+	CHECK(filteredIterPlan.mode == PlanMode::General);
+	CHECK((filteredIterPlan.flags & ecs::detail::QueryImpl::QueryPlanFlag_Filtered) != 0);
 
 	const auto eats = wld.add();
 	const auto missingGroup = wld.add();
 	auto qGrouped = wld.query().all<Position>().group_by(eats).group_id(missingGroup);
 	const auto emptyPlan = qGrouped.test_typed_plan([](const Position&) {});
-	CHECK(emptyPlan.kind == PlanKind::Empty);
+	CHECK(emptyPlan.mode == PlanMode::Empty);
+	CHECK(emptyPlan.payloadKind == PayloadKind::Grouped);
+	CHECK((emptyPlan.flags & ecs::detail::QueryImpl::QueryPlanFlag_Grouped) != 0);
 	CHECK(emptyPlan.idxFrom == emptyPlan.idxTo);
+
+	const auto groupedIterPlan = qGrouped.test_iter_plan();
+	CHECK(groupedIterPlan.mode == PlanMode::Empty);
+	CHECK(groupedIterPlan.payloadKind == PayloadKind::Grouped);
+	CHECK((groupedIterPlan.flags & ecs::detail::QueryImpl::QueryPlanFlag_Grouped) != 0);
+	CHECK(groupedIterPlan.idxFrom == groupedIterPlan.idxTo);
 }
 
 TEST_CASE("Query - direct typed chunk rows") {
