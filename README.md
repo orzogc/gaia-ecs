@@ -1776,35 +1776,55 @@ Supported modifiers:
 * `Id(src)` - source lookup, where `src` can be a variable or `$this` for the default source
 
 ```cpp
-// Some context for the example
-struct Position {...};
-struct Velocity {...};
-struct RigidBody {...};
-struct Fuel {...};
-ecs::Entity player = w.add();
+struct Position { float x, y, z; };
+struct Velocity {};
+struct RigidBody {};
+struct Fuel {};
+struct ConnectedTo {};
+struct Device {};
 
-// Create the query from a string expression.
-ecs::Query q = w.query()
-  .add("&Position, !Velocity, ?RigidBody, (Fuel,*), %e", player.value());
-// expected matches: player (RigidBody is optional)
+ecs::World w;
+const ecs::Entity fuel = w.add<Fuel>().entity;
+const ecs::Entity connectedTo = w.add<ConnectedTo>().entity;
+const ecs::Entity device = w.add();
+const ecs::Entity selected = w.add();
+const ecs::Entity player = w.add();
 
-// It does not matter how we split the expressions. This query is the same as the above.
+w.add<Device>(device);
+w.add<Position>(player, {0.0f, 0.0f, 0.0f});
+w.add<RigidBody>(player);
+w.add(player, ecs::Pair(fuel, device));
+w.add(player, ecs::Pair(connectedTo, device));
+w.add(player, selected);
+
+// Register Velocity so the string expression can resolve its name.
+(void)w.add<Velocity>();
+
+// $device binds the ConnectedTo target. Device($device) then requires Device on that target.
+ecs::Query q = w.query().add(
+  "&Position, !Velocity, ?RigidBody, (Fuel,*), (ConnectedTo,$device), Device($device), %e",
+  selected.value());
+q.count(); // expected: 1 (player)
+
+// Expressions can also be added in parts.
 ecs::Query q1 = w.query()
-  .add("&Position, !Velocity")
-  .add("?RigidBody, (Fuel,*)")
-  .add("%e", player.value());
+  .add("&Position, !Velocity, ?RigidBody")
+  .add("(Fuel,*), (ConnectedTo,$device), Device($device)")
+  .add("%e", selected.value());
 
-// The queries above can be rewritten as following:
+// The same query using the fluent API.
 ecs::Query q2 = w.query()
   .all<Position&>()
   .no<Velocity>()
   .any<RigidBody>()
-  .all(ecs::Pair(w.add<Fuel>().entity, All)>()
-  .all(player);
+  .all(ecs::Pair(fuel, ecs::All))
+  .all(ecs::Pair(connectedTo, ecs::Var0))
+  .all<Device>(ecs::QueryTermOptions{}.src(ecs::Var0))
+  .all(selected);
 
 // OR-chain:
-ecs::Query q3 = w.query().add("Position, Velocity || Acceleration");
-// expected matches: entities with Position and at least one of Velocity/Acceleration
+ecs::Query q3 = w.query().add("Position, Velocity || RigidBody");
+// expected matches: entities with Position and at least one of Velocity/RigidBody
 ```
 
 ### Uncached query
