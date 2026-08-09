@@ -32332,7 +32332,8 @@ namespace gaia {
 		static constexpr uint32_t MaxMemoryBlockSize = UINT16_MAX & ~(MemoryBlockAlignment - 1);
 		//! Reserved bytes at the start of each block for allocator metadata and chunk header alignment headroom.
 		//! Validated against the actual chunk layout in Chunk::chunk_header_size().
-		static constexpr uint32_t MemoryBlockUsableOffset = 40;
+		static_assert(sizeof(uintptr_t) == 4 || sizeof(uintptr_t) == 8);
+		static constexpr uint32_t MemoryBlockUsableOffset = sizeof(uintptr_t) == 4 ? 12 : 40;
 
 		//! Returns the block size represented by an allocator size-class index.
 		//! \param sizeType Size-class index in the range supported by the allocator.
@@ -39654,7 +39655,9 @@ namespace gaia {
 				return (flags & ComponentRawViewFlag_Valid) != 0;
 			}
 		};
-		static_assert(sizeof(ComponentRawView) == 16, "ComponentRawView must stay compact");
+		static_assert(
+				sizeof(ComponentRawView) == sizeof(void*) + sizeof(uint32_t) * 2, "ComponentRawView must not contain padding");
+		static_assert(sizeof(ComponentRawView) <= 16, "ComponentRawView must stay compact");
 
 		//! Non-owning mutable view over raw component bytes on an entity.
 		//!
@@ -39678,7 +39681,10 @@ namespace gaia {
 				return (flags & ComponentRawViewFlag_Valid) != 0;
 			}
 		};
-		static_assert(sizeof(ComponentRawMutView) == 16, "ComponentRawMutView must stay compact");
+		static_assert(
+				sizeof(ComponentRawMutView) == sizeof(void*) + sizeof(uint32_t) * 2,
+				"ComponentRawMutView must not contain padding");
+		static_assert(sizeof(ComponentRawMutView) <= 16, "ComponentRawMutView must stay compact");
 
 		//! Resolves raw read-only bytes for iterator entity-backed access.
 		//! \param world World containing the component value.

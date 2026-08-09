@@ -48,7 +48,9 @@ namespace gaia {
 				return (flags & ComponentRawViewFlag_Valid) != 0;
 			}
 		};
-		static_assert(sizeof(ComponentRawView) == 16, "ComponentRawView must stay compact");
+		static_assert(
+				sizeof(ComponentRawView) == sizeof(void*) + sizeof(uint32_t) * 2, "ComponentRawView must not contain padding");
+		static_assert(sizeof(ComponentRawView) <= 16, "ComponentRawView must stay compact");
 
 		//! Non-owning mutable view over raw component bytes on an entity.
 		//!
@@ -72,7 +74,10 @@ namespace gaia {
 				return (flags & ComponentRawViewFlag_Valid) != 0;
 			}
 		};
-		static_assert(sizeof(ComponentRawMutView) == 16, "ComponentRawMutView must stay compact");
+		static_assert(
+				sizeof(ComponentRawMutView) == sizeof(void*) + sizeof(uint32_t) * 2,
+				"ComponentRawMutView must not contain padding");
+		static_assert(sizeof(ComponentRawMutView) <= 16, "ComponentRawMutView must stay compact");
 
 		//! Resolves raw read-only bytes for iterator entity-backed access.
 		//! \param world World containing the component value.

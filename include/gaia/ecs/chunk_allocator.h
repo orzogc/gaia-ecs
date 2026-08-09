@@ -39,7 +39,8 @@ namespace gaia {
 		static constexpr uint32_t MaxMemoryBlockSize = UINT16_MAX & ~(MemoryBlockAlignment - 1);
 		//! Reserved bytes at the start of each block for allocator metadata and chunk header alignment headroom.
 		//! Validated against the actual chunk layout in Chunk::chunk_header_size().
-		static constexpr uint32_t MemoryBlockUsableOffset = 40;
+		static_assert(sizeof(uintptr_t) == 4 || sizeof(uintptr_t) == 8);
+		static constexpr uint32_t MemoryBlockUsableOffset = sizeof(uintptr_t) == 4 ? 12 : 40;
 
 		//! Returns the block size represented by an allocator size-class index.
 		//! \param sizeType Size-class index in the range supported by the allocator.
