@@ -2,6 +2,7 @@
 // The file is generated. Do not edit it.
 #pragma once
 
+
 #if __has_include(<version.h>)
 	#include <version.h>
 #endif
@@ -735,8 +736,8 @@ namespace gaia {
 	#define GAIA_USE_PREFETCH 1
 #endif
 
-//! If enabled, util::SmallFunc and util::MoveFunc use SmallBlockAllocator for callables too large for their inline
-//! buffer. Disable this to allocate those larger callables with the platform heap.
+//! If enabled, util::SmallFunc and util::MoveFunc use SmallBlockAllocator for callables too large for their inline buffer.
+//! Disable this to allocate those larger callables with the platform heap.
 #ifndef GAIA_FUNC_WRAPPER_SMALLBLOCK
 	#define GAIA_FUNC_WRAPPER_SMALLBLOCK 1
 #endif
@@ -818,6 +819,7 @@ namespace gaia {
 
 //------------------------------------------------------------------------------
 
+
 //------------------------------------------------------------------------------
 // DO NOT MODIFY THIS FILE
 //------------------------------------------------------------------------------
@@ -887,7 +889,7 @@ namespace gaia {
 				GAIA_MSVC_WARNING_POP()                                                                                        \
 			}
 	#else
-	// For non-Debug builds simulate asserts
+		// For non-Debug builds simulate asserts
 		#if GAIA_DEBUG
 			#define GAIA_ASSERT_ENABLED 1
 			#define GAIA_ASSERT(cond)                                                                                        \
@@ -1040,6 +1042,7 @@ namespace gaia {
 #else
 	#include <alloca.h>
 #endif
+
 
 #include <cstddef>
 #include <type_traits>
@@ -4422,7 +4425,9 @@ namespace tracy {
 	#endif
 #endif
 
+
 #include <cstdint>
+
 
 // The same gaia headers used inside span_impl.h must be included here.
 // Amalgamated file would not be generated properly otherwise
@@ -4439,8 +4444,10 @@ namespace tracy {
 // (See accompanying file ../../LICENSE_1_0.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-	#include <tuple>
-	#include <type_traits>
+
+#include <tuple>
+#include <type_traits>
+
 
 namespace gaia {
 	namespace core {
@@ -5181,9 +5188,11 @@ namespace gaia {
 	} // namespace core
 } // namespace gaia
 
+
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace meta {
@@ -5547,6 +5556,7 @@ namespace gaia {
 	} // namespace meta
 } // namespace gaia
 
+
 namespace gaia {
 	namespace meta {
 
@@ -5636,9 +5646,11 @@ namespace gaia {
 	} // namespace meta
 } // namespace gaia
 
+
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 #include <cstdint>
 #include <cstring>
@@ -6956,6 +6968,7 @@ namespace gaia {
 #include <cstdint>
 #include <type_traits>
 
+
 namespace gaia {
 	namespace mem {
 		//! Reports whether a type supports a copy operation used by Gaia-ECS storage.
@@ -7600,6 +7613,7 @@ namespace gaia {
 
 #include <cinttypes>
 
+
 namespace gaia {
 	namespace mem {
 		//! \cond INTERNAL
@@ -7648,6 +7662,8 @@ namespace gaia {
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+
+
 
 namespace gaia {
 	namespace cnt {
@@ -7875,10 +7891,12 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -8273,10 +8291,13 @@ namespace gaia {
 #include <cstdint>
 #include <cstdio>
 
+
+
 #include <cstddef>
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -10014,6 +10035,7 @@ namespace gaia {
 
 #include <cinttypes>
 
+
 namespace gaia {
 	namespace mem {
 		//! \cond INTERNAL
@@ -10168,8 +10190,10 @@ namespace gaia {
 	} // namespace mem
 } // namespace gaia
 
+
 #include <cstdint>
 #include <type_traits>
+
 
 #include <cstdint>
 #include <type_traits>
@@ -10719,10 +10743,12 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -11368,10 +11394,12 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -12291,10 +12319,12 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -13141,6 +13171,7 @@ namespace gaia {
 #include <cstdint>
 #include <type_traits>
 
+
 namespace gaia {
 	namespace cnt {
 		//! Dynamically sized bit set.
@@ -13629,6 +13660,7 @@ namespace gaia {
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+
 
 namespace gaia {
 	namespace cnt {
@@ -14809,6 +14841,26 @@ namespace gaia {
 				return *pPage->ptr(slot);
 			}
 
+			//! Returns a constructed payload slot without consulting shared liveness metadata.
+			//! \param index Slot index to access.
+			//! \return Mutable reference to the payload at \a index.
+			//! \warning The caller must guarantee that the page and payload are constructed and remain alive.
+			GAIA_NODISCARD reference payload_unsafe(size_type index) {
+				auto* pPage = try_page(index);
+				GAIA_ASSERT(pPage != nullptr);
+				return *pPage->ptr(slot_index(index));
+			}
+
+			//! Returns a constructed payload slot without consulting shared liveness metadata.
+			//! \param index Slot index to access.
+			//! \return Immutable reference to the payload at \a index.
+			//! \warning The caller must guarantee that the page and payload are constructed and remain alive.
+			GAIA_NODISCARD const_reference payload_unsafe(size_type index) const {
+				const auto* pPage = try_page(index);
+				GAIA_ASSERT(pPage != nullptr);
+				return *pPage->ptr(slot_index(index));
+			}
+
 			//! Attempts to access a live payload.
 			//! \param index Slot index to inspect.
 			//! \return Pointer to the live payload, or nullptr when the slot is not live.
@@ -14967,7 +15019,7 @@ namespace gaia {
 			//! \param handle Handle identifying the item to release.
 			//! \warning The slot becomes part of the free-list even though its payload remains alive.
 			//!          Iteration and has(handle) treat it as released because the generation changes.
-			//!          Callers that inspect the payload afterward must use live_unsafe() and must
+			//!          Callers that inspect the payload afterward must use payload_unsafe() and must
 			//!          guarantee the slot has not been reused.
 			//! \note This is intended for systems that need released-state inspectability without
 			//!       moving page storage while other background work may still observe job data.
@@ -15035,20 +15087,21 @@ namespace gaia {
 // SOFTWARE.
 
 #ifndef ROBIN_HOOD_H_INCLUDED
-	#define ROBIN_HOOD_H_INCLUDED
+#define ROBIN_HOOD_H_INCLUDED
 
-	// see https://semver.org/
-	#define ROBIN_HOOD_VERSION_MAJOR 3 // for incompatible API changes
-	#define ROBIN_HOOD_VERSION_MINOR 11 // for adding functionality in a backwards-compatible manner
-	#define ROBIN_HOOD_VERSION_PATCH 5 // for backwards-compatible bug fixes
+// see https://semver.org/
+#define ROBIN_HOOD_VERSION_MAJOR 3 // for incompatible API changes
+#define ROBIN_HOOD_VERSION_MINOR 11 // for adding functionality in a backwards-compatible manner
+#define ROBIN_HOOD_VERSION_PATCH 5 // for backwards-compatible bug fixes
 
-	#include <cstdlib>
-	#include <cstring>
-	#include <initializer_list>
-	#include <new>
-	#include <tuple>
-	#include <type_traits>
-	#include <utility>
+
+#include <cstdlib>
+#include <cstring>
+#include <initializer_list>
+#include <new>
+#include <tuple>
+#include <type_traits>
+#include <utility>
 
 //! \file
 //! \brief Compile-time serialization entry points.
@@ -15057,14 +15110,18 @@ namespace gaia {
 //! Best suited when the serializer type is known at compile time.
 //! This is a binary traversal API. JSON document I/O uses ser::ser_json.
 
-	#include <type_traits>
-	#include <utility>
 
-	#include <type_traits>
-	#include <utility>
+#include <type_traits>
+#include <utility>
 
-	#include <cstdint>
-	#include <type_traits>
+
+#include <type_traits>
+#include <utility>
+
+
+#include <cstdint>
+#include <type_traits>
+
 
 namespace gaia {
 	namespace ser {
@@ -15423,7 +15480,7 @@ namespace gaia {
 				load_dispatch(s, arg, loadTrivial);
 			}
 
-	#if GAIA_ASSERT_ENABLED
+#if GAIA_ASSERT_ENABLED
 			template <typename Writer, typename T>
 			void check_one(Writer& s, const T& arg) {
 				T tmp{};
@@ -15440,7 +15497,7 @@ namespace gaia {
 				// Return back to the original position in the buffer.
 				s.seek(pos0);
 			}
-	#endif
+#endif
 
 			//! Minimal writer used by ser::bytes to count produced bytes without storing data.
 			class size_counter {
@@ -15501,7 +15558,7 @@ namespace gaia {
 			detail::load_one(reader, data);
 		}
 
-	#if GAIA_ASSERT_ENABLED
+#if GAIA_ASSERT_ENABLED
 		//! Write \param data using \tparam Writer at compile-time, then read it afterwards.
 		//! Used to verify that both save and load work correctly.
 		//! \param writer Writer used to serialize \a data.
@@ -15514,116 +15571,116 @@ namespace gaia {
 		void check(Writer& writer, const T& data) {
 			detail::check_one(writer, data);
 		}
-	#endif
+#endif
 	} // namespace ser
 } // namespace gaia
 
-	// #define ROBIN_HOOD_STD_SMARTPOINTERS
-	#if defined(ROBIN_HOOD_STD_SMARTPOINTERS)
-		#include <memory>
-	#endif
+// #define ROBIN_HOOD_STD_SMARTPOINTERS
+#if defined(ROBIN_HOOD_STD_SMARTPOINTERS)
+	#include <memory>
+#endif
 
-	// #define ROBIN_HOOD_LOG_ENABLED
-	#ifdef ROBIN_HOOD_LOG_ENABLED
-		#define ROBIN_HOOD_LOG(x, ...) GAIA_LOG_D("L:%s@%d: " x, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+// #define ROBIN_HOOD_LOG_ENABLED
+#ifdef ROBIN_HOOD_LOG_ENABLED
+	#define ROBIN_HOOD_LOG(x, ...) GAIA_LOG_D("L:%s@%d: " x, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+	#define ROBIN_HOOD_LOG(x, ...)
+#endif
+
+// #define ROBIN_HOOD_TRACE_ENABLED
+#ifdef ROBIN_HOOD_TRACE_ENABLED
+	#define ROBIN_HOOD_TRACE(x, ...) GAIA_LOG_D("T:%s@%d: " x, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+	#define ROBIN_HOOD_TRACE(x, ...)
+#endif
+
+// all non-argument macros should use this facility. See
+// https://www.fluentcpp.com/2019/05/28/better-macros-better-flags/
+#define ROBIN_HOOD(x) ROBIN_HOOD_PRIVATE_DEFINITION_##x()
+
+// mark unused members with this macro
+#define ROBIN_HOOD_UNUSED(identifier)
+
+// bitness
+#if SIZE_MAX == UINT32_MAX
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() 32
+#elif SIZE_MAX == UINT64_MAX
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() 64
+#else
+	#error Unsupported bitness
+#endif
+
+// exceptions
+#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_EXCEPTIONS() 0
+	#define ROBIN_HOOD_STD_OUT_OF_RANGE void
+#else
+	#include <stdexcept>
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_EXCEPTIONS() 1
+	#define ROBIN_HOOD_STD_OUT_OF_RANGE std::out_of_range
+#endif
+
+// count leading/trailing bits
+#if !defined(ROBIN_HOOD_DISABLE_INTRINSICS)
+	#if ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() == 32
+		#define ROBIN_HOOD_COUNT_TRAILING_ZEROES(x) GAIA_CLZ(x)
+		#define ROBIN_HOOD_COUNT_LEADING_ZEROES(x) GAIA_CTZ(x)
 	#else
-		#define ROBIN_HOOD_LOG(x, ...)
+		#define ROBIN_HOOD_COUNT_TRAILING_ZEROES(x) GAIA_CLZ64(x)
+		#define ROBIN_HOOD_COUNT_LEADING_ZEROES(x) GAIA_CTZ64(x)
 	#endif
+#endif
 
-	// #define ROBIN_HOOD_TRACE_ENABLED
-	#ifdef ROBIN_HOOD_TRACE_ENABLED
-		#define ROBIN_HOOD_TRACE(x, ...) GAIA_LOG_D("T:%s@%d: " x, __FUNCTION__, __LINE__, ##__VA_ARGS__)
-	#else
-		#define ROBIN_HOOD_TRACE(x, ...)
-	#endif
+// fallthrough
+#ifndef __has_cpp_attribute // For backwards compatibility
+	#define __has_cpp_attribute(x) 0
+#endif
+#if __has_cpp_attribute(fallthrough)
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_FALLTHROUGH() [[fallthrough]]
+#else
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_FALLTHROUGH()
+#endif
 
-	// all non-argument macros should use this facility. See
-	// https://www.fluentcpp.com/2019/05/28/better-macros-better-flags/
-	#define ROBIN_HOOD(x) ROBIN_HOOD_PRIVATE_DEFINITION_##x()
-
-	// mark unused members with this macro
-	#define ROBIN_HOOD_UNUSED(identifier)
-
-	// bitness
-	#if SIZE_MAX == UINT32_MAX
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() 32
-	#elif SIZE_MAX == UINT64_MAX
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() 64
-	#else
-		#error Unsupported bitness
-	#endif
-
-	// exceptions
-	#if !defined(__cpp_exceptions) && !defined(__EXCEPTIONS) && !defined(_CPPUNWIND)
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_EXCEPTIONS() 0
-		#define ROBIN_HOOD_STD_OUT_OF_RANGE void
-	#else
-		#include <stdexcept>
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_EXCEPTIONS() 1
-		#define ROBIN_HOOD_STD_OUT_OF_RANGE std::out_of_range
-	#endif
-
-	// count leading/trailing bits
-	#if !defined(ROBIN_HOOD_DISABLE_INTRINSICS)
-		#if ROBIN_HOOD_PRIVATE_DEFINITION_BITNESS() == 32
-			#define ROBIN_HOOD_COUNT_TRAILING_ZEROES(x) GAIA_CLZ(x)
-			#define ROBIN_HOOD_COUNT_LEADING_ZEROES(x) GAIA_CTZ(x)
-		#else
-			#define ROBIN_HOOD_COUNT_TRAILING_ZEROES(x) GAIA_CLZ64(x)
-			#define ROBIN_HOOD_COUNT_LEADING_ZEROES(x) GAIA_CTZ64(x)
-		#endif
-	#endif
-
-	// fallthrough
-	#ifndef __has_cpp_attribute // For backwards compatibility
-		#define __has_cpp_attribute(x) 0
-	#endif
-	#if __has_cpp_attribute(fallthrough)
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_FALLTHROUGH() [[fallthrough]]
-	#else
-		#define ROBIN_HOOD_PRIVATE_DEFINITION_FALLTHROUGH()
-	#endif
-
-	// detect if native wchar_t type is availiable in MSVC
-	#ifdef _MSC_VER
-		#ifdef _NATIVE_WCHAR_T_DEFINED
-			#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 1
-		#else
-			#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 0
-		#endif
-	#else
+// detect if native wchar_t type is availiable in MSVC
+#ifdef _MSC_VER
+	#ifdef _NATIVE_WCHAR_T_DEFINED
 		#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 1
+	#else
+		#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 0
 	#endif
+#else
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 1
+#endif
 
-	// detect if MSVC supports the pair(std::piecewise_construct_t,...) constructor being constexpr
-	#ifdef _MSC_VER
-		#if _MSC_VER <= 1900
-			#define ROBIN_HOOD_PRIVATE_DEFINITION_BROKEN_CONSTEXPR() 1
-		#else
-			#define ROBIN_HOOD_PRIVATE_DEFINITION_BROKEN_CONSTEXPR() 0
-		#endif
+// detect if MSVC supports the pair(std::piecewise_construct_t,...) constructor being constexpr
+#ifdef _MSC_VER
+	#if _MSC_VER <= 1900
+		#define ROBIN_HOOD_PRIVATE_DEFINITION_BROKEN_CONSTEXPR() 1
 	#else
 		#define ROBIN_HOOD_PRIVATE_DEFINITION_BROKEN_CONSTEXPR() 0
 	#endif
+#else
+	#define ROBIN_HOOD_PRIVATE_DEFINITION_BROKEN_CONSTEXPR() 0
+#endif
 
-	// workaround missing "is_trivially_copyable" in g++ < 5.0
-	// See https://stackoverflow.com/a/31798726/48181
-	#if GAIA_COMPILER_GCC && __GNUC__ < 5
-		#define ROBIN_HOOD_IS_TRIVIALLY_COPYABLE(...) __has_trivial_copy(__VA_ARGS__)
-	#else
-		#define ROBIN_HOOD_IS_TRIVIALLY_COPYABLE(...) std::is_trivially_copyable<__VA_ARGS__>::value
-	#endif
+// workaround missing "is_trivially_copyable" in g++ < 5.0
+// See https://stackoverflow.com/a/31798726/48181
+#if GAIA_COMPILER_GCC && __GNUC__ < 5
+	#define ROBIN_HOOD_IS_TRIVIALLY_COPYABLE(...) __has_trivial_copy(__VA_ARGS__)
+#else
+	#define ROBIN_HOOD_IS_TRIVIALLY_COPYABLE(...) std::is_trivially_copyable<__VA_ARGS__>::value
+#endif
 
 namespace robin_hood {
 
 	namespace detail {
 
-	// make sure we static_cast to the correct type for hash_int
-	#if ROBIN_HOOD(BITNESS) == 64
+// make sure we static_cast to the correct type for hash_int
+#if ROBIN_HOOD(BITNESS) == 64
 		using SizeT = uint64_t;
-	#else
+#else
 		using SizeT = uint32_t;
-	#endif
+#endif
 
 		template <typename T>
 		T rotr(T x, unsigned k) {
@@ -15653,16 +15710,16 @@ namespace robin_hood {
 		// inlinings more difficult. Throws are also generally the slow path.
 		template <typename E, typename... Args>
 		[[noreturn]] GAIA_NOINLINE
-	#if ROBIN_HOOD(HAS_EXCEPTIONS)
+#if ROBIN_HOOD(HAS_EXCEPTIONS)
 				void doThrow(Args&&... args) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 			throw E(GAIA_FWD(args)...);
 		}
-	#else
+#else
 				void doThrow(Args&&... ROBIN_HOOD_UNUSED(args) /*unused*/) {
 			abort();
 		}
-	#endif
+#endif
 
 		template <typename E, typename T, typename... Args>
 		T* assertNotNull(T* t, Args&&... args) {
@@ -15909,9 +15966,9 @@ namespace robin_hood {
 		template <typename... U1, typename... U2>
 		// MSVC 2015 produces error "C2476: ‘constexpr’ constructor does not initialize all members"
 		// if this constructor is constexpr
-	#if !ROBIN_HOOD(BROKEN_CONSTEXPR)
+#if !ROBIN_HOOD(BROKEN_CONSTEXPR)
 		constexpr
-	#endif
+#endif
 				pair(std::piecewise_construct_t /*unused*/, std::tuple<U1...> a, std::tuple<U2...> b) noexcept(noexcept(pair(
 						std::declval<std::tuple<U1...>&>(), std::declval<std::tuple<U2...>&>(), std::index_sequence_for<U1...>(),
 						std::index_sequence_for<U2...>()))):
@@ -16057,7 +16114,7 @@ namespace robin_hood {
 		}
 	};
 
-	#ifdef ROBIN_HOOD_STD_SMARTPOINTERS
+#ifdef ROBIN_HOOD_STD_SMARTPOINTERS
 	template <typename T>
 	struct hash<std::unique_ptr<T>> {
 		size_t operator()(std::unique_ptr<T> const& ptr) const noexcept {
@@ -16071,7 +16128,7 @@ namespace robin_hood {
 			return hash_int(reinterpret_cast<detail::SizeT>(ptr.get()));
 		}
 	};
-	#endif
+#endif
 
 	template <typename Enum>
 	struct hash<Enum, typename std::enable_if<std::is_enum<Enum>::value>::type> {
@@ -16091,18 +16148,18 @@ namespace robin_hood {
 		}
 	};
 
-	#define ROBIN_HOOD_HASH_INT(T)                                                                                       \
-		template <>                                                                                                        \
-		struct hash<T> {                                                                                                   \
-			size_t operator()(T const& obj) const noexcept {                                                                 \
-				return hash_int(static_cast<uint64_t>(obj));                                                                   \
-			}                                                                                                                \
-		}
+#define ROBIN_HOOD_HASH_INT(T)                                                                                         \
+	template <>                                                                                                          \
+	struct hash<T> {                                                                                                     \
+		size_t operator()(T const& obj) const noexcept {                                                                   \
+			return hash_int(static_cast<uint64_t>(obj));                                                                     \
+		}                                                                                                                  \
+	}
 
-	#if defined(__GNUC__) && !defined(__clang__)
-		#pragma GCC diagnostic push
-		#pragma GCC diagnostic ignored "-Wuseless-cast"
-	#endif
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wuseless-cast"
+#endif
 	// see https://en.cppreference.com/w/cpp/utility/hash
 	ROBIN_HOOD_HASH_INT(bool);
 	ROBIN_HOOD_HASH_INT(char);
@@ -16110,9 +16167,9 @@ namespace robin_hood {
 	ROBIN_HOOD_HASH_INT(unsigned char);
 	ROBIN_HOOD_HASH_INT(char16_t);
 	ROBIN_HOOD_HASH_INT(char32_t);
-	#if ROBIN_HOOD(HAS_NATIVE_WCHART)
+#if ROBIN_HOOD(HAS_NATIVE_WCHART)
 	ROBIN_HOOD_HASH_INT(wchar_t);
-	#endif
+#endif
 	ROBIN_HOOD_HASH_INT(short);
 	ROBIN_HOOD_HASH_INT(unsigned short);
 	ROBIN_HOOD_HASH_INT(int);
@@ -16121,9 +16178,9 @@ namespace robin_hood {
 	ROBIN_HOOD_HASH_INT(long long);
 	ROBIN_HOOD_HASH_INT(unsigned long);
 	ROBIN_HOOD_HASH_INT(unsigned long long);
-	#if defined(__GNUC__) && !defined(__clang__)
-		#pragma GCC diagnostic pop
-	#endif
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 	namespace detail {
 		template <typename, typename = void>
 		struct has_is_transparent: public std::false_type {};
@@ -16550,7 +16607,7 @@ namespace robin_hood {
 						mKeyVals += sizeof(size_t);
 						GAIA_MSVC_WARNING_POP()
 					}
-	#if defined(ROBIN_HOOD_DISABLE_INTRINSICS)
+#if defined(ROBIN_HOOD_DISABLE_INTRINSICS)
 					// we know for certain that within the next 8 bytes we'll find a non-zero one.
 					if GAIA_UNLIKELY (0U == detail::unaligned_load<uint32_t>(mInfo)) {
 						mInfo += 4;
@@ -16564,15 +16621,15 @@ namespace robin_hood {
 						mInfo += 1;
 						mKeyVals += 1;
 					}
-	#else
-		#if GAIA_LITTLE_ENDIAN
+#else
+	#if GAIA_LITTLE_ENDIAN
 					auto inc = ROBIN_HOOD_COUNT_TRAILING_ZEROES(n) / 8;
-		#else
+	#else
 					auto inc = ROBIN_HOOD_COUNT_LEADING_ZEROES(n) / 8;
-		#endif
+	#endif
 					mInfo += inc;
 					mKeyVals += inc;
-	#endif
+#endif
 				}
 
 				friend class Table<IsFlat, MaxLoadFactor100, key_type, mapped_type, hasher, key_equal>;
@@ -17493,9 +17550,9 @@ namespace robin_hood {
 
 			// calculation only allowed for 2^n values
 			GAIA_NODISCARD size_t calcNumBytesTotal(size_t numElements) const {
-	#if ROBIN_HOOD(BITNESS) == 64
+#if ROBIN_HOOD(BITNESS) == 64
 				return (numElements * sizeof(Node)) + calcNumBytesInfo(numElements);
-	#else
+#else
 				// make sure we're doing 64bit operations, so we are at least safe against 32bit overflows.
 				auto const ne = static_cast<uint64_t>(numElements);
 				auto const s = static_cast<uint64_t>(sizeof(Node));
@@ -17508,7 +17565,7 @@ namespace robin_hood {
 					throwOverflowError();
 				}
 				return total;
-	#endif
+#endif
 			}
 
 		private:
@@ -17584,11 +17641,11 @@ namespace robin_hood {
 			}
 
 			GAIA_NOINLINE void throwOverflowError() const {
-	#if ROBIN_HOOD(HAS_EXCEPTIONS)
+#if ROBIN_HOOD(HAS_EXCEPTIONS)
 				throw std::overflow_error("robin_hood::map overflow");
-	#else
+#else
 				abort();
-	#endif
+#endif
 			}
 
 			template <typename OtherKey, typename... Args>
@@ -17951,10 +18008,12 @@ namespace gaia {
 #include <type_traits>
 #include <utility>
 
+
 #include <cinttypes>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
+
 
 namespace gaia {
 	namespace mem {
@@ -19781,12 +19840,14 @@ namespace gaia {
 
 } // namespace gaia
 
+
 #include <cstddef>
 #include <initializer_list>
 #include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -20389,12 +20450,14 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <initializer_list>
 #include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -21175,11 +21238,13 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 #include <cstddef>
 #include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -21748,6 +21813,7 @@ namespace gaia {
 	} // namespace cnt
 } // namespace gaia
 
+
 namespace gaia {
 	namespace cnt {
 		//! Flat hash set used by Gaia-ECS containers.
@@ -21761,6 +21827,7 @@ namespace gaia {
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace cnt {
@@ -23655,6 +23722,7 @@ namespace gaia {
 #include <type_traits>
 #include <utility>
 
+
 namespace gaia {
 	namespace cnt {
 		//! \cond INTERNAL
@@ -24143,11 +24211,13 @@ namespace gaia {
 
 } // namespace gaia
 
+
 #include <cstddef>
 #include <cstdint>
 #include <new>
 #include <type_traits>
 #include <utility>
+
 
 #include <functional>
 #include <type_traits>
@@ -24493,6 +24563,7 @@ namespace gaia {
 #include <tuple>
 #include <typeinfo>
 #include <utility>
+
 
 namespace gaia {
 	namespace util {
@@ -25211,6 +25282,7 @@ namespace gaia {
 #include <cstdint>
 #include <cstring>
 
+
 namespace gaia {
 	namespace util {
 		//! Lightweight non-owning string view over a character sequence.
@@ -25858,7 +25930,10 @@ namespace gaia {
 	} // namespace util
 } // namespace gaia
 
+
+
 #include <type_traits>
+
 
 namespace gaia {
 	namespace ser {
@@ -26018,6 +26093,7 @@ namespace gaia {
 
 #include <type_traits>
 #include <utility>
+
 
 namespace gaia {
 	namespace ser {
@@ -26397,6 +26473,7 @@ namespace gaia {
 	#include <cstring>
 	#include <limits>
 	#include <type_traits>
+
 
 namespace gaia {
 	namespace ser {
@@ -27475,6 +27552,8 @@ namespace gaia {
 
 #endif
 
+
+
 #if GAIA_PLATFORM_WINDOWS
 	#include <cstdio>
 	#include <windows.h>
@@ -27519,6 +27598,8 @@ namespace gaia {
 #include <atomic>
 #include <thread>
 
+
+
 #if GAIA_PLATFORM_WINDOWS
 	#define GAIA_USE_MT_STD 1
 #endif
@@ -27532,8 +27613,8 @@ namespace gaia {
 
 namespace gaia {
 	namespace mt {
-		//! Manual-reset style synchronization primitive for waking a waiting thread.
-		//! The event stays signaled until reset explicitly.
+		//! Auto-reset synchronization primitive for waking one waiting thread.
+		//! A successful wait consumes the signaled state.
 		class GAIA_API Event final {
 #if GAIA_USE_MT_STD
 			GAIA_PROF_MUTEX(std::mutex, m_mtx);
@@ -27633,6 +27714,7 @@ namespace gaia {
 				m_cv.wait(lock, [&] {
 					return m_set;
 				});
+				m_set = false;
 #else
 				[[maybe_unused]] int ret{};
 				auto wait = [&]() {
@@ -27642,8 +27724,6 @@ namespace gaia {
 						} while (!ret && !m_set);
 
 						GAIA_ASSERT(ret != EINVAL);
-						if (!ret)
-							m_set = false;
 					} else {
 						ret = 0;
 					}
@@ -27655,7 +27735,8 @@ namespace gaia {
 				GAIA_ASSERT(ret == 0);
 
 				int res = wait(); // true: signaled, false: timeout or error
-				(void)res;
+				if (res == 0)
+					m_set = false;
 
 				ret = pthread_mutex_unlock(&m_hMutexHandle);
 				GAIA_ASSERT(ret == 0);
@@ -27667,6 +27748,7 @@ namespace gaia {
 
 #include <atomic>
 #include <mutex>
+
 
 namespace gaia {
 	namespace mt {
@@ -27801,7 +27883,10 @@ namespace gaia {
 #include <type_traits>
 #include <utility>
 
+
+
 #include <atomic>
+
 
 #include <cstdint>
 #include <type_traits>
@@ -28004,6 +28089,7 @@ namespace gaia {
 			}
 
 			//! Tries adding a job to the queue. FIFO.
+			//! \param jobHandle Handle of the job to add.
 			//! \return True if the job was added. False otherwise (e.g. maximum capacity has been reached).
 			GAIA_NODISCARD bool try_push(JobHandle jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_push);
@@ -28015,14 +28101,14 @@ namespace gaia {
 					return false;
 
 				m_buffer[b & MASK].store(jobHandle.value(), std::memory_order_relaxed);
-				// Make sure the handle is written before we update the bottom
-				std::atomic_thread_fence(std::memory_order_release);
-				m_bottom.store(b + 1, std::memory_order_relaxed);
+				// Publish the handle together with the updated queue boundary.
+				m_bottom.store(b + 1, std::memory_order_release);
 
 				return true;
 			}
 
 			//! Tries adding a job to the queue. FIFO.
+			//! \param jobHandles Jobs to add.
 			//! \return The number of handles that were successfully added.
 			GAIA_NODISCARD uint32_t try_push(std::span<JobHandle> jobHandles) {
 				GAIA_PROF_SCOPE(JobQueue::try_push);
@@ -28036,14 +28122,14 @@ namespace gaia {
 
 				for (uint32_t i = 0; i < freeFinal; i++, b++)
 					m_buffer[b & MASK].store(jobHandles[i].value(), std::memory_order_relaxed);
-				// Make sure handles are written before we update the bottom
-				std::atomic_thread_fence(std::memory_order_release);
-				m_bottom.store(b, std::memory_order_relaxed);
+				// Publish all handles together with the updated queue boundary.
+				m_bottom.store(b, std::memory_order_release);
 
 				return freeFinal;
 			}
 
-			//! Tries retrieving a job to the queue. FIFO.
+			//! Tries retrieving a job from the owner end of the queue.
+			//! \param jobHandle Receives the retrieved job.
 			//! \return True if the job was retrieved. False otherwise (e.g. there are no jobs).
 			GAIA_NODISCARD bool try_pop(JobHandle& jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_pop);
@@ -28079,8 +28165,9 @@ namespace gaia {
 				return false; // false = empty, don't use jobHandle
 			}
 
-			//! Tries stealing a job from the queue. LIFO.
-			//! \return True if the job was stolen. False otherwise (e.g. there are no jobs).
+			//! Tries stealing a job from the opposite end of the queue.
+			//! \param jobHandle Receives the stolen job, or JobNull when the queue is empty.
+			//! \return False only when another consumer wins the same job.
 			GAIA_NODISCARD bool try_steal(JobHandle& jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_steal);
 
@@ -28509,8 +28596,10 @@ namespace gaia {
 	} // namespace mt
 } // namespace gaia
 
+
 #include <atomic>
 #include <cinttypes>
+
 
 #define GAIA_LOG_JOB_STATES 0
 
@@ -28738,15 +28827,22 @@ namespace gaia {
 			cnt::ilist<ParallelCallbackRecord, ParallelCallbackHandle> m_parallelCallbacks;
 
 		public:
+			//! Checks whether \a jobHandle identifies its current live job.
+			//! \param jobHandle Handle to validate.
+			//! \return True when the slot is live and its generation matches.
+			GAIA_NODISCARD bool valid(JobHandle jobHandle) const {
+				return m_jobData.has(jobHandle);
+			}
+
 			//! Returns mutable internal storage for \a jobHandle.
 			//! \param jobHandle Handle of the job to inspect.
 			JobContainer& data(JobHandle jobHandle) {
-				return m_jobData.live_unsafe(jobHandle.id());
+				return m_jobData.payload_unsafe(jobHandle.id());
 			}
 			//! Returns immutable internal storage for \a jobHandle.
 			//! \param jobHandle Handle of the job to inspect.
 			const JobContainer& data(JobHandle jobHandle) const {
-				return m_jobData.live_unsafe(jobHandle.id());
+				return m_jobData.payload_unsafe(jobHandle.id());
 			}
 
 			//! Allocates a new job container identified by a unique JobHandle.
@@ -28785,9 +28881,11 @@ namespace gaia {
 			//! \param jobHandle Job handle.
 			//! \warning Caller must serialize job-pool allocation/free access.
 			void free_job(JobHandle jobHandle) {
-				auto& jobData = m_jobData.live_unsafe(jobHandle.id());
-				GAIA_ASSERT(done(jobData));
-				jobData.state.store(JobState::Released);
+				auto& jobData = m_jobData.payload_unsafe(jobHandle.id());
+				GAIA_ASSERT(is_clear(jobData) || done(jobData));
+				free_edges(jobData);
+				jobData.state.store(JobState::Released, std::memory_order_release);
+				jobData.data.gen = (jobHandle.gen() + 1) & JobHandle::GenMask;
 				m_jobData.free_keep_live(jobHandle);
 			}
 
@@ -28811,8 +28909,6 @@ namespace gaia {
 			static void run(JobContainer& jobData) {
 				if (jobData.func.operator bool())
 					jobData.func();
-
-				finalize(jobData);
 			}
 
 			//! Signals that one dependency edge of \a jobData has completed.
@@ -28820,7 +28916,7 @@ namespace gaia {
 			//! \return True when the job has no remaining dependencies and can be processed.
 			static bool signal_edge(JobContainer& jobData) {
 				// Subtract from dependency counter
-				const auto state = jobData.state.fetch_sub(1) - 1;
+				const auto state = jobData.state.fetch_sub(1, std::memory_order_acq_rel) - 1;
 
 				// If the job is not submitted, we can't accept it
 				const auto s = state & JobState::STATE_BITS_MASK;
@@ -28836,12 +28932,13 @@ namespace gaia {
 			//! \param jobData Job whose dependency edge storage should be released.
 			static void free_edges(JobContainer& jobData) {
 				// We only allocate an array for 2 and more dependencies
-				if (jobData.edges.depCnt <= 1)
+				if (jobData.edges.depCnt <= 1) {
+					jobData.edges = {};
 					return;
+				}
 
 				mem::AllocHelper::free(jobData.edges.pDeps);
-				// jobData.edges.depCnt = 0;
-				// jobData.edges.pDeps = nullptr;
+				jobData.edges = {};
 			}
 
 			//! Makes \a jobSecond depend on \a jobFirst.
@@ -28918,9 +29015,10 @@ namespace gaia {
 			//! \param jobData Job to transition.
 			//! \return Updated packed state value after the transition.
 			static uint32_t submit(JobContainer& jobData) {
-				[[maybe_unused]] const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				[[maybe_unused]] const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				GAIA_ASSERT(state < JobState::Submitted);
-				const auto val = jobData.state.fetch_add(JobState::Submitted) + (uint32_t)JobState::Submitted;
+				const auto val =
+						jobData.state.fetch_add(JobState::Submitted, std::memory_order_release) + (uint32_t)JobState::Submitted;
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - SUBMITTED", jobData.idx, jobData.gen);
 #endif
@@ -28931,7 +29029,7 @@ namespace gaia {
 			//! \param jobData Job to transition.
 			static void processing(JobContainer& jobData) {
 				GAIA_ASSERT(submitted(const_cast<const JobContainer&>(jobData)));
-				jobData.state.store(JobState::Processing);
+				jobData.state.store(JobState::Processing, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - PROCESSING", jobData.idx, jobData.gen);
 #endif
@@ -28942,7 +29040,7 @@ namespace gaia {
 			//! \param workerIdx Worker executing the job.
 			static void executing(JobContainer& jobData, uint32_t workerIdx) {
 				GAIA_ASSERT(processing(const_cast<const JobContainer&>(jobData)));
-				jobData.state.store(JobState::Executing | workerIdx);
+				jobData.state.store(JobState::Executing | workerIdx, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - EXECUTING", jobData.idx, jobData.gen);
 #endif
@@ -28951,7 +29049,7 @@ namespace gaia {
 			//! Marks a job as finished.
 			//! \param jobData Job to transition.
 			static void finalize(JobContainer& jobData) {
-				jobData.state.store(JobState::Done);
+				jobData.state.store(JobState::Done, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - DONE", jobData.idx, jobData.gen);
 #endif
@@ -28990,7 +29088,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Submitted.
 			GAIA_NODISCARD static bool submitted(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Submitted;
 			}
 
@@ -28998,7 +29096,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Processing.
 			GAIA_NODISCARD static bool processing(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Processing;
 			}
 
@@ -29014,7 +29112,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Done.
 			GAIA_NODISCARD static bool done(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Done;
 			}
 
@@ -29112,7 +29210,10 @@ namespace gaia {
 	} // namespace mt
 } // namespace gaia
 
+
 #include <atomic>
+
+
 
 #if GAIA_PLATFORM_WINDOWS
 	#include <windows.h>
@@ -29432,6 +29533,8 @@ namespace gaia {
 			//! Make the calling thread the effective main thread from the thread pool perspective
 			void make_main_thread() {
 				m_mainThreadId = std::this_thread::get_id();
+				if (!m_workersCtx.empty())
+					detail::tl_workerCtx = &m_workersCtx[0];
 			}
 
 			//! Returns the number of frame worker threads
@@ -29685,6 +29788,14 @@ namespace gaia {
 				m_jobManager.free_parallel_callback(handle);
 			}
 
+			void release_job(JobHandle jobHandle) {
+				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
+				core::lock_scope lock(mtx);
+				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
+
+				m_jobManager.free_job(jobHandle);
+			}
+
 		public:
 			//! Deletes a job handle \a jobHandle from the threadpool.
 			//! \param jobHandle Completed or clear job to delete.
@@ -29693,16 +29804,18 @@ namespace gaia {
 			void del([[maybe_unused]] JobHandle jobHandle) {
 				GAIA_ASSERT(jobHandle != (JobHandle)JobNull_t{});
 
+				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
+				core::lock_scope lock(mtx);
+				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
+				if (!m_jobManager.valid(jobHandle))
+					return;
+
 #if GAIA_ASSERT_ENABLED
 				{
 					const auto& jobData = m_jobManager.data(jobHandle);
 					GAIA_ASSERT(jobData.state == 0 || m_jobManager.done(jobData));
 				}
 #endif
-
-				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
-				core::lock_scope lock(mtx);
-				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
 
 				m_jobManager.free_job(jobHandle);
 			}
@@ -29717,7 +29830,7 @@ namespace gaia {
 				if (jobHandles.empty())
 					return;
 
-				GAIA_PROF_SCOPE(tp::submit);
+				GAIA_PROF_SCOPE(tp::submitn);
 
 				auto* pHandles = (JobHandle*)alloca(sizeof(JobHandle) * jobHandles.size());
 
@@ -29726,6 +29839,9 @@ namespace gaia {
 					GAIA_ASSERT(handle != (JobHandle)JobNull_t{});
 
 					auto& jobData = m_jobManager.data(handle);
+					if GAIA_UNLIKELY (jobData.data.gen != handle.gen())
+						continue;
+
 					const auto state = m_jobManager.submit(jobData) & JobState::DEP_BITS_MASK;
 					// Jobs that were already submitted won't be submitted again.
 					// We can only accept the job if it has no pending dependencies.
@@ -29746,7 +29862,19 @@ namespace gaia {
 			//! \warning Once submitted, dependencies can't be modified for this job.
 			//! \param jobHandle Job to submit.
 			void submit(JobHandle jobHandle) {
-				submit(std::span(&jobHandle, 1));
+				GAIA_ASSERT(jobHandle != (JobHandle)JobNull_t{});
+				GAIA_PROF_SCOPE(tp::submit);
+
+				auto& jobData = m_jobManager.data(jobHandle);
+				if GAIA_UNLIKELY (jobData.data.gen != jobHandle.gen())
+					return;
+
+				const auto state = m_jobManager.submit(jobData) & JobState::DEP_BITS_MASK;
+				if (state != 0)
+					return;
+
+				auto* ctx = detail::tl_workerCtx;
+				process(std::span(&jobHandle, 1), ctx);
 			}
 
 			//! Resets completed jobs to the clear reusable state without waiting.
@@ -29840,7 +29968,7 @@ namespace gaia {
 			//! \return Job handle of the scheduled job.
 			JobHandle sched(Job job, JobHandle dependsOn) {
 				JobHandle jobHandle = add(GAIA_MOV(job));
-				dep(jobHandle, dependsOn);
+				dep(dependsOn, jobHandle);
 				submit(jobHandle);
 				return jobHandle;
 			}
@@ -29869,8 +29997,8 @@ namespace gaia {
 
 				// No group size was given, make a guess based on the set size
 				if (groupSize == 0) {
-					const auto cntWorkers = m_workersCnt[(uint32_t)prio];
-					groupSize = (itemsToProcess + cntWorkers - 1) / cntWorkers;
+					const auto cntWorkers = core::get_max(1U, m_workersCnt[(uint32_t)prio]);
+					groupSize = itemsToProcess / cntWorkers + (itemsToProcess % cntWorkers != 0);
 
 					// If there are too many items we split them into multiple jobs.
 					// This way, if we wait for the result and some workers finish
@@ -29884,7 +30012,7 @@ namespace gaia {
 						groupSize = 1;
 				}
 
-				const auto jobs = (itemsToProcess + groupSize - 1) / groupSize;
+				const auto jobs = itemsToProcess / groupSize + (itemsToProcess % groupSize != 0);
 
 				// Only one job is created, use the job directly.
 				// Generally, this is the case we would want to avoid because it means this particular case
@@ -29922,9 +30050,8 @@ namespace gaia {
 				// Work jobs
 				for (uint32_t jobIndex = 0; jobIndex < jobs; ++jobIndex) {
 					const uint32_t groupJobIdxStart = jobIndex * groupSize;
-					const uint32_t groupJobIdxStartPlusGroupSize = groupJobIdxStart + groupSize;
 					const uint32_t groupJobIdxEnd =
-							groupJobIdxStartPlusGroupSize < itemsToProcess ? groupJobIdxStartPlusGroupSize : itemsToProcess;
+							core::get_min(groupSize, itemsToProcess - groupJobIdxStart) + groupJobIdxStart;
 
 					auto groupJobFunc = [this, callbackHandle, groupJobIdxStart, groupJobIdxEnd]() {
 						JobArgs args;
@@ -29975,8 +30102,8 @@ namespace gaia {
 				const auto prio = job.priority = final_prio(job);
 
 				if (groupSize == 0) {
-					const auto cntWorkers = m_workersCnt[(uint32_t)prio];
-					groupSize = (itemsToProcess + cntWorkers - 1) / cntWorkers;
+					const auto cntWorkers = core::get_max(1U, m_workersCnt[(uint32_t)prio]);
+					groupSize = itemsToProcess / cntWorkers + (itemsToProcess % cntWorkers != 0);
 
 					constexpr uint32_t maxUnitsOfWorkPerGroup = 8;
 					groupSize = groupSize / maxUnitsOfWorkPerGroup;
@@ -29984,7 +30111,7 @@ namespace gaia {
 						groupSize = 1;
 				}
 
-				const auto jobs = (itemsToProcess + groupSize - 1) / groupSize;
+				const auto jobs = itemsToProcess / groupSize + (itemsToProcess % groupSize != 0);
 
 				if (jobs == 1) {
 					const uint32_t groupJobIdxEnd = groupSize < itemsToProcess ? groupSize : itemsToProcess;
@@ -30014,9 +30141,8 @@ namespace gaia {
 
 				for (uint32_t jobIndex = 0; jobIndex < jobs; ++jobIndex) {
 					const uint32_t groupJobIdxStart = jobIndex * groupSize;
-					const uint32_t groupJobIdxStartPlusGroupSize = groupJobIdxStart + groupSize;
 					const uint32_t groupJobIdxEnd =
-							groupJobIdxStartPlusGroupSize < itemsToProcess ? groupJobIdxStartPlusGroupSize : itemsToProcess;
+							core::get_min(groupSize, itemsToProcess - groupJobIdxStart) + groupJobIdxStart;
 
 					auto* pCtx = job.pCtx;
 					auto invoke = job.invoke;
@@ -30046,26 +30172,28 @@ namespace gaia {
 			//! The calling thread participates in frame job processing until \a jobHandle is done.
 			//! For background jobs, the calling thread only runs background work when no
 			//! background workers are configured.
-			//! \param jobHandle Job handle to wait for
+			//! \param jobHandle Job handle to wait for.
+			//! \warning Must be called from the effective main thread.
 			void wait(JobHandle jobHandle) {
 				GAIA_PROF_SCOPE(tp::wait);
 
 				GAIA_ASSERT(main_thread());
 
-				// Skip waitinig for unset job handles.
+				// Skip waiting for unset job handles.
 				if (jobHandle == (JobHandle)JobNull_t{})
 					return;
 
 				auto* ctx = detail::tl_workerCtx;
 				auto& jobData = m_jobManager.data(jobHandle);
 				const bool waitBackground = is_background(jobData);
-				auto state = jobData.state.load();
+				auto state = jobData.state.load(std::memory_order_acquire);
 
 				// Waiting for a job that has not been initialized is nonsense.
 				GAIA_ASSERT(state != 0);
 
 				// Wait until done
-				for (; (state & JobState::STATE_BITS_MASK) < JobState::Done; state = jobData.state.load()) {
+				for (; (state & JobState::STATE_BITS_MASK) < JobState::Done;
+						 state = jobData.state.load(std::memory_order_acquire)) {
 					// The job we are waiting for is not finished yet, try running some other job in the meantime
 					JobHandle otherJobHandle;
 					const bool canHelpBackground = waitBackground && m_backgroundWorkersCnt == 0;
@@ -30755,14 +30883,12 @@ namespace gaia {
 				return (jobData.flags & JobCreationFlags::Background) != 0U;
 			}
 
-			void signal_edges(JobContainer& jobData) {
+			uint32_t signal_edges(JobContainer& jobData, JobHandle* pReadyHandles) {
 				const auto max = jobData.edges.depCnt;
 
 				// Nothing to do if there are no dependencies
 				if (max == 0)
-					return;
-
-				auto* ctx = detail::tl_workerCtx;
+					return 0;
 
 				// One dependency
 				if (max == 1) {
@@ -30774,17 +30900,15 @@ namespace gaia {
 					// See the conditions can't be satisfied for us to submit the job we skip
 					auto& depData = m_jobManager.data(depHandle);
 					if (!JobManager::signal_edge(depData))
-						return;
+						return 0;
 
-					// Submit all jobs that can are ready
-					process(std::span(&depHandle, 1), ctx);
-					return;
+					pReadyHandles[0] = depHandle;
+					return 1;
 				}
 
 				// Multiple dependencies. The array has to be set
 				GAIA_ASSERT(jobData.edges.pDeps != nullptr);
 
-				auto* pHandles = (JobHandle*)alloca(sizeof(JobHandle) * max);
 				uint32_t cnt = 0;
 				GAIA_FOR(max) {
 					auto depHandle = jobData.edges.pDeps[i];
@@ -30794,11 +30918,10 @@ namespace gaia {
 					if (!JobManager::signal_edge(depData))
 						continue;
 
-					pHandles[cnt++] = depHandle;
+					pReadyHandles[cnt++] = depHandle;
 				}
 
-				// Submit all jobs that can are ready
-				process(std::span(pHandles, cnt), ctx);
+				return cnt;
 			}
 
 			//! Moves ready jobs into execution queues or runs them inline when queue capacity is exhausted.
@@ -30904,9 +31027,19 @@ namespace gaia {
 				// Run the functor associated with the job
 				m_jobManager.run(jobData);
 
-				// Signal the edges and release memory allocated for them if possible
-				signal_edges(jobData);
-				JobManager::free_edges(jobData);
+				if (jobData.edges.depCnt == 0) {
+					JobManager::finalize(jobData);
+				} else {
+					// Resolve outgoing edges before publishing completion so the job can be reused safely.
+					auto* pReadyHandles = (JobHandle*)alloca(sizeof(JobHandle) * jobData.edges.depCnt);
+					const auto readyHandlesCnt = signal_edges(jobData, pReadyHandles);
+					if (!manualDelete)
+						JobManager::free_edges(jobData);
+					JobManager::finalize(jobData);
+
+					// Dependents can only start after the prerequisite has published its final state.
+					process(std::span(pReadyHandles, readyHandlesCnt), ctx);
+				}
 
 				// Signal we finished
 				ctx->event.set();
@@ -30916,7 +31049,7 @@ namespace gaia {
 				}
 
 				if (!manualDelete)
-					del(jobHandle);
+					release_job(jobHandle);
 
 				return true;
 			}
@@ -30926,12 +31059,14 @@ namespace gaia {
 	} // namespace mt
 } // namespace gaia
 
+
 #include <cinttypes>
 #include <cstdint>
 
 // #include "gaia/cnt/dbitset.h"
 
 #include <cstdarg>
+
 
 namespace gaia {
 	namespace ecs {
@@ -31128,6 +31263,7 @@ namespace gaia {
 
 #include <cstdint>
 
+
 //! \cond INTERNAL
 namespace gaia {
 	namespace ecs {
@@ -31193,11 +31329,14 @@ namespace gaia {
 
 #include <cstdint>
 
-#include <cstdint>
-#include <type_traits>
 
 #include <cstdint>
 #include <type_traits>
+
+
+#include <cstdint>
+#include <type_traits>
+
 
 namespace gaia {
 	namespace ecs {
@@ -32302,9 +32441,11 @@ namespace gaia {
 #include <type_traits>
 #include <utility>
 
+
 #include <cinttypes>
 #include <cstdint>
 #include <cstring>
+
 
 namespace gaia {
 	namespace ecs {
@@ -32996,6 +33137,7 @@ namespace gaia {
 
 #include <cstdint>
 
+
 //! \cond INTERNAL
 namespace gaia {
 	namespace ecs {
@@ -33154,7 +33296,9 @@ namespace gaia {
 #include <cstring>
 #include <type_traits>
 
+
 #include <cstdint>
+
 
 namespace gaia {
 	namespace core {
@@ -33274,10 +33418,12 @@ namespace gaia {
 #include <cstring>
 #include <type_traits>
 
+
 #include <cstdint>
 #include <cstring>
 #include <tuple>
 #include <type_traits>
+
 
 namespace gaia {
 	namespace ecs {
@@ -35673,6 +35819,7 @@ namespace gaia {
 
 #include <cstdint>
 #include <type_traits>
+
 
 //! \cond INTERNAL
 namespace gaia {
@@ -38181,6 +38328,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
+
 //! \cond INTERNAL
 namespace gaia {
 	namespace ecs {
@@ -39613,8 +39761,10 @@ namespace gaia {
 #include <cstdint>
 #include <type_traits>
 
+
 #include <cstdint>
 #include <cstring>
+
 
 namespace gaia {
 	namespace ecs {
@@ -40720,6 +40870,7 @@ namespace gaia {
 } // namespace gaia
 
 #include <type_traits>
+
 
 namespace gaia {
 	namespace ecs {
@@ -44942,6 +45093,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
+
 namespace gaia {
 	namespace ecs {
 		//! \cond INTERNAL
@@ -45334,6 +45486,7 @@ namespace gaia {
 #include <cstdint>
 #include <type_traits>
 
+
 #include <cctype>
 #include <cstdarg>
 #include <cstddef>
@@ -45343,7 +45496,9 @@ namespace gaia {
 #include <cstring>
 #include <type_traits>
 
+
 #include <cstdint>
+
 
 namespace gaia {
 	namespace ecs {
@@ -45408,6 +45563,7 @@ namespace gaia {
 } // namespace gaia
 
 #include <cstdint>
+
 
 namespace gaia {
 	namespace ecs {
@@ -45538,6 +45694,7 @@ namespace gaia {
 
 #include <cstdint>
 
+
 namespace gaia {
 	namespace ecs {
 		class Archetype;
@@ -45586,6 +45743,7 @@ namespace gaia {
 } // namespace gaia
 
 #include <cstdint>
+
 
 namespace gaia {
 	namespace ecs {
@@ -45752,14 +45910,20 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
+
 #include <cinttypes>
+
 
 #include <cstdarg>
 #include <cstdint>
 #include <type_traits>
 
+
+
+
 #include <cstdint>
 #include <cstring>
+
 
 //! \cond INTERNAL
 namespace gaia {
@@ -45856,6 +46020,7 @@ namespace gaia {
 #include <cstdint>
 #include <cstdio>
 #include <type_traits>
+
 
 namespace gaia {
 	namespace ecs {
@@ -53612,7 +53777,9 @@ namespace gaia {
 } // namespace gaia
 //! \endcond
 
+
 #include <cstdint>
+
 
 namespace gaia {
 	namespace ecs {
@@ -60996,6 +61163,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
+
 namespace gaia {
 	namespace ecs {
 		namespace detail {
@@ -61135,6 +61303,7 @@ namespace gaia {
 		} // namespace detail
 	} // namespace ecs
 } // namespace gaia
+
 
 namespace gaia {
 	namespace ecs {
@@ -63308,6 +63477,7 @@ namespace gaia {
 } // namespace gaia
 #endif
 
+
 #if GAIA_OBSERVERS_ENABLED
 namespace gaia {
 	namespace ecs {
@@ -63757,6 +63927,7 @@ namespace gaia {
 } // namespace gaia
 #endif
 
+
 //! \cond INTERNAL
 namespace gaia {
 	namespace ecs {
@@ -63920,6 +64091,7 @@ namespace gaia {
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+
 
 //! \cond INTERNAL
 namespace gaia {
@@ -64261,6 +64433,7 @@ namespace gaia {
 } // namespace gaia
 //! \endcond
 
+
 #if GAIA_SYSTEMS_ENABLED
 namespace gaia {
 	namespace ecs {
@@ -64381,6 +64554,7 @@ namespace gaia {
 #endif
 
 #include <cstdint>
+
 
 namespace gaia {
 	namespace ecs {
@@ -76784,6 +76958,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
+
 namespace gaia {
 	namespace ecs {
 		// Component API
@@ -76991,7 +77166,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 #if GAIA_OBSERVERS_ENABLED
-	#if GAIA_OBSERVERS_ENABLED
+#if GAIA_OBSERVERS_ENABLED
 namespace gaia {
 	namespace ecs {
 		inline void ObserverRegistry::DiffDispatcher::collect_query_matches(
@@ -78229,10 +78404,12 @@ namespace gaia {
 		}
 	} // namespace ecs
 } // namespace gaia
-	#endif
+#endif
 #endif
 
+
 #include <cinttypes>
+
 
 #if GAIA_OBSERVERS_ENABLED
 namespace gaia {
@@ -78747,7 +78924,9 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
-	#if GAIA_OBSERVERS_ENABLED
+
+
+#if GAIA_OBSERVERS_ENABLED
 namespace gaia {
 	namespace ecs {
 		template <typename T>
@@ -78834,10 +79013,10 @@ namespace gaia {
 			const auto runMappedChunk = detail::typed_run_mapped_chunk_ptr<Func>(InputArgs{});
 			const auto invokeInherited = typed_invoke_inherited_ptr<Func>(InputArgs{});
 
-		#if GAIA_ASSERT_ENABLED
+	#if GAIA_ASSERT_ENABLED
 			ctx.query.match_all(queryInfo);
 			GAIA_ASSERT(typed_query_args_match_query(queryInfo, InputArgs{}));
-		#endif
+	#endif
 
 			ctx.on_each_func = [e = m_entity, func, execState, runDirectChunk, runMappedChunk,
 													invokeInherited](Iter& it) mutable {
@@ -78861,11 +79040,12 @@ namespace gaia {
 		}
 	} // namespace ecs
 } // namespace gaia
-	#endif
+#endif
 
 #endif
 
 #include <cinttypes>
+
 
 #if GAIA_SYSTEMS_ENABLED
 namespace gaia {
@@ -79529,7 +79709,9 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
-	#if GAIA_SYSTEMS_ENABLED
+
+
+#if GAIA_SYSTEMS_ENABLED
 namespace gaia {
 	namespace ecs {
 		//! Adds a typed required term to the underlying system query.
@@ -79731,7 +79913,7 @@ namespace gaia {
 		}
 	} // namespace ecs
 } // namespace gaia
-	#endif
+#endif
 #else
 namespace gaia {
 	namespace ecs {
@@ -80127,10 +80309,11 @@ namespace gaia {
 
 #if GAIA_JSON_ENABLED
 
-	#if GAIA_JSON_ENABLED
+#if GAIA_JSON_ENABLED
 
-		#include <cstdio>
-		#include <cstring>
+	#include <cstdio>
+	#include <cstring>
+
 
 namespace gaia {
 	namespace ecs {
@@ -82126,12 +82309,12 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
-	#endif
+#endif
 
-	#if GAIA_JSON_ENABLED
+#if GAIA_JSON_ENABLED
 
-		#include <cstdint>
-		#include <cstring>
+	#include <cstdint>
+	#include <cstring>
 
 namespace gaia {
 	namespace ecs {
@@ -82370,12 +82553,12 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
-	#endif
+#endif
 
-	#if GAIA_JSON_ENABLED
+#if GAIA_JSON_ENABLED
 
-		#include <cstdio>
-		#include <cstring>
+	#include <cstdio>
+	#include <cstring>
 
 namespace gaia {
 	namespace ecs {
@@ -82783,7 +82966,7 @@ namespace gaia {
 	} // namespace ecs
 } // namespace gaia
 
-	#endif
+#endif
 #endif
 
 #if GAIA_SYSTEMS_ENABLED

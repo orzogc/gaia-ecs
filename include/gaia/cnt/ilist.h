@@ -1190,6 +1190,26 @@ namespace gaia {
 				return *pPage->ptr(slot);
 			}
 
+			//! Returns a constructed payload slot without consulting shared liveness metadata.
+			//! \param index Slot index to access.
+			//! \return Mutable reference to the payload at \a index.
+			//! \warning The caller must guarantee that the page and payload are constructed and remain alive.
+			GAIA_NODISCARD reference payload_unsafe(size_type index) {
+				auto* pPage = try_page(index);
+				GAIA_ASSERT(pPage != nullptr);
+				return *pPage->ptr(slot_index(index));
+			}
+
+			//! Returns a constructed payload slot without consulting shared liveness metadata.
+			//! \param index Slot index to access.
+			//! \return Immutable reference to the payload at \a index.
+			//! \warning The caller must guarantee that the page and payload are constructed and remain alive.
+			GAIA_NODISCARD const_reference payload_unsafe(size_type index) const {
+				const auto* pPage = try_page(index);
+				GAIA_ASSERT(pPage != nullptr);
+				return *pPage->ptr(slot_index(index));
+			}
+
 			//! Attempts to access a live payload.
 			//! \param index Slot index to inspect.
 			//! \return Pointer to the live payload, or nullptr when the slot is not live.
@@ -1348,7 +1368,7 @@ namespace gaia {
 			//! \param handle Handle identifying the item to release.
 			//! \warning The slot becomes part of the free-list even though its payload remains alive.
 			//!          Iteration and has(handle) treat it as released because the generation changes.
-			//!          Callers that inspect the payload afterward must use live_unsafe() and must
+			//!          Callers that inspect the payload afterward must use payload_unsafe() and must
 			//!          guarantee the slot has not been reused.
 			//! \note This is intended for systems that need released-state inspectability without
 			//!       moving page storage while other background work may still observe job data.

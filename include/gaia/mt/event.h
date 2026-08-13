@@ -15,8 +15,8 @@
 
 namespace gaia {
 	namespace mt {
-		//! Manual-reset style synchronization primitive for waking a waiting thread.
-		//! The event stays signaled until reset explicitly.
+		//! Auto-reset synchronization primitive for waking one waiting thread.
+		//! A successful wait consumes the signaled state.
 		class GAIA_API Event final {
 #if GAIA_USE_MT_STD
 			GAIA_PROF_MUTEX(std::mutex, m_mtx);
@@ -116,6 +116,7 @@ namespace gaia {
 				m_cv.wait(lock, [&] {
 					return m_set;
 				});
+				m_set = false;
 #else
 				[[maybe_unused]] int ret{};
 				auto wait = [&]() {
@@ -125,8 +126,6 @@ namespace gaia {
 						} while (!ret && !m_set);
 
 						GAIA_ASSERT(ret != EINVAL);
-						if (!ret)
-							m_set = false;
 					} else {
 						ret = 0;
 					}
@@ -138,7 +137,8 @@ namespace gaia {
 				GAIA_ASSERT(ret == 0);
 
 				int res = wait(); // true: signaled, false: timeout or error
-				(void)res;
+				if (res == 0)
+					m_set = false;
 
 				ret = pthread_mutex_unlock(&m_hMutexHandle);
 				GAIA_ASSERT(ret == 0);

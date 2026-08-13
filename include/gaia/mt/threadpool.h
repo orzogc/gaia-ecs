@@ -170,6 +170,8 @@ namespace gaia {
 			//! Make the calling thread the effective main thread from the thread pool perspective
 			void make_main_thread() {
 				m_mainThreadId = std::this_thread::get_id();
+				if (!m_workersCtx.empty())
+					detail::tl_workerCtx = &m_workersCtx[0];
 			}
 
 			//! Returns the number of frame worker threads
@@ -423,6 +425,14 @@ namespace gaia {
 				m_jobManager.free_parallel_callback(handle);
 			}
 
+			void release_job(JobHandle jobHandle) {
+				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
+				core::lock_scope lock(mtx);
+				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
+
+				m_jobManager.free_job(jobHandle);
+			}
+
 		public:
 			//! Deletes a job handle \a jobHandle from the threadpool.
 			//! \param jobHandle Completed or clear job to delete.
@@ -431,16 +441,18 @@ namespace gaia {
 			void del([[maybe_unused]] JobHandle jobHandle) {
 				GAIA_ASSERT(jobHandle != (JobHandle)JobNull_t{});
 
+				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
+				core::lock_scope lock(mtx);
+				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
+				if (!m_jobManager.valid(jobHandle))
+					return;
+
 #if GAIA_ASSERT_ENABLED
 				{
 					const auto& jobData = m_jobManager.data(jobHandle);
 					GAIA_ASSERT(jobData.state == 0 || m_jobManager.done(jobData));
 				}
 #endif
-
-				auto& mtx = GAIA_PROF_EXTRACT_MUTEX(m_jobAllocMtx);
-				core::lock_scope lock(mtx);
-				GAIA_PROF_LOCK_MARK(m_jobAllocMtx);
 
 				m_jobManager.free_job(jobHandle);
 			}
@@ -455,7 +467,7 @@ namespace gaia {
 				if (jobHandles.empty())
 					return;
 
-				GAIA_PROF_SCOPE(tp::submit);
+				GAIA_PROF_SCOPE(tp::submitn);
 
 				auto* pHandles = (JobHandle*)alloca(sizeof(JobHandle) * jobHandles.size());
 
@@ -464,6 +476,9 @@ namespace gaia {
 					GAIA_ASSERT(handle != (JobHandle)JobNull_t{});
 
 					auto& jobData = m_jobManager.data(handle);
+					if GAIA_UNLIKELY (jobData.data.gen != handle.gen())
+						continue;
+
 					const auto state = m_jobManager.submit(jobData) & JobState::DEP_BITS_MASK;
 					// Jobs that were already submitted won't be submitted again.
 					// We can only accept the job if it has no pending dependencies.
@@ -484,7 +499,19 @@ namespace gaia {
 			//! \warning Once submitted, dependencies can't be modified for this job.
 			//! \param jobHandle Job to submit.
 			void submit(JobHandle jobHandle) {
-				submit(std::span(&jobHandle, 1));
+				GAIA_ASSERT(jobHandle != (JobHandle)JobNull_t{});
+				GAIA_PROF_SCOPE(tp::submit);
+
+				auto& jobData = m_jobManager.data(jobHandle);
+				if GAIA_UNLIKELY (jobData.data.gen != jobHandle.gen())
+					return;
+
+				const auto state = m_jobManager.submit(jobData) & JobState::DEP_BITS_MASK;
+				if (state != 0)
+					return;
+
+				auto* ctx = detail::tl_workerCtx;
+				process(std::span(&jobHandle, 1), ctx);
 			}
 
 			//! Resets completed jobs to the clear reusable state without waiting.
@@ -578,7 +605,7 @@ namespace gaia {
 			//! \return Job handle of the scheduled job.
 			JobHandle sched(Job job, JobHandle dependsOn) {
 				JobHandle jobHandle = add(GAIA_MOV(job));
-				dep(jobHandle, dependsOn);
+				dep(dependsOn, jobHandle);
 				submit(jobHandle);
 				return jobHandle;
 			}
@@ -607,8 +634,8 @@ namespace gaia {
 
 				// No group size was given, make a guess based on the set size
 				if (groupSize == 0) {
-					const auto cntWorkers = m_workersCnt[(uint32_t)prio];
-					groupSize = (itemsToProcess + cntWorkers - 1) / cntWorkers;
+					const auto cntWorkers = core::get_max(1U, m_workersCnt[(uint32_t)prio]);
+					groupSize = itemsToProcess / cntWorkers + (itemsToProcess % cntWorkers != 0);
 
 					// If there are too many items we split them into multiple jobs.
 					// This way, if we wait for the result and some workers finish
@@ -622,7 +649,7 @@ namespace gaia {
 						groupSize = 1;
 				}
 
-				const auto jobs = (itemsToProcess + groupSize - 1) / groupSize;
+				const auto jobs = itemsToProcess / groupSize + (itemsToProcess % groupSize != 0);
 
 				// Only one job is created, use the job directly.
 				// Generally, this is the case we would want to avoid because it means this particular case
@@ -660,9 +687,8 @@ namespace gaia {
 				// Work jobs
 				for (uint32_t jobIndex = 0; jobIndex < jobs; ++jobIndex) {
 					const uint32_t groupJobIdxStart = jobIndex * groupSize;
-					const uint32_t groupJobIdxStartPlusGroupSize = groupJobIdxStart + groupSize;
 					const uint32_t groupJobIdxEnd =
-							groupJobIdxStartPlusGroupSize < itemsToProcess ? groupJobIdxStartPlusGroupSize : itemsToProcess;
+							core::get_min(groupSize, itemsToProcess - groupJobIdxStart) + groupJobIdxStart;
 
 					auto groupJobFunc = [this, callbackHandle, groupJobIdxStart, groupJobIdxEnd]() {
 						JobArgs args;
@@ -713,8 +739,8 @@ namespace gaia {
 				const auto prio = job.priority = final_prio(job);
 
 				if (groupSize == 0) {
-					const auto cntWorkers = m_workersCnt[(uint32_t)prio];
-					groupSize = (itemsToProcess + cntWorkers - 1) / cntWorkers;
+					const auto cntWorkers = core::get_max(1U, m_workersCnt[(uint32_t)prio]);
+					groupSize = itemsToProcess / cntWorkers + (itemsToProcess % cntWorkers != 0);
 
 					constexpr uint32_t maxUnitsOfWorkPerGroup = 8;
 					groupSize = groupSize / maxUnitsOfWorkPerGroup;
@@ -722,7 +748,7 @@ namespace gaia {
 						groupSize = 1;
 				}
 
-				const auto jobs = (itemsToProcess + groupSize - 1) / groupSize;
+				const auto jobs = itemsToProcess / groupSize + (itemsToProcess % groupSize != 0);
 
 				if (jobs == 1) {
 					const uint32_t groupJobIdxEnd = groupSize < itemsToProcess ? groupSize : itemsToProcess;
@@ -752,9 +778,8 @@ namespace gaia {
 
 				for (uint32_t jobIndex = 0; jobIndex < jobs; ++jobIndex) {
 					const uint32_t groupJobIdxStart = jobIndex * groupSize;
-					const uint32_t groupJobIdxStartPlusGroupSize = groupJobIdxStart + groupSize;
 					const uint32_t groupJobIdxEnd =
-							groupJobIdxStartPlusGroupSize < itemsToProcess ? groupJobIdxStartPlusGroupSize : itemsToProcess;
+							core::get_min(groupSize, itemsToProcess - groupJobIdxStart) + groupJobIdxStart;
 
 					auto* pCtx = job.pCtx;
 					auto invoke = job.invoke;
@@ -784,26 +809,28 @@ namespace gaia {
 			//! The calling thread participates in frame job processing until \a jobHandle is done.
 			//! For background jobs, the calling thread only runs background work when no
 			//! background workers are configured.
-			//! \param jobHandle Job handle to wait for
+			//! \param jobHandle Job handle to wait for.
+			//! \warning Must be called from the effective main thread.
 			void wait(JobHandle jobHandle) {
 				GAIA_PROF_SCOPE(tp::wait);
 
 				GAIA_ASSERT(main_thread());
 
-				// Skip waitinig for unset job handles.
+				// Skip waiting for unset job handles.
 				if (jobHandle == (JobHandle)JobNull_t{})
 					return;
 
 				auto* ctx = detail::tl_workerCtx;
 				auto& jobData = m_jobManager.data(jobHandle);
 				const bool waitBackground = is_background(jobData);
-				auto state = jobData.state.load();
+				auto state = jobData.state.load(std::memory_order_acquire);
 
 				// Waiting for a job that has not been initialized is nonsense.
 				GAIA_ASSERT(state != 0);
 
 				// Wait until done
-				for (; (state & JobState::STATE_BITS_MASK) < JobState::Done; state = jobData.state.load()) {
+				for (; (state & JobState::STATE_BITS_MASK) < JobState::Done;
+						 state = jobData.state.load(std::memory_order_acquire)) {
 					// The job we are waiting for is not finished yet, try running some other job in the meantime
 					JobHandle otherJobHandle;
 					const bool canHelpBackground = waitBackground && m_backgroundWorkersCnt == 0;
@@ -1493,14 +1520,12 @@ namespace gaia {
 				return (jobData.flags & JobCreationFlags::Background) != 0U;
 			}
 
-			void signal_edges(JobContainer& jobData) {
+			uint32_t signal_edges(JobContainer& jobData, JobHandle* pReadyHandles) {
 				const auto max = jobData.edges.depCnt;
 
 				// Nothing to do if there are no dependencies
 				if (max == 0)
-					return;
-
-				auto* ctx = detail::tl_workerCtx;
+					return 0;
 
 				// One dependency
 				if (max == 1) {
@@ -1512,17 +1537,15 @@ namespace gaia {
 					// See the conditions can't be satisfied for us to submit the job we skip
 					auto& depData = m_jobManager.data(depHandle);
 					if (!JobManager::signal_edge(depData))
-						return;
+						return 0;
 
-					// Submit all jobs that can are ready
-					process(std::span(&depHandle, 1), ctx);
-					return;
+					pReadyHandles[0] = depHandle;
+					return 1;
 				}
 
 				// Multiple dependencies. The array has to be set
 				GAIA_ASSERT(jobData.edges.pDeps != nullptr);
 
-				auto* pHandles = (JobHandle*)alloca(sizeof(JobHandle) * max);
 				uint32_t cnt = 0;
 				GAIA_FOR(max) {
 					auto depHandle = jobData.edges.pDeps[i];
@@ -1532,11 +1555,10 @@ namespace gaia {
 					if (!JobManager::signal_edge(depData))
 						continue;
 
-					pHandles[cnt++] = depHandle;
+					pReadyHandles[cnt++] = depHandle;
 				}
 
-				// Submit all jobs that can are ready
-				process(std::span(pHandles, cnt), ctx);
+				return cnt;
 			}
 
 			//! Moves ready jobs into execution queues or runs them inline when queue capacity is exhausted.
@@ -1642,9 +1664,19 @@ namespace gaia {
 				// Run the functor associated with the job
 				m_jobManager.run(jobData);
 
-				// Signal the edges and release memory allocated for them if possible
-				signal_edges(jobData);
-				JobManager::free_edges(jobData);
+				if (jobData.edges.depCnt == 0) {
+					JobManager::finalize(jobData);
+				} else {
+					// Resolve outgoing edges before publishing completion so the job can be reused safely.
+					auto* pReadyHandles = (JobHandle*)alloca(sizeof(JobHandle) * jobData.edges.depCnt);
+					const auto readyHandlesCnt = signal_edges(jobData, pReadyHandles);
+					if (!manualDelete)
+						JobManager::free_edges(jobData);
+					JobManager::finalize(jobData);
+
+					// Dependents can only start after the prerequisite has published its final state.
+					process(std::span(pReadyHandles, readyHandlesCnt), ctx);
+				}
 
 				// Signal we finished
 				ctx->event.set();
@@ -1654,7 +1686,7 @@ namespace gaia {
 				}
 
 				if (!manualDelete)
-					del(jobHandle);
+					release_job(jobHandle);
 
 				return true;
 			}

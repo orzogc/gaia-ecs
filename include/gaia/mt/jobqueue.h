@@ -59,6 +59,7 @@ namespace gaia {
 			}
 
 			//! Tries adding a job to the queue. FIFO.
+			//! \param jobHandle Handle of the job to add.
 			//! \return True if the job was added. False otherwise (e.g. maximum capacity has been reached).
 			GAIA_NODISCARD bool try_push(JobHandle jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_push);
@@ -70,14 +71,14 @@ namespace gaia {
 					return false;
 
 				m_buffer[b & MASK].store(jobHandle.value(), std::memory_order_relaxed);
-				// Make sure the handle is written before we update the bottom
-				std::atomic_thread_fence(std::memory_order_release);
-				m_bottom.store(b + 1, std::memory_order_relaxed);
+				// Publish the handle together with the updated queue boundary.
+				m_bottom.store(b + 1, std::memory_order_release);
 
 				return true;
 			}
 
 			//! Tries adding a job to the queue. FIFO.
+			//! \param jobHandles Jobs to add.
 			//! \return The number of handles that were successfully added.
 			GAIA_NODISCARD uint32_t try_push(std::span<JobHandle> jobHandles) {
 				GAIA_PROF_SCOPE(JobQueue::try_push);
@@ -91,14 +92,14 @@ namespace gaia {
 
 				for (uint32_t i = 0; i < freeFinal; i++, b++)
 					m_buffer[b & MASK].store(jobHandles[i].value(), std::memory_order_relaxed);
-				// Make sure handles are written before we update the bottom
-				std::atomic_thread_fence(std::memory_order_release);
-				m_bottom.store(b, std::memory_order_relaxed);
+				// Publish all handles together with the updated queue boundary.
+				m_bottom.store(b, std::memory_order_release);
 
 				return freeFinal;
 			}
 
-			//! Tries retrieving a job to the queue. FIFO.
+			//! Tries retrieving a job from the owner end of the queue.
+			//! \param jobHandle Receives the retrieved job.
 			//! \return True if the job was retrieved. False otherwise (e.g. there are no jobs).
 			GAIA_NODISCARD bool try_pop(JobHandle& jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_pop);
@@ -134,8 +135,9 @@ namespace gaia {
 				return false; // false = empty, don't use jobHandle
 			}
 
-			//! Tries stealing a job from the queue. LIFO.
-			//! \return True if the job was stolen. False otherwise (e.g. there are no jobs).
+			//! Tries stealing a job from the opposite end of the queue.
+			//! \param jobHandle Receives the stolen job, or JobNull when the queue is empty.
+			//! \return False only when another consumer wins the same job.
 			GAIA_NODISCARD bool try_steal(JobHandle& jobHandle) {
 				GAIA_PROF_SCOPE(JobQueue::try_steal);
 

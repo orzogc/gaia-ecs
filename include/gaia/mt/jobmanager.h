@@ -239,15 +239,22 @@ namespace gaia {
 			cnt::ilist<ParallelCallbackRecord, ParallelCallbackHandle> m_parallelCallbacks;
 
 		public:
+			//! Checks whether \a jobHandle identifies its current live job.
+			//! \param jobHandle Handle to validate.
+			//! \return True when the slot is live and its generation matches.
+			GAIA_NODISCARD bool valid(JobHandle jobHandle) const {
+				return m_jobData.has(jobHandle);
+			}
+
 			//! Returns mutable internal storage for \a jobHandle.
 			//! \param jobHandle Handle of the job to inspect.
 			JobContainer& data(JobHandle jobHandle) {
-				return m_jobData.live_unsafe(jobHandle.id());
+				return m_jobData.payload_unsafe(jobHandle.id());
 			}
 			//! Returns immutable internal storage for \a jobHandle.
 			//! \param jobHandle Handle of the job to inspect.
 			const JobContainer& data(JobHandle jobHandle) const {
-				return m_jobData.live_unsafe(jobHandle.id());
+				return m_jobData.payload_unsafe(jobHandle.id());
 			}
 
 			//! Allocates a new job container identified by a unique JobHandle.
@@ -286,9 +293,11 @@ namespace gaia {
 			//! \param jobHandle Job handle.
 			//! \warning Caller must serialize job-pool allocation/free access.
 			void free_job(JobHandle jobHandle) {
-				auto& jobData = m_jobData.live_unsafe(jobHandle.id());
-				GAIA_ASSERT(done(jobData));
-				jobData.state.store(JobState::Released);
+				auto& jobData = m_jobData.payload_unsafe(jobHandle.id());
+				GAIA_ASSERT(is_clear(jobData) || done(jobData));
+				free_edges(jobData);
+				jobData.state.store(JobState::Released, std::memory_order_release);
+				jobData.data.gen = (jobHandle.gen() + 1) & JobHandle::GenMask;
 				m_jobData.free_keep_live(jobHandle);
 			}
 
@@ -312,8 +321,6 @@ namespace gaia {
 			static void run(JobContainer& jobData) {
 				if (jobData.func.operator bool())
 					jobData.func();
-
-				finalize(jobData);
 			}
 
 			//! Signals that one dependency edge of \a jobData has completed.
@@ -321,7 +328,7 @@ namespace gaia {
 			//! \return True when the job has no remaining dependencies and can be processed.
 			static bool signal_edge(JobContainer& jobData) {
 				// Subtract from dependency counter
-				const auto state = jobData.state.fetch_sub(1) - 1;
+				const auto state = jobData.state.fetch_sub(1, std::memory_order_acq_rel) - 1;
 
 				// If the job is not submitted, we can't accept it
 				const auto s = state & JobState::STATE_BITS_MASK;
@@ -337,12 +344,13 @@ namespace gaia {
 			//! \param jobData Job whose dependency edge storage should be released.
 			static void free_edges(JobContainer& jobData) {
 				// We only allocate an array for 2 and more dependencies
-				if (jobData.edges.depCnt <= 1)
+				if (jobData.edges.depCnt <= 1) {
+					jobData.edges = {};
 					return;
+				}
 
 				mem::AllocHelper::free(jobData.edges.pDeps);
-				// jobData.edges.depCnt = 0;
-				// jobData.edges.pDeps = nullptr;
+				jobData.edges = {};
 			}
 
 			//! Makes \a jobSecond depend on \a jobFirst.
@@ -419,9 +427,10 @@ namespace gaia {
 			//! \param jobData Job to transition.
 			//! \return Updated packed state value after the transition.
 			static uint32_t submit(JobContainer& jobData) {
-				[[maybe_unused]] const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				[[maybe_unused]] const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				GAIA_ASSERT(state < JobState::Submitted);
-				const auto val = jobData.state.fetch_add(JobState::Submitted) + (uint32_t)JobState::Submitted;
+				const auto val =
+						jobData.state.fetch_add(JobState::Submitted, std::memory_order_release) + (uint32_t)JobState::Submitted;
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - SUBMITTED", jobData.idx, jobData.gen);
 #endif
@@ -432,7 +441,7 @@ namespace gaia {
 			//! \param jobData Job to transition.
 			static void processing(JobContainer& jobData) {
 				GAIA_ASSERT(submitted(const_cast<const JobContainer&>(jobData)));
-				jobData.state.store(JobState::Processing);
+				jobData.state.store(JobState::Processing, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - PROCESSING", jobData.idx, jobData.gen);
 #endif
@@ -443,7 +452,7 @@ namespace gaia {
 			//! \param workerIdx Worker executing the job.
 			static void executing(JobContainer& jobData, uint32_t workerIdx) {
 				GAIA_ASSERT(processing(const_cast<const JobContainer&>(jobData)));
-				jobData.state.store(JobState::Executing | workerIdx);
+				jobData.state.store(JobState::Executing | workerIdx, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - EXECUTING", jobData.idx, jobData.gen);
 #endif
@@ -452,7 +461,7 @@ namespace gaia {
 			//! Marks a job as finished.
 			//! \param jobData Job to transition.
 			static void finalize(JobContainer& jobData) {
-				jobData.state.store(JobState::Done);
+				jobData.state.store(JobState::Done, std::memory_order_release);
 #if GAIA_LOG_JOB_STATES
 				GAIA_LOG_N("JobHandle %u.%u - DONE", jobData.idx, jobData.gen);
 #endif
@@ -491,7 +500,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Submitted.
 			GAIA_NODISCARD static bool submitted(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Submitted;
 			}
 
@@ -499,7 +508,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Processing.
 			GAIA_NODISCARD static bool processing(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Processing;
 			}
 
@@ -515,7 +524,7 @@ namespace gaia {
 			//! \param jobData Job to inspect.
 			//! \return True when the state bits equal JobState::Done.
 			GAIA_NODISCARD static bool done(const JobContainer& jobData) {
-				const auto state = jobData.state.load() & JobState::STATE_BITS_MASK;
+				const auto state = jobData.state.load(std::memory_order_acquire) & JobState::STATE_BITS_MASK;
 				return state == JobState::Done;
 			}
 

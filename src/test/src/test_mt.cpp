@@ -1,6 +1,7 @@
 #include "test_common.h"
 
 #include <chrono>
+#include <limits>
 
 //------------------------------------------------------------------------------
 // Multithreading
@@ -535,7 +536,6 @@ TEST_CASE("Multithreading - Event") {
 	event.set();
 	CHECK(event.is_set());
 	event.wait();
-	event.reset();
 	CHECK_FALSE(event.is_set());
 
 	std::atomic<bool> waiterStarted = false;
@@ -593,6 +593,46 @@ TEST_CASE("Multithreading - ScheduleParallelRef") {
 	tp.wait(handle);
 	CHECK(ctx.items.load(std::memory_order_relaxed) == 32);
 	CHECK(ctx.batches.load(std::memory_order_relaxed) >= 1);
+}
+
+TEST_CASE("Multithreading - ScheduleParallel handles full uint32 range") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(0, 0);
+
+	std::atomic_uint32_t calls = 0;
+	std::atomic_uint32_t begin = 0;
+	std::atomic_uint32_t end = 0;
+	mt::JobParallel job;
+	job.func = [&](const mt::JobArgs& args) {
+		calls.fetch_add(1, std::memory_order_relaxed);
+		begin.store(args.idxStart, std::memory_order_relaxed);
+		end.store(args.idxEnd, std::memory_order_relaxed);
+	};
+
+	const auto max = std::numeric_limits<uint32_t>::max();
+	const auto handle = tp.sched_par(GAIA_MOV(job), max, max);
+	tp.wait(handle);
+
+	CHECK(calls.load(std::memory_order_relaxed) == 1);
+	CHECK(begin.load(std::memory_order_relaxed) == 0);
+	CHECK(end.load(std::memory_order_relaxed) == max);
+}
+
+TEST_CASE("Multithreading - ScheduleParallel without matching workers") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(1, 1);
+
+	std::atomic_uint32_t items = 0;
+	mt::JobParallel job;
+	job.priority = mt::JobPriority::Low;
+	job.func = [&](const mt::JobArgs& args) {
+		items.fetch_add(args.idxEnd - args.idxStart, std::memory_order_relaxed);
+	};
+
+	const auto handle = tp.sched_par(GAIA_MOV(job), 64, 0);
+	tp.wait(handle);
+
+	CHECK(items.load(std::memory_order_relaxed) == 64);
 }
 
 TEST_CASE("ECS - Query uses external scheduler") {
@@ -977,13 +1017,13 @@ struct JobQueueMTTester_PushPopSteal {
 	using QueueType = TQueue;
 
 	TQueue* q;
-	bool* terminate;
+	std::atomic_bool* terminate;
 	uint32_t thread_idx;
 
 	std::thread t;
 	uint32_t processed = 0;
 
-	JobQueueMTTester_PushPopSteal(TQueue* q_, bool* terminate_, uint32_t idx):
+	JobQueueMTTester_PushPopSteal(TQueue* q_, std::atomic_bool* terminate_, uint32_t idx):
 			q(q_), terminate(terminate_), thread_idx(idx) {}
 	JobQueueMTTester_PushPopSteal() = default;
 
@@ -1028,9 +1068,9 @@ struct JobQueueMTTester_PushPopSteal {
 			// Make sure all items are consumed
 			while (!q->empty())
 				std::this_thread::yield();
-			*terminate = true;
+			terminate->store(true, std::memory_order_release);
 		} else {
-			while (!*terminate) {
+			while (!terminate->load(std::memory_order_acquire)) {
 				// Other threads steal work
 				const bool res = q->try_steal(handle);
 
@@ -1056,13 +1096,14 @@ struct JobQueueMTTester_PushPop {
 	using QueueType = TQueue;
 
 	TQueue* q;
-	bool* terminate;
+	std::atomic_bool* terminate;
 	uint32_t thread_idx;
 
 	std::thread t;
 	uint32_t processed = 0;
 
-	JobQueueMTTester_PushPop(TQueue* q_, bool* terminate_, uint32_t idx): q(q_), terminate(terminate_), thread_idx(idx) {}
+	JobQueueMTTester_PushPop(TQueue* q_, std::atomic_bool* terminate_, uint32_t idx):
+			q(q_), terminate(terminate_), thread_idx(idx) {}
 	JobQueueMTTester_PushPop() = default;
 
 	void init() {
@@ -1106,9 +1147,9 @@ struct JobQueueMTTester_PushPop {
 			// Make sure all items are consumed
 			while (!q->empty())
 				std::this_thread::yield();
-			*terminate = true;
+			terminate->store(true, std::memory_order_release);
 		} else {
-			while (!*terminate) {
+			while (!terminate->load(std::memory_order_acquire)) {
 				// Other threads steal work
 				if (!q->try_pop(handle)) {
 					std::this_thread::yield();
@@ -1126,7 +1167,7 @@ void TestJobQueueMT(uint32_t threadCnt) {
 	CHECK(threadCnt > 1);
 
 	typename TTestType::QueueType q;
-	bool terminate = false;
+	std::atomic_bool terminate = false;
 	cnt::darray<TTestType> testers;
 	GAIA_FOR(threadCnt) testers.push_back(TTestType(&q, &terminate, i));
 
@@ -1688,6 +1729,143 @@ TEST_CASE("Multithreading - Reset reusable handles") {
 
 	tp.del(handle1);
 	tp.del(handle2);
+}
+
+TEST_CASE("Multithreading - Reset reusable handle with multiple dependents") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(2, 2);
+
+	mt::Job firstJob;
+	firstJob.flags = mt::JobCreationFlags::ManualDelete;
+	firstJob.func = [] {};
+
+	mt::Job secondJobA;
+	secondJobA.flags = mt::JobCreationFlags::ManualDelete;
+	secondJobA.func = [] {};
+
+	mt::Job secondJobB;
+	secondJobB.flags = mt::JobCreationFlags::ManualDelete;
+	secondJobB.func = [] {};
+
+	const auto first = tp.add(GAIA_MOV(firstJob));
+	const auto secondA = tp.add(GAIA_MOV(secondJobA));
+	const auto secondB = tp.add(GAIA_MOV(secondJobB));
+	mt::JobHandle handles[] = {first, secondA, secondB};
+
+	tp.dep(first, secondA);
+	tp.dep(first, secondB);
+
+	constexpr uint32_t Iters = 1024;
+	GAIA_FOR(Iters) {
+		tp.submit(secondA);
+		tp.submit(secondB);
+		tp.submit(first);
+		tp.reset(std::span(handles));
+		tp.dep_refresh(first, secondA);
+		tp.dep_refresh(first, secondB);
+	}
+
+	tp.submit(secondA);
+	tp.submit(secondB);
+	tp.submit(first);
+	tp.wait(secondA);
+	tp.wait(secondB);
+	tp.wait(first);
+	tp.del(first);
+	tp.del(secondA);
+	tp.del(secondB);
+}
+
+TEST_CASE("Multithreading - Schedule job with prerequisite") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(2, 2);
+
+	std::atomic_uint32_t stage = 0;
+	std::atomic_bool ordered = true;
+
+	mt::Job prerequisite;
+	prerequisite.flags = mt::JobCreationFlags::ManualDelete;
+	prerequisite.func = [&]() {
+		stage.store(1, std::memory_order_release);
+	};
+	const auto prerequisiteHandle = tp.add(GAIA_MOV(prerequisite));
+
+	mt::Job dependent;
+	dependent.flags = mt::JobCreationFlags::ManualDelete;
+	dependent.func = [&]() {
+		if (stage.load(std::memory_order_acquire) != 1)
+			ordered.store(false, std::memory_order_release);
+	};
+	const auto dependentHandle = tp.sched(GAIA_MOV(dependent), prerequisiteHandle);
+
+	tp.submit(prerequisiteHandle);
+	tp.wait(dependentHandle);
+	tp.wait(prerequisiteHandle);
+
+	CHECK(ordered.load(std::memory_order_acquire));
+	tp.del(dependentHandle);
+	tp.del(prerequisiteHandle);
+}
+
+TEST_CASE("Multithreading - Stale handle does not address reused slot") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(0, 0);
+
+	mt::Job oldJob;
+	oldJob.flags = mt::JobCreationFlags::ManualDelete;
+	oldJob.func = [] {};
+	const auto stale = tp.sched(GAIA_MOV(oldJob));
+	tp.wait(stale);
+	tp.del(stale);
+
+	std::atomic_uint32_t calls = 0;
+	mt::Job currentJob;
+	currentJob.flags = mt::JobCreationFlags::ManualDelete;
+	currentJob.func = [&]() {
+		calls.fetch_add(1, std::memory_order_relaxed);
+	};
+	const auto current = tp.add(GAIA_MOV(currentJob));
+
+	CHECK(stale.id() == current.id());
+	CHECK(stale.gen() != current.gen());
+	tp.submit(stale);
+	tp.update();
+	CHECK(calls.load(std::memory_order_relaxed) == 0);
+
+	tp.submit(current);
+	tp.wait(current);
+	CHECK(calls.load(std::memory_order_relaxed) == 1);
+	tp.del(current);
+}
+
+TEST_CASE("Multithreading - Delete clear job") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(0, 0);
+
+	mt::Job job;
+	job.flags = mt::JobCreationFlags::ManualDelete;
+	const auto handle = tp.add(GAIA_MOV(job));
+	tp.del(handle);
+}
+
+TEST_CASE("Multithreading - Transfer main thread") {
+	auto& tp = mt::ThreadPool::get();
+	tp.set_max_workers(2, 2);
+
+	std::atomic_bool ran = false;
+	std::thread newMain([&]() {
+		tp.make_main_thread();
+
+		mt::Job job{[&]() {
+			ran.store(true, std::memory_order_release);
+		}};
+		const auto handle = tp.sched(GAIA_MOV(job));
+		tp.wait(handle);
+	});
+	newMain.join();
+
+	CHECK(ran.load(std::memory_order_acquire));
+	tp.make_main_thread();
 }
 
 #if GAIA_SYSTEMS_ENABLED
