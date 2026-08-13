@@ -241,11 +241,11 @@ if(NOT EMSCRIPTEN)
 
   if(GAIA_PROFILER_CPU OR GAIA_PROFILER_MEM OR GAIA_PROFILER_BUILD)
     if(IS_FETCH_AVAILABLE)
-      find_package(tracy CONFIG QUIET 0.13.1)
+      find_package(tracy CONFIG QUIET 0.14.0)
       FetchContent_Declare(
         tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-        GIT_TAG v0.13.1
+        GIT_TAG v0.14.0
         GIT_SHALLOW TRUE
       )
 
@@ -261,7 +261,7 @@ if(NOT EMSCRIPTEN)
         endif()
       endif()
     else()
-      find_package(tracy CONFIG REQUIRED 0.13.1)
+      find_package(tracy CONFIG REQUIRED 0.14.0)
       if(GAIA_PROFILER_BUILD)
         message(FATAL_ERROR "GAIA_PROFILER_BUILD requires FetchContent so the Tracy profiler source can be built")
       endif()
