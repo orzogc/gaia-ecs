@@ -633,6 +633,20 @@ namespace gaia {
 #if GAIA_OBSERVERS_ENABLED
 			//! Observers
 			ObserverRegistry m_observers;
+
+			//! One deferred `OnSet` notification recorded by a worker thread.
+			struct DeferredOnSet {
+				//! Component or pair id that was written.
+				Entity term;
+				//! Entity the write applied to.
+				Entity entity;
+			};
+
+			//! Notifications recorded while writes run outside the coordinator thread. One queue per
+			//! recording slot so workers never share a container. Drained once the region joins.
+			cnt::darray<cnt::darray<DeferredOnSet>> m_deferredOnSet;
+			//! Greater than zero while writes must record notifications instead of dispatching them.
+			uint32_t m_deferOnSetDepth = 0;
 #endif
 
 #if GAIA_SYSTEMS_ENABLED
@@ -7914,6 +7928,55 @@ namespace gaia {
 				return m_observers;
 			}
 
+			//! Starts recording `OnSet` notifications instead of dispatching them right away.
+			//! Called by the coordinator before a region whose writes may run on worker threads.
+			//! \param slotCount Number of work items that can record concurrently.
+			void defer_on_set_begin(uint32_t slotCount) {
+				GAIA_ASSERT(m_deferOnSetDepth != (uint32_t)-1);
+				if (m_deferOnSetDepth++ != 0)
+					return;
+
+				// One queue per work item. Items are distributed to threads in disjoint ranges, so a
+				// queue is only ever touched by the single thread processing that item and no
+				// synchronization is needed while the region is open.
+				m_deferredOnSet.resize(slotCount);
+				for (auto& queue: m_deferredOnSet)
+					queue.clear();
+			}
+
+			//! Stops recording `OnSet` notifications and dispatches everything recorded since the
+			//! matching defer_on_set_begin(). Notifications run on the calling thread in work-item
+			//! order, so observers see the same sequence no matter how work was distributed.
+			void defer_on_set_end() {
+				GAIA_ASSERT(m_deferOnSetDepth > 0);
+				if (--m_deferOnSetDepth != 0)
+					return;
+
+				// Observer callbacks may trigger writes of their own. Those are dispatched directly
+				// because the recording region already ended, so move the queues aside before
+				// walking them.
+				auto pending = GAIA_MOV(m_deferredOnSet);
+				m_deferredOnSet = {};
+				for (const auto& queue: pending) {
+					for (const auto& item: queue)
+						world_notify_on_set_entity(*this, item.term, item.entity);
+				}
+			}
+
+			//! Returns whether `OnSet` notifications are currently being recorded.
+			GAIA_NODISCARD bool defer_on_set_active() const {
+				return m_deferOnSetDepth != 0;
+			}
+
+			//! Records an `OnSet` notification for later dispatch.
+			//! \param slot Work-item slot owned exclusively by the calling thread.
+			//! \param term Component or pair id that was written.
+			//! \param entity Entity the write applied to.
+			void defer_on_set_record(uint32_t slot, Entity term, Entity entity) {
+				GAIA_ASSERT(slot < m_deferredOnSet.size());
+				m_deferredOnSet[slot].push_back({term, entity});
+			}
+
 #endif
 
 			//----------------------------------------------------------------------
@@ -13711,6 +13774,22 @@ namespace gaia {
 			world.invalidate_sorted_queries();
 		}
 
+#if GAIA_OBSERVERS_ENABLED
+		//! Starts recording `OnSet` notifications in \a world instead of dispatching them.
+		//! \param world World owning the observers.
+		//! \param slotCount Number of work items that can record concurrently.
+		inline void world_defer_on_set_begin(World& world, uint32_t slotCount) {
+			world.defer_on_set_begin(slotCount);
+		}
+
+		//! Dispatches the `OnSet` notifications recorded in \a world since the matching
+		//! world_defer_on_set_begin().
+		//! \param world World owning the observers.
+		inline void world_defer_on_set_end(World& world) {
+			world.defer_on_set_end();
+		}
+#endif
+
 		//! Checks whether \a entity satisfies \a term using normal semantic matching.
 		//! \param world World to query.
 		//! \param entity Entity to test.
@@ -14355,6 +14434,17 @@ namespace gaia {
 			if (from >= to)
 				return;
 
+			// Observer dispatch mutates world-owned state and runs user code. Neither is safe from a
+			// worker thread, so inside a deferring region the notification is only recorded here and
+			// the coordinator dispatches it after the region joins.
+			if (world.defer_on_set_active()) {
+				const auto slot = defer_on_set_slot();
+				GAIA_ASSERT(slot != BadDeferOnSetSlot);
+				for (uint32_t row = from; row < to; ++row)
+					world.defer_on_set_record(slot, term, entities[row]);
+				return;
+			}
+
 			world.observers().on_set(world, term, EntitySpan{entities.data() + from, uint32_t(to - from)});
 #else
 			(void)world;
@@ -14486,6 +14576,15 @@ namespace gaia {
 				return;
 			if (!world.observers().has_on_set_observers(term))
 				return;
+
+			// See world_notify_on_set(): inside a deferring region the notification is recorded and
+			// dispatched by the coordinator once the region joins.
+			if (world.defer_on_set_active()) {
+				const auto slot = defer_on_set_slot();
+				GAIA_ASSERT(slot != BadDeferOnSetSlot);
+				world.defer_on_set_record(slot, term, entity);
+				return;
+			}
 
 			world.observers().on_set(world, term, EntitySpan{&entity, 1});
 #else

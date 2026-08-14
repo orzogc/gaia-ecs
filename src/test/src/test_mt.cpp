@@ -664,6 +664,75 @@ TEST_CASE("ECS - Query uses external scheduler") {
 	CHECK(sum == (EntityCount - 1) * EntityCount / 2);
 }
 
+#if GAIA_OBSERVERS_ENABLED
+TEST_CASE("ECS - Parallel query writes notify OnSet observers on the caller thread") {
+	auto& tp = mt::ThreadPool::get();
+	const auto threads = tp.hw_thread_cnt();
+	tp.set_max_workers(threads, threads);
+
+	TestWorld twld;
+
+	// Enough entities to span many chunks. A small count fits into a single batch,
+	// the work never fans out, and the test would pass vacuously.
+	constexpr uint32_t EntityCount = 20000;
+
+	const auto mainThread = std::this_thread::get_id();
+	std::atomic_uint32_t observerCalls = 0;
+	std::atomic_uint32_t observerForeignThreadCalls = 0;
+
+	(void)wld.observer()
+			.event(ecs::ObserverEvent::OnSet)
+			.all<Position>()
+			.on_each([&](ecs::Entity, const Position&) {
+				observerCalls.fetch_add(1, std::memory_order_relaxed);
+				if (std::this_thread::get_id() != mainThread)
+					observerForeignThreadCalls.fetch_add(1, std::memory_order_relaxed);
+			})
+			.entity();
+
+	GAIA_FOR(EntityCount) {
+		auto e = wld.add();
+		wld.add<Position>(e, {float(i), 0.0F, 0.0F});
+		wld.add<Acceleration>(e, {1.0F, 2.0F, 3.0F});
+	}
+
+	observerCalls.store(0, std::memory_order_relaxed);
+	observerForeignThreadCalls.store(0, std::memory_order_relaxed);
+
+	auto q = wld.query().all<Position&>().all<const Acceleration>();
+	auto job = q.job(
+			[](ecs::Iter& it) {
+				auto pos = it.view_mut<Position>(0);
+				auto acc = it.view<Acceleration>(1);
+				GAIA_FOR_(it.size(), i) {
+					pos[i].x += acc[i].x;
+					pos[i].y += acc[i].y;
+				}
+			},
+			ecs::QueryExecType::Parallel);
+	job.submit();
+	job.wait();
+	job.del();
+
+	// Observers must fire exactly once per written entity and never from a worker thread.
+	CHECK(observerCalls.load(std::memory_order_relaxed) == EntityCount);
+	CHECK(observerForeignThreadCalls.load(std::memory_order_relaxed) == 0);
+
+	// The payload has to match what a serial run would have produced.
+	uint32_t rows = 0;
+	double sum = 0.0;
+	wld.query().all<const Position>().each([&](ecs::Iter& it) {
+		auto pos = it.view<Position>(0);
+		GAIA_FOR_(it.size(), i) {
+			++rows;
+			sum += (double)pos[i].x + (double)pos[i].y;
+		}
+	});
+	CHECK(rows == EntityCount);
+	CHECK(sum == doctest::Approx((double)EntityCount * (EntityCount - 1) / 2.0 + (double)EntityCount * 3.0));
+}
+#endif
+
 TEST_CASE("ECS - Systems use external scheduler") {
 	TestWorld twld;
 	ExternalSchedProbe probe;

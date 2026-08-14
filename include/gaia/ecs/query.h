@@ -2006,6 +2006,62 @@ namespace gaia {
 					return true;
 				}
 
+				//! Records `OnSet` notifications produced by a parallel region instead of dispatching
+				//! them from worker threads, and delivers them on the coordinator thread once the
+				//! region joins. Observers therefore always run on the thread that started the query,
+				//! in work-item order, exactly like the serial path.
+				class ParallelOnSetScope final {
+#if GAIA_OBSERVERS_ENABLED
+					World* m_pWorld;
+#endif
+
+				public:
+					ParallelOnSetScope([[maybe_unused]] World& world, [[maybe_unused]] uint32_t itemCount)
+#if GAIA_OBSERVERS_ENABLED
+							: m_pWorld(&world) {
+						world_defer_on_set_begin(*m_pWorld, itemCount);
+					}
+#else
+					{
+					}
+#endif
+
+					~ParallelOnSetScope() {
+#if GAIA_OBSERVERS_ENABLED
+						world_defer_on_set_end(*m_pWorld);
+#endif
+					}
+
+					ParallelOnSetScope(ParallelOnSetScope&&) = delete;
+					ParallelOnSetScope(const ParallelOnSetScope&) = delete;
+					ParallelOnSetScope& operator=(ParallelOnSetScope&&) = delete;
+					ParallelOnSetScope& operator=(const ParallelOnSetScope&) = delete;
+				};
+
+				//! Binds a parallel work-item range to its deferred-notification slot for the lifetime
+				//! of the scope. Work items are distributed in disjoint ranges, so the first item of a
+				//! range identifies a queue no other thread writes to.
+				class ParallelOnSetSlot final {
+#if GAIA_OBSERVERS_ENABLED
+					DeferOnSetSlotScope m_scope;
+#endif
+
+				public:
+					explicit ParallelOnSetSlot([[maybe_unused]] uint32_t idxStart)
+#if GAIA_OBSERVERS_ENABLED
+							: m_scope(idxStart) {
+					}
+#else
+					{
+					}
+#endif
+
+					ParallelOnSetSlot(ParallelOnSetSlot&&) = delete;
+					ParallelOnSetSlot(const ParallelOnSetSlot&) = delete;
+					ParallelOnSetSlot& operator=(ParallelOnSetSlot&&) = delete;
+					ParallelOnSetSlot& operator=(const ParallelOnSetSlot&) = delete;
+				};
+
 				//! \cond INTERNAL
 				template <typename TIter>
 				static void finish_iter_writes(TIter& it) {
@@ -2362,6 +2418,11 @@ namespace gaia {
 					auto* pWorld = pJobCtx->pWorld;
 					if (pWorld != nullptr) {
 						unlock(*pWorld);
+#if GAIA_OBSERVERS_ENABLED
+						// Deliver the notifications workers recorded. This runs once the job finished, on
+						// the thread that waited for it, with the world already unlocked.
+						world_defer_on_set_end(*pWorld);
+#endif
 						commit_cmd_buffer_st(*pWorld);
 						commit_cmd_buffer_mt(*pWorld);
 						if (pJobCtx->pSelf != nullptr)
@@ -2394,8 +2455,15 @@ namespace gaia {
 					desc.execType = ExecType;
 					desc.invoke = [](void* pInvokeCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<QueryJobCtx<Func, TMode>*>(pInvokeCtx);
+						ParallelOnSetSlot slot(idxStart);
 						run_query_func<Func, TMode>(ctx.pWorld, ctx.func, std::span(&ctx.batches[idxStart], idxEnd - idxStart));
 					};
+
+#if GAIA_OBSERVERS_ENABLED
+					// Matched by world_defer_on_set_end() in cleanup_query_job(), which runs after the
+					// job completed and the world was unlocked.
+					world_defer_on_set_begin(*pWorld, desc.itemCount);
+#endif
 
 					return sched_add_par(world_sched(*pWorld), desc, pCtx, &cleanup_query_job<Func, TMode>);
 				}
@@ -2721,18 +2789,27 @@ namespace gaia {
 					desc.execType = ExecType;
 					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
+						ParallelOnSetSlot slot(idxStart);
 						run_query_func<Func, TMode>(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc,
 								std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart));
 					};
 
-					const auto& sched = world_sched(*m_storage.world());
-					const auto token = sched_par(sched, desc);
-					sched_wait(sched, token);
-					sched_del(sched, token);
-					m_batches.clear();
+					{
+						// Observers recorded by workers are dispatched when this scope ends, after the
+						// world is unlocked again, so callbacks see the same world state as on the
+						// serial path.
+						ParallelOnSetScope onSetScope(*m_storage.world(), desc.itemCount);
 
-					unlock(*m_storage.world());
+						const auto& sched = world_sched(*m_storage.world());
+						const auto token = sched_par(sched, desc);
+						sched_wait(sched, token);
+						sched_del(sched, token);
+						m_batches.clear();
+
+						unlock(*m_storage.world());
+					}
+
 					// Commit the command buffer.
 					// TODO: Smart handling necessary
 					commit_cmd_buffer_st(*m_storage.world());
@@ -2897,18 +2974,24 @@ namespace gaia {
 					desc.execType = ExecType;
 					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
+						ParallelOnSetSlot slot(idxStart);
 						run_query_func<Func, TMode>(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc,
 								std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart));
 					};
 
-					const auto& sched = world_sched(*m_storage.world());
-					const auto token = sched_par(sched, desc);
-					sched_wait(sched, token);
-					sched_del(sched, token);
-					m_batches.clear();
+					{
+						ParallelOnSetScope onSetScope(*m_storage.world(), desc.itemCount);
 
-					unlock(*m_storage.world());
+						const auto& sched = world_sched(*m_storage.world());
+						const auto token = sched_par(sched, desc);
+						sched_wait(sched, token);
+						sched_del(sched, token);
+						m_batches.clear();
+
+						unlock(*m_storage.world());
+					}
+
 					// Commit the command buffer.
 					// TODO: Smart handling necessary
 					commit_cmd_buffer_st(*m_storage.world());
@@ -3270,18 +3353,24 @@ namespace gaia {
 					desc.execType = ExecType;
 					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
+						ParallelOnSetSlot slot(idxStart);
 						run_query_func_runtime(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc, std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart),
 								ctx.constraints);
 					};
 
-					const auto& sched = world_sched(*m_storage.world());
-					const auto token = sched_par(sched, desc);
-					sched_wait(sched, token);
-					sched_del(sched, token);
-					m_batches.clear();
+					{
+						ParallelOnSetScope onSetScope(*m_storage.world(), desc.itemCount);
 
-					unlock(*m_storage.world());
+						const auto& sched = world_sched(*m_storage.world());
+						const auto token = sched_par(sched, desc);
+						sched_wait(sched, token);
+						sched_del(sched, token);
+						m_batches.clear();
+
+						unlock(*m_storage.world());
+					}
+
 					commit_cmd_buffer_st(*m_storage.world());
 					commit_cmd_buffer_mt(*m_storage.world());
 				}
@@ -3411,18 +3500,24 @@ namespace gaia {
 					desc.execType = ExecType;
 					desc.invoke = [](void* pCtx, uint32_t idxStart, uint32_t idxEnd) {
 						auto& ctx = *reinterpret_cast<ParallelQueryBatchCtx*>(pCtx);
+						ParallelOnSetSlot slot(idxStart);
 						run_query_func_runtime(
 								ctx.pSelf->m_storage.world(), *ctx.pFunc, std::span(&ctx.pSelf->m_batches[idxStart], idxEnd - idxStart),
 								ctx.constraints);
 					};
 
-					const auto& sched = world_sched(*m_storage.world());
-					const auto token = sched_par(sched, desc);
-					sched_wait(sched, token);
-					sched_del(sched, token);
-					m_batches.clear();
+					{
+						ParallelOnSetScope onSetScope(*m_storage.world(), desc.itemCount);
 
-					unlock(*m_storage.world());
+						const auto& sched = world_sched(*m_storage.world());
+						const auto token = sched_par(sched, desc);
+						sched_wait(sched, token);
+						sched_del(sched, token);
+						m_batches.clear();
+
+						unlock(*m_storage.world());
+					}
+
 					commit_cmd_buffer_st(*m_storage.world());
 					commit_cmd_buffer_mt(*m_storage.world());
 				}

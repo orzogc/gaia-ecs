@@ -129,6 +129,51 @@ namespace gaia {
 		void unlock(World& world);
 		bool locked(const World& world);
 
+#if GAIA_OBSERVERS_ENABLED
+		// Deferred observer-notification API
+		//
+		// Observer dispatch mutates world-owned state and runs user callbacks, so it cannot happen
+		// on a worker thread. Regions whose writes may run in parallel record notifications instead
+		// and let the coordinator deliver them after the region joins.
+
+		//! Slot value used while no deferred-notification region is active on this thread.
+		inline static constexpr uint32_t BadDeferOnSetSlot = (uint32_t)-1;
+
+		void world_defer_on_set_begin(World& world, uint32_t slotCount);
+		void world_defer_on_set_end(World& world);
+
+		//! Work-item slot the calling thread currently records deferred notifications into.
+		//! Thread-local so a work item keeps its own queue regardless of which thread runs it,
+		//! including schedulers that execute work inline on the caller thread.
+		GAIA_NODISCARD inline uint32_t& defer_on_set_slot_ref() {
+			static thread_local uint32_t s_slot = BadDeferOnSetSlot;
+			return s_slot;
+		}
+
+		//! Returns the deferred-notification slot owned by the calling thread.
+		GAIA_NODISCARD inline uint32_t defer_on_set_slot() {
+			return defer_on_set_slot_ref();
+		}
+
+		//! Binds the calling thread to a deferred-notification slot for the lifetime of the scope.
+		class DeferOnSetSlotScope final {
+			uint32_t m_prev;
+
+		public:
+			explicit DeferOnSetSlotScope(uint32_t slot): m_prev(defer_on_set_slot_ref()) {
+				defer_on_set_slot_ref() = slot;
+			}
+			~DeferOnSetSlotScope() {
+				defer_on_set_slot_ref() = m_prev;
+			}
+
+			DeferOnSetSlotScope(DeferOnSetSlotScope&&) = delete;
+			DeferOnSetSlotScope(const DeferOnSetSlotScope&) = delete;
+			DeferOnSetSlotScope& operator=(DeferOnSetSlotScope&&) = delete;
+			DeferOnSetSlotScope& operator=(const DeferOnSetSlotScope&) = delete;
+		};
+#endif
+
 		// CommandBuffer API
 
 		CommandBufferST& cmd_buffer_st_get(World& world);
