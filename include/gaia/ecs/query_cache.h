@@ -409,6 +409,18 @@ namespace gaia {
 				}
 			}
 
+			//! Returns whether any cached sorted query is registered. O(1), so callers can skip the
+			//! sorted-query invalidation machinery cheaply when sorting is unused.
+			GAIA_NODISCARD bool has_sorted_queries() const {
+				return !m_sortedQueries.empty();
+			}
+
+			//! Returns whether any cached sorted query depends on \a entity being written.
+			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
+				const auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
+				return it != m_sortEntityToQuery.end() && !it->second.empty();
+			}
+
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				if (it == m_sortEntityToQuery.end())

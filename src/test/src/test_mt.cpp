@@ -733,6 +733,68 @@ TEST_CASE("ECS - Parallel query writes notify OnSet observers on the caller thre
 }
 #endif
 
+// Parallel writes bump component versions on worker threads. When a sorted query on the
+// written component is registered, that reaches QueryInfo::invalidate_sort
+// (Chunk::update_world_version -> world_invalidate_sorted_queries_for_entity) from every
+// worker concurrently - a non-atomic flag write that is a data race under TSan. This keeps
+// the scenario covered and asserts the cached sorted order stays valid after a parallel write.
+TEST_CASE("ECS - Parallel query writes keep sorted-query cache valid") {
+	auto& tp = mt::ThreadPool::get();
+	const auto threads = tp.hw_thread_cnt();
+	tp.set_max_workers(threads, threads);
+
+	TestWorld twld;
+
+	constexpr uint32_t EntityCount = 20000;
+
+	// Register a sorted query keyed by Position so the parallel write below reaches the
+	// sorted-query invalidation path (invalidate_sort) from worker threads.
+	const auto sortByX = []([[maybe_unused]] const ecs::World& world, const void* pData0, const void* pData1) {
+		const auto& p0 = *static_cast<const Position*>(pData0);
+		const auto& p1 = *static_cast<const Position*>(pData1);
+		return (p0.x < p1.x) ? -1 : ((p0.x > p1.x) ? 1 : 0);
+	};
+	auto qSorted = wld.query().all<Position>().sort_by<Position>(sortByX);
+	qSorted.fetch(); // compile and register into the query cache
+
+	// Start Pos.x descending so a correct ascending re-sort is distinguishable.
+	GAIA_FOR(EntityCount) {
+		auto e = wld.add();
+		wld.add<Position>(e, {float(EntityCount - 1 - i), 0.0F, 0.0F});
+		wld.add<Acceleration>(e, {1.0F, 2.0F, 3.0F});
+	}
+
+	// Parallel write that mutates Position across many chunks: worker threads bump component
+	// versions and invalidate the cached sorted slices concurrently with each other.
+	auto q = wld.query().all<Position&>().all<const Acceleration>();
+	auto job = q.job(
+			[](ecs::Iter& it) {
+				auto pos = it.view_mut<Position>(0);
+				auto acc = it.view<Acceleration>(1);
+				GAIA_FOR_(it.size(), i) {
+					pos[i].x += acc[i].x;
+					pos[i].y += acc[i].y;
+				}
+			},
+			ecs::QueryExecType::Parallel);
+	job.submit();
+	job.wait();
+	job.del();
+
+	// The cache must still yield strictly ascending Pos.x after the parallel write.
+	float prev = -std::numeric_limits<float>::max();
+	uint32_t rows = 0;
+	qSorted.each([&](ecs::Iter& it) {
+		auto pos = it.view<Position>(0);
+		GAIA_FOR_(it.size(), i) {
+			CHECK(pos[i].x >= prev);
+			prev = pos[i].x;
+			++rows;
+		}
+	});
+	CHECK(rows == EntityCount);
+}
+
 TEST_CASE("ECS - Systems use external scheduler") {
 	TestWorld twld;
 	ExternalSchedProbe probe;

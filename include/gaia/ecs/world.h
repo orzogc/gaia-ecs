@@ -649,6 +649,24 @@ namespace gaia {
 			uint32_t m_deferOnSetDepth = 0;
 #endif
 
+			//! One deferred sorted-query invalidation recorded by a worker thread.
+			//!
+			//! Sorted-query invalidation flips the shared `SortEntities` dirty bit on every sorted
+			//! query keyed by the written component. That shared flag is not safe to touch from a
+			//! worker thread, so parallel write regions record which component entities were written
+			//! and the coordinator applies the invalidation once the region joins. Invalidation is
+			//! idempotent, so recording the same entity from several workers is harmless.
+			struct DeferredSortInv {
+				//! Component entity whose version was bumped by a parallel write.
+				Entity entity;
+			};
+
+			//! Sorted-query invalidations recorded while a parallel region is open. One queue per
+			//! recording slot so workers never share a container. Drained once the region joins.
+			cnt::darray<cnt::darray<DeferredSortInv>> m_deferredSortInv;
+			//! Greater than zero while writes must record sorted invalidations instead of applying them.
+			uint32_t m_deferSortInvDepth = 0;
+
 #if GAIA_SYSTEMS_ENABLED
 			//! System runtime payload kept outside ECS component storage.
 			SystemRegistry m_systems;
@@ -7979,6 +7997,53 @@ namespace gaia {
 
 #endif
 
+			//! Starts recording sorted-query invalidations instead of applying them right away.
+			//! Called by the coordinator before a region whose writes may run on worker threads.
+			//! \param slotCount Number of work items that can record concurrently.
+			void defer_sort_inv_begin(uint32_t slotCount) {
+				GAIA_ASSERT(m_deferSortInvDepth != (uint32_t)-1);
+				if (m_deferSortInvDepth++ != 0)
+					return;
+
+				// One queue per work item. Items are distributed to threads in disjoint ranges, so a
+				// queue is only ever touched by the single thread processing that item and no
+				// synchronization is needed while the region is open.
+				m_deferredSortInv.resize(slotCount);
+				for (auto& queue: m_deferredSortInv)
+					queue.clear();
+			}
+
+			//! Stops recording sorted-query invalidations and applies everything recorded since the
+			//! matching defer_sort_inv_begin(). Invalidation runs on the calling thread, which is the
+			//! coordinator once the parallel region joins.
+			void defer_sort_inv_end() {
+				GAIA_ASSERT(m_deferSortInvDepth > 0);
+				if (--m_deferSortInvDepth != 0)
+					return;
+
+				// The coordinator may itself write during apply (e.g. through nested queries), so move
+				// the queue aside before walking it, matching the observer path.
+				auto pending = GAIA_MOV(m_deferredSortInv);
+				m_deferredSortInv = {};
+				for (const auto& queue: pending) {
+					for (const auto& item: queue)
+						invalidate_sorted_queries_for_entity(item.entity);
+				}
+			}
+
+			//! Returns whether sorted-query invalidations are currently being recorded.
+			GAIA_NODISCARD bool defer_sort_inv_active() const {
+				return m_deferSortInvDepth != 0;
+			}
+
+			//! Records a sorted-query invalidation for later application.
+			//! \param slot Work-item slot owned exclusively by the calling thread.
+			//! \param entity Component entity whose version was bumped by a write.
+			void defer_sort_inv_record(uint32_t slot, Entity entity) {
+				GAIA_ASSERT(slot < m_deferredSortInv.size());
+				m_deferredSortInv[slot].push_back({entity});
+			}
+
 			//----------------------------------------------------------------------
 
 			//! Enables or disables an entire entity.
@@ -12208,6 +12273,15 @@ namespace gaia {
 
 			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
 			//! \param entity Entity
+			//! Returns whether any cached sorted query is registered in this world. O(1).
+			GAIA_NODISCARD bool has_sorted_queries() const {
+				return m_queryCache.has_sorted_queries();
+			}
+
+			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
+				return m_queryCache.has_sorted_queries_for_entity(entity);
+			}
+
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				m_queryCache.invalidate_sorted_queries_for_entity(entity);
 			}
@@ -13764,7 +13838,22 @@ namespace gaia {
 		//! Invalidates sorted queries affected by \a entity.
 		//! \param world World owning the queries.
 		//! \param entity Changed entity.
-		inline void world_invalidate_sorted_queries_for_entity(World& world, Entity entity) {
+		GAIA_FORCEINLINE void world_invalidate_sorted_queries_for_entity(World& world, Entity entity) {
+			// Sorting is rarely used; one predictable branch keeps the hot write path free of the
+			// invalidation machinery for both serial and parallel writes.
+			if GAIA_LIKELY (!world.has_sorted_queries())
+				return;
+
+			if (world.defer_sort_inv_active()) {
+				// Only record entities a sorted query actually depends on, so the defer queue stays
+				// empty for the common case where no component carried a sorted query.
+				if (!world.has_sorted_queries_for_entity(entity))
+					return;
+				const auto slot = defer_slot();
+				GAIA_ASSERT(slot != BadDeferSlot);
+				world.defer_sort_inv_record(slot, entity);
+				return;
+			}
 			world.invalidate_sorted_queries_for_entity(entity);
 		}
 
@@ -13772,6 +13861,42 @@ namespace gaia {
 		//! \param world World owning the queries.
 		inline void world_invalidate_sorted_queries(World& world) {
 			world.invalidate_sorted_queries();
+		}
+
+		//! Starts recording sorted-query invalidations in \a world instead of applying them.
+		//! \param world World owning the query cache.
+		//! \param slotCount Number of work items that can record concurrently.
+		inline void world_defer_sort_inv_begin(World& world, uint32_t slotCount) {
+			world.defer_sort_inv_begin(slotCount);
+		}
+
+		//! Applies the sorted-query invalidations recorded in \a world since the matching
+		//! world_defer_sort_inv_begin().
+		//! \param world World owning the query cache.
+		inline void world_defer_sort_inv_end(World& world) {
+			world.defer_sort_inv_end();
+		}
+
+		//! Starts recording both `OnSet` notifications and sorted-query invalidations produced
+		//! by a parallel region instead of applying them right away. The observer channel is
+		//! active only when GAIA_OBSERVERS_ENABLED; sorted-query invalidation always defers.
+		//! \param world World owning the query cache and observers.
+		//! \param itemCount Number of work items that can record concurrently.
+		inline void world_defer_parallel_begin(World& world, uint32_t itemCount) {
+#if GAIA_OBSERVERS_ENABLED
+			world_defer_on_set_begin(world, itemCount);
+#endif
+			world_defer_sort_inv_begin(world, itemCount);
+		}
+
+		//! Applies the `OnSet` notifications and sorted-query invalidations recorded since the
+		//! matching world_defer_parallel_begin().
+		//! \param world World owning the query cache and observers.
+		inline void world_defer_parallel_end(World& world) {
+			world_defer_sort_inv_end(world);
+#if GAIA_OBSERVERS_ENABLED
+			world_defer_on_set_end(world);
+#endif
 		}
 
 #if GAIA_OBSERVERS_ENABLED
@@ -14438,8 +14563,8 @@ namespace gaia {
 			// worker thread, so inside a deferring region the notification is only recorded here and
 			// the coordinator dispatches it after the region joins.
 			if (world.defer_on_set_active()) {
-				const auto slot = defer_on_set_slot();
-				GAIA_ASSERT(slot != BadDeferOnSetSlot);
+				const auto slot = defer_slot();
+				GAIA_ASSERT(slot != BadDeferSlot);
 				for (uint32_t row = from; row < to; ++row)
 					world.defer_on_set_record(slot, term, entities[row]);
 				return;
@@ -14580,8 +14705,8 @@ namespace gaia {
 			// See world_notify_on_set(): inside a deferring region the notification is recorded and
 			// dispatched by the coordinator once the region joins.
 			if (world.defer_on_set_active()) {
-				const auto slot = defer_on_set_slot();
-				GAIA_ASSERT(slot != BadDeferOnSetSlot);
+				const auto slot = defer_slot();
+				GAIA_ASSERT(slot != BadDeferSlot);
 				world.defer_on_set_record(slot, term, entity);
 				return;
 			}

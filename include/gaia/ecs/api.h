@@ -136,43 +136,62 @@ namespace gaia {
 		// on a worker thread. Regions whose writes may run in parallel record notifications instead
 		// and let the coordinator deliver them after the region joins.
 
-		//! Slot value used while no deferred-notification region is active on this thread.
-		inline static constexpr uint32_t BadDeferOnSetSlot = (uint32_t)-1;
-
 		void world_defer_on_set_begin(World& world, uint32_t slotCount);
 		void world_defer_on_set_end(World& world);
+#endif
 
-		//! Work-item slot the calling thread currently records deferred notifications into.
-		//! Thread-local so a work item keeps its own queue regardless of which thread runs it,
-		//! including schedulers that execute work inline on the caller thread.
-		GAIA_NODISCARD inline uint32_t& defer_on_set_slot_ref() {
-			static thread_local uint32_t s_slot = BadDeferOnSetSlot;
+		// Deferred sorted-query invalidation API
+		//
+		// Sorted-query invalidation flips a shared `SortEntities` dirty bit on every sorted query
+		// keyed by the written component. That shared flag is not safe to touch from a worker
+		// thread, so regions whose writes may run in parallel record which component entities were
+		// written and the coordinator applies the invalidation once the region joins. Work items
+		// identify themselves with the shared deferral slot below, which the observer (`OnSet`)
+		// channel uses as well.
+
+		//! Slot value used while no deferred region is active on this thread.
+		inline static constexpr uint32_t BadDeferSlot = (uint32_t)-1;
+
+		void world_defer_sort_inv_begin(World& world, uint32_t slotCount);
+		void world_defer_sort_inv_end(World& world);
+
+		//! Opens both the `OnSet` and sorted-query-invalidation deferral regions of a parallel
+		//! region as one unit; see world.h for the definitions.
+		void world_defer_parallel_begin(World& world, uint32_t itemCount);
+		void world_defer_parallel_end(World& world);
+
+		//! Work-item slot the calling thread records deferred notifications into. Both the
+		//! observer (`OnSet`) and sorted-query-invalidation channels read it, so a work item
+		//! writes into one slot-aligned queue per channel. Thread-local so a work item keeps
+		//! its own slot regardless of which thread runs it, including schedulers that execute
+		//! work inline on the caller thread.
+		GAIA_NODISCARD inline uint32_t& defer_slot_ref() {
+			static thread_local uint32_t s_slot = BadDeferSlot;
 			return s_slot;
 		}
 
 		//! Returns the deferred-notification slot owned by the calling thread.
-		GAIA_NODISCARD inline uint32_t defer_on_set_slot() {
-			return defer_on_set_slot_ref();
+		GAIA_NODISCARD inline uint32_t defer_slot() {
+			return defer_slot_ref();
 		}
 
-		//! Binds the calling thread to a deferred-notification slot for the lifetime of the scope.
-		class DeferOnSetSlotScope final {
+		//! Binds the calling thread to a work-item deferral slot for the lifetime of the scope.
+		class DeferSlotScope final {
 			uint32_t m_prev;
 
 		public:
-			explicit DeferOnSetSlotScope(uint32_t slot): m_prev(defer_on_set_slot_ref()) {
-				defer_on_set_slot_ref() = slot;
+			explicit DeferSlotScope(uint32_t slot): m_prev(defer_slot_ref()) {
+				defer_slot_ref() = slot;
 			}
-			~DeferOnSetSlotScope() {
-				defer_on_set_slot_ref() = m_prev;
+			~DeferSlotScope() {
+				defer_slot_ref() = m_prev;
 			}
 
-			DeferOnSetSlotScope(DeferOnSetSlotScope&&) = delete;
-			DeferOnSetSlotScope(const DeferOnSetSlotScope&) = delete;
-			DeferOnSetSlotScope& operator=(DeferOnSetSlotScope&&) = delete;
-			DeferOnSetSlotScope& operator=(const DeferOnSetSlotScope&) = delete;
+			DeferSlotScope(DeferSlotScope&&) = delete;
+			DeferSlotScope(const DeferSlotScope&) = delete;
+			DeferSlotScope& operator=(DeferSlotScope&&) = delete;
+			DeferSlotScope& operator=(const DeferSlotScope&) = delete;
 		};
-#endif
 
 		// CommandBuffer API
 
