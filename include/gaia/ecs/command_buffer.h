@@ -18,18 +18,25 @@
 
 namespace gaia {
 	namespace ecs {
+		//! Single-threaded command-buffer access guard. Locking is a no-op.
 		struct AccessContextST {
+			//! Acquires the access guard.
 			void lock() {}
+			//! Releases the access guard.
 			void unlock() {}
 		};
 
+		//! Multi-threaded command-buffer access guard backed by a spin lock.
 		struct AccessContextMT {
+			//! Spin lock serializing command-buffer access across worker threads.
 			mt::SpinLock m_lock;
 
+			//! Acquires the access guard.
 			void lock() {
 				m_lock.lock();
 			}
 
+			//! Releases the access guard.
 			void unlock() {
 				m_lock.unlock();
 			}

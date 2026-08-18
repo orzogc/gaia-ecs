@@ -292,24 +292,28 @@ namespace gaia {
 			}
 
 			//! Returns the runtime type kind at the current cursor scope.
+			//! \return Runtime type kind of the current scope, RuntimeTypeKind::None for invalid cursors.
 			GAIA_NODISCARD RuntimeTypeKind type_kind() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->typeKind : RuntimeTypeKind::None;
 			}
 
 			//! Returns the semantic runtime type exposed by the current opaque scope, or EntityBad otherwise.
+			//! \return Semantic runtime type, or EntityBad when not in an opaque scope.
 			GAIA_NODISCARD Entity opaque_as_type() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->opaque_as_type() : EntityBad;
 			}
 
 			//! Returns the element type for the current sequence scope, or EntityBad otherwise.
+			//! \return Element type of the current sequence scope, or EntityBad.
 			GAIA_NODISCARD Entity element_type() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->element_type() : EntityBad;
 			}
 
 			//! Returns the current payload or field size in bytes.
+			//! \return Current payload or field size in bytes, or zero for an invalid cursor.
 			GAIA_NODISCARD uint32_t size() const noexcept {
 				return m_valid ? m_stack[m_depth].size : 0;
 			}
@@ -339,6 +343,7 @@ namespace gaia {
 			}
 
 			//! Returns the element count for the current fixed or adapted sequence scope.
+			//! \return Element count and read status.
 			GAIA_NODISCARD CursorResult<uint32_t> count() const noexcept {
 				CursorResult<uint32_t> result{};
 				if (!m_valid) {
@@ -522,6 +527,7 @@ namespace gaia {
 			}
 
 			//! Resizes the current adapted dynamic sequence scope.
+			//! \return Resize status.
 			CursorResult<void> resize(uint32_t count) noexcept {
 				if (!m_valid)
 					return {CursorStatus::Invalid};
@@ -663,101 +669,121 @@ namespace gaia {
 			}
 
 			//! Reads the current cursor value as an s8.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int8_t> s8() const noexcept {
 				return read_primitive<int8_t>(S8);
 			}
 
 			//! Writes \a value to the current cursor value as an s8.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s8(int8_t value) noexcept {
 				return write_primitive(S8, value);
 			}
 
 			//! Reads the current cursor value as a u8.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint8_t> u8() const noexcept {
 				return read_primitive<uint8_t>(U8);
 			}
 
 			//! Writes \a value to the current cursor value as a u8.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u8(uint8_t value) noexcept {
 				return write_primitive(U8, value);
 			}
 
 			//! Reads the current cursor value as an s16.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int16_t> s16() const noexcept {
 				return read_primitive<int16_t>(S16);
 			}
 
 			//! Writes \a value to the current cursor value as an s16.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s16(int16_t value) noexcept {
 				return write_primitive(S16, value);
 			}
 
 			//! Reads the current cursor value as a u16.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint16_t> u16() const noexcept {
 				return read_primitive<uint16_t>(U16);
 			}
 
 			//! Writes \a value to the current cursor value as a u16.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u16(uint16_t value) noexcept {
 				return write_primitive(U16, value);
 			}
 
 			//! Reads the current cursor value as an s32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int32_t> s32() const noexcept {
 				return read_primitive<int32_t>(S32);
 			}
 
 			//! Writes \a value to the current cursor value as an s32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s32(int32_t value) noexcept {
 				return write_primitive(S32, value);
 			}
 
 			//! Reads the current cursor value as a u32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint32_t> u32() const noexcept {
 				return read_primitive<uint32_t>(U32);
 			}
 
 			//! Writes \a value to the current cursor value as a u32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u32(uint32_t value) noexcept {
 				return write_primitive(U32, value);
 			}
 
 			//! Reads the current cursor value as an s64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int64_t> s64() const noexcept {
 				return read_primitive<int64_t>(S64);
 			}
 
 			//! Writes \a value to the current cursor value as an s64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s64(int64_t value) noexcept {
 				return write_primitive(S64, value);
 			}
 
 			//! Reads the current cursor value as a u64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint64_t> u64() const noexcept {
 				return read_primitive<uint64_t>(U64);
 			}
 
 			//! Writes \a value to the current cursor value as a u64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u64(uint64_t value) noexcept {
 				return write_primitive(U64, value);
 			}
 
 			//! Reads the current cursor value as an f32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<float> f32() const noexcept {
 				return read_primitive<float>(F32);
 			}
 
 			//! Writes \a value to the current cursor value as an f32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> f32(float value) noexcept {
 				return write_primitive(F32, value);
 			}
 
 			//! Reads the current cursor value as an f64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<double> f64() const noexcept {
 				return read_primitive<double>(F64);
 			}
 
 			//! Writes \a value to the current cursor value as an f64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> f64(double value) noexcept {
 				return write_primitive(F64, value);
 			}

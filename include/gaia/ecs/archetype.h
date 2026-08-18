@@ -48,8 +48,11 @@ namespace gaia {
 		} // namespace detail
 		//! \endcond
 
+		//! Pairs an archetype with one of its chunks.
 		struct ArchetypeChunkPair {
+			//! Archetype the chunk belongs to.
 			Archetype* pArchetype;
+			//! Chunk owned by the paired archetype.
 			Chunk* pChunk;
 
 			GAIA_NODISCARD bool operator==(const ArchetypeChunkPair& other) const {
@@ -57,17 +60,21 @@ namespace gaia {
 			}
 		};
 
+		//! Base shared by archetype lookups and concrete archetypes, carrying the archetype id.
 		class ArchetypeBase {
 		protected:
 			//! Archetype ID - used to address the archetype directly in the world's list or archetypes
 			ArchetypeId m_archetypeId = ArchetypeIdBad;
 
 		public:
+			//! Archetype id used to address the archetype in the world list.
+			//! \return Archetype id.
 			GAIA_NODISCARD ArchetypeId id() const {
 				return m_archetypeId;
 			}
 		};
 
+		//! Archetype lookup key that compares against a component term span instead of a full archetype id.
 		class ArchetypeLookupChecker: public ArchetypeBase {
 			friend class Archetype;
 
@@ -77,13 +84,19 @@ namespace gaia {
 		public:
 			ArchetypeLookupChecker(EntitySpan comps): m_comps(comps) {}
 
+			//! Compares the lookup checker component spans in archetype order.
+			//! \param other Other checker to compare against.
+			//! \return True when both spans match element-wise.
 			GAIA_NODISCARD bool cmp_comps(const ArchetypeLookupChecker& other) const {
 				return detail::cmp_comps(m_comps, other.m_comps);
 			}
 		};
 
+		//! Fixed-shape group of chunks storing entities that share the same component layout.
+		//! Owns chunk storage, component hashes, relation-pair indexing and inter-archetype graph edges.
 		class GAIA_API Archetype final: public ArchetypeBase {
 		public:
+			//! Direct hash type used for archetype lookups.
 			using LookupHash = core::direct_hash_key<uint64_t>;
 
 			//! Number of bits representing archetype lifespan
@@ -93,6 +106,7 @@ namespace gaia {
 			//! Number of ticks before empty chunks are removed
 			static constexpr uint16_t MAX_ARCHETYPE_LIFESPAN = (1 << ARCHETYPE_LIFESPAN_BITS) - 1;
 
+			//! Shape properties of this archetype.
 			struct Properties {
 				//! The number of data entities this archetype can take (e.g 5 = 5 entities with all their components)
 				uint16_t capacity;
@@ -161,9 +175,13 @@ namespace gaia {
 			};
 
 			struct PairIndexData {
+				//! Counts how many pair indices of one relation or target occupy a contiguous range.
 				struct PairCountBucket {
+					//! Relation or target entity id the bucket counts.
 					EntityId id;
+					//! First pair index within the archetype ids array.
 					uint8_t start;
+					//! Number of pair indices belonging to this relation or target.
 					uint8_t count;
 				};
 
@@ -450,6 +468,8 @@ namespace gaia {
 			Archetype& operator=(Archetype&&) = delete;
 			Archetype& operator=(const Archetype&) = delete;
 
+			//! Serializes the archetype: free-chunk index, list index, and each chunk.
+			//! \param s serializer to write to.
 			void save(ser::serializer& s) {
 				s.save(m_storage.firstFreeChunkIdx);
 				s.save(m_runtime.listIdx);
@@ -461,6 +481,8 @@ namespace gaia {
 				}
 			}
 
+			//! Deserializes the archetype, recreating missing chunks from the shape description.
+			//! \param s serializer to read from.
 			void load(ser::serializer& s) {
 				s.load(m_storage.firstFreeChunkIdx);
 				s.load(m_runtime.listIdx);
@@ -489,18 +511,31 @@ namespace gaia {
 				}
 			}
 
+			//! Sets the archetype index in the world list of active archetypes.
+			//! \param idx List index to store.
 			void list_idx(uint32_t idx) {
 				m_runtime.listIdx = idx;
 			}
 
+			//! Archetype index in the world list of active archetypes.
+			//! \return Archetype list index.
 			uint32_t list_idx() const {
 				return m_runtime.listIdx;
 			}
 
+			//! Compares the lookup checker component spans in archetype order.
+			//! \param other Other checker to compare against.
+			//! \return True when both spans match element-wise.
 			GAIA_NODISCARD bool cmp_comps(const ArchetypeLookupChecker& other) const {
 				return detail::cmp_comps(ids_view(), other.m_comps);
 			}
 
+			//! Creates a new archetype from a component term span.
+			//! \param world World owning the component cache.
+			//! \param archetypeId Archetype id to register.
+			//! \param worldVersion World version reference for chunk versioning.
+			//! \param ids Component and entity identifiers defining the shape.
+			//! \return Newly created archetype.
 			GAIA_NODISCARD static Archetype*
 			create(const World& world, ArchetypeId archetypeId, uint32_t& worldVersion, EntitySpan ids) {
 				const auto& cc = comp_cache(world);
@@ -631,16 +666,22 @@ namespace gaia {
 				return newArch;
 			}
 
+			//! Destroys the archetype and frees its memory.
+			//! \param pArchetype Archetype to destroy.
 			void static destroy(Archetype* pArchetype) {
 				GAIA_ASSERT(pArchetype != nullptr);
 				pArchetype->~Archetype();
 				mem::AllocHelper::free("Archetype", pArchetype);
 			}
 
+			//! Query mask describing which simple queries may match this archetype.
+			//! \return Query mask of the archetype shape.
 			QueryMask queryMask() const {
 				return m_shape.queryMask;
 			}
 
+			//! Archetype id hash used for graph edge storage.
+			//! \return Hash of the archetype id.
 			ArchetypeIdLookupKey::LookupHash id_hash() const {
 				return m_shape.archetypeIdHash;
 			}
@@ -686,6 +727,7 @@ namespace gaia {
 			//! Tries to locate a chunk that has some space left for a new entity.
 			//! If not found a new chunk is created.
 			//! \warning Always used in tandem with try_update_free_chunk_idx() or remove_entity()
+			//! \return Chunk with free space, or a newly created chunk.
 			GAIA_NODISCARD Chunk* foc_free_chunk() {
 				const auto chunkCnt = m_storage.chunks.size();
 
@@ -766,22 +808,32 @@ namespace gaia {
 				chunk.update_versions();
 			}
 
+			//! Shape properties of this archetype.
+			//! \return Archetype properties.
 			GAIA_NODISCARD const Properties& props() const {
 				return m_shape.properties;
 			}
 
+			//! Chunks managed by this archetype.
+			//! \return Array of chunk pointers.
 			GAIA_NODISCARD const cnt::darray<Chunk*>& chunks() const {
 				return m_storage.chunks;
 			}
 
+			//! Hash of the component terms used for archetype lookup.
+			//! \return Component-term lookup hash.
 			GAIA_NODISCARD LookupHash lookup_hash() const {
 				return m_shape.hashLookup;
 			}
 
+			//! Span over the component and entity identifiers defining the archetype shape.
+			//! \return Identifier span.
 			GAIA_NODISCARD EntitySpan ids_view() const {
 				return {&m_shape.ids[0], m_shape.properties.cntEntities};
 			}
 
+			//! Span over the per-term component data offsets.
+			//! \return Component offset span.
 			GAIA_NODISCARD ChunkDataOffsetSpan comp_offs_view() const {
 				return {&m_shape.compOffs[0], m_shape.properties.cntEntities};
 			}
@@ -800,23 +852,36 @@ namespace gaia {
 
 			//! Returns how many pair ids in this archetype match the provided wildcard-capable pair query.
 			//! This stays archetype-local because variable matching repeatedly probes a single candidate archetype.
+			//! \param pair Wildcard-capable pair query.
+			//! \return Number of matching pair ids in this archetype.
 			GAIA_NODISCARD uint32_t pair_matches(Entity pair) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_matches(ids_view(), pair) : 0;
 			}
 
+			//! Resolves a relation-pair index to its pair entity.
+			//! \param idx Index within the archetype pair array.
+			//! \return Pair entity at \a idx.
 			GAIA_NODISCARD Entity entity_from_pairs_as_idx(uint32_t idx) const {
 				GAIA_ASSERT(m_pPairIndex != nullptr);
 				return m_pPairIndex->entity_from_pairs_as_idx(ids_view(), idx);
 			}
 
+			//! Indices of all relation pairs within the ids array.
+			//! \return Pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_indices() const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_indices() : std::span<const uint8_t>{};
 			}
 
+			//! Indices of pairs whose relation matches the given relation.
+			//! \param relation Relation entity to match.
+			//! \return Matching pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_rel_indices(Entity relation) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_rel_indices(relation) : std::span<const uint8_t>{};
 			}
 
+			//! Indices of pairs whose target matches the given target.
+			//! \param target Target entity to match.
+			//! \return Matching pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_tgt_indices(Entity target) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_tgt_indices(target) : std::span<const uint8_t>{};
 			}
@@ -830,16 +895,20 @@ namespace gaia {
 				});
 			}
 
+			//! Increments the number of terms observing this archetype.
 			void observed_terms_inc() {
 				GAIA_ASSERT(m_runtime.observedTermCnt < m_shape.properties.cntEntities);
 				++m_runtime.observedTermCnt;
 			}
 
+			//! Decrements the number of terms observing this archetype.
 			void observed_terms_dec() {
 				GAIA_ASSERT(m_runtime.observedTermCnt > 0);
 				--m_runtime.observedTermCnt;
 			}
 
+			//! Whether any observer term currently observes this archetype.
+			//! \return True when the observed-term counter is non-zero.
 			GAIA_NODISCARD bool has_observed_terms() const {
 				return m_runtime.observedTermCnt != 0;
 			}
@@ -1066,6 +1135,9 @@ namespace gaia {
 				pArchetypeRight->build_graph_edges_left(this, entity);
 			}
 
+			//! Records a cached "del" graph edge from entity \a entity to this archetype.
+			//! \param pArchetypeLeft Owning archetype of \a entity.
+			//! \param entity Entity forming the left edge.
 			void build_graph_edges_left(Archetype* pArchetypeLeft, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeLeft != this);
@@ -1073,6 +1145,9 @@ namespace gaia {
 				m_edges.graph.add_edge_left(entity, pArchetypeLeft->id(), pArchetypeLeft->id_hash());
 			}
 
+			//! Removes the cached "add" edge for \a entity and propagates the delete to the right archetype.
+			//! \param pArchetypeRight Target archetype of the edge.
+			//! \param entity Entity whose edge is removed.
 			void del_graph_edges(Archetype* pArchetypeRight, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeRight != this);
@@ -1081,6 +1156,9 @@ namespace gaia {
 				pArchetypeRight->del_graph_edges_left(this, entity);
 			}
 
+			//! Removes the cached "del" edge for \a entity after the matching "add" edge is removed.
+			//! \param pArchetypeLeft Owning archetype of \a entity.
+			//! \param entity Entity whose left edge is removed.
 			void del_graph_edges_left([[maybe_unused]] Archetype* pArchetypeLeft, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeLeft != this);
@@ -1116,23 +1194,32 @@ namespace gaia {
 				return m_edges.graph.find_edge_left(entity);
 			}
 
+			//! Mutable view over the archetype "add" graph edges.
+			//! \return Right-edge container reference.
 			GAIA_NODISCARD auto& right_edges() {
 				return m_edges.graph.right_edges();
 			}
 
+			//! Const view over the archetype "add" graph edges.
+			//! \return Right-edge container reference.
 			GAIA_NODISCARD const auto& right_edges() const {
 				return m_edges.graph.right_edges();
 			}
 
+			//! Mutable view over the archetype "del" graph edges.
+			//! \return Left-edge container reference.
 			GAIA_NODISCARD auto& left_edges() {
 				return m_edges.graph.left_edges();
 			}
 
+			//! Const view over the archetype "del" graph edges.
+			//! \return Left-edge container reference.
 			GAIA_NODISCARD const auto& left_edges() const {
 				return m_edges.graph.left_edges();
 			}
 
 			//! Checks is there are no chunk in the archetype.
+			//! \return True when the archetype holds no chunks.
 			GAIA_NODISCARD bool empty() const {
 				return m_storage.chunks.empty();
 			}
@@ -1143,6 +1230,7 @@ namespace gaia {
 			}
 
 			//! Returns true if this archetype is requested to be deleted.
+			//! \return True when the archetype is requested to be deleted.
 			GAIA_NODISCARD bool is_req_del() const {
 				return m_runtime.deleteReq;
 			}
@@ -1158,11 +1246,13 @@ namespace gaia {
 
 			//! Returns the maximal lifespan of the archetype.
 			//! If zero, the archetype it kept indefinitely.
+			//! \return Lifespan in world updates kept after the archetype empties, zero when indefinite.
 			GAIA_NODISCARD uint32_t max_lifespan() const {
 				return m_runtime.lifespanCountdownMax;
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the archetype is in its dying lifespan countdown.
 			GAIA_NODISCARD bool dying() const {
 				return m_runtime.lifespanCountdown > 0;
 			}
@@ -1173,6 +1263,7 @@ namespace gaia {
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the archetype is dead and ready to be deleted.
 			GAIA_NODISCARD bool dead() const {
 				return m_runtime.dead == 1;
 			}
@@ -1200,10 +1291,14 @@ namespace gaia {
 			}
 
 			//! Tells whether archetype is ready to be deleted
+			//! \return True when the archetype is empty, lifespan-bounded, and no longer dying.
 			GAIA_NODISCARD bool ready_to_die() const {
 				return m_runtime.lifespanCountdownMax > 0 && !dying() && empty();
 			}
 
+			//! Logs a diagnostic line for one entity, pair, or component of the archetype.
+			//! \param world World owning the entity types.
+			//! \param entity Entity to describe.
 			static void diag_entity(const World& world, Entity entity) {
 				if (entity.entity()) {
 					const auto name = entity_name(world, entity);
@@ -1227,6 +1322,9 @@ namespace gaia {
 				}
 			}
 
+			//! Logs basic archetype diagnostics: sizes, chunk count, entity counts, and component ids.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype to describe.
 			static void diag_basic_info(const World& world, const Archetype& archetype) {
 				auto ids = archetype.ids_view();
 
@@ -1267,10 +1365,15 @@ namespace gaia {
 				}
 			}
 
+			//! Logs the archetype graph edge diagnostics.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype whose graph is described.
 			static void diag_graph_info(const World& world, const Archetype& archetype) {
 				archetype.m_edges.graph.diag(world);
 			}
 
+			//! Logs per-chunk diagnostics for all chunks of the archetype.
+			//! \param archetype Archetype whose chunks are described.
 			static void diag_chunk_info(const Archetype& archetype) {
 				const auto& chunks = archetype.m_storage.chunks;
 				if (chunks.empty())
@@ -1281,6 +1384,9 @@ namespace gaia {
 					pChunk->diag();
 			}
 
+			//! Logs entity diagnostics for each entity of the archetype.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype whose entities are described.
 			static void diag_entity_info(const World& world, const Archetype& archetype) {
 				const auto& chunks = archetype.m_storage.chunks;
 				if (chunks.empty())
@@ -1312,21 +1418,28 @@ namespace gaia {
 			}
 		};
 
+		//! Hashmap key for archetype lookup, combining a hash with the archetype base pointer.
+		//! Hash collisions fall back to component-span comparison when no archetype id is set.
 		class GAIA_API ArchetypeLookupKey final {
 			Archetype::LookupHash m_hash;
 			const ArchetypeBase* m_pArchetypeBase;
 
 		public:
+			//! Marks this key as a direct hash key.
 			static constexpr bool IsDirectHashKey = true;
 
 			ArchetypeLookupKey(): m_hash({0}), m_pArchetypeBase(nullptr) {}
 			explicit ArchetypeLookupKey(Archetype::LookupHash hash, const ArchetypeBase* pArchetypeBase):
 					m_hash(hash), m_pArchetypeBase(pArchetypeBase) {}
 
+			//! Hash of the archetype lookup value.
+			//! \return Archetype hash.
 			GAIA_NODISCARD size_t hash() const {
 				return (size_t)m_hash.hash;
 			}
 
+			//! Resolves the lookup key to its concrete archetype.
+			//! \return Archetype pointer, or null when the key holds no archetype.
 			GAIA_NODISCARD Archetype* archetype() const {
 				return (Archetype*)m_pArchetypeBase;
 			}

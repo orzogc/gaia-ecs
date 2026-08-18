@@ -37,13 +37,21 @@ namespace gaia {
 		// Component
 		// ------------------------------------------------------------------------------------
 
+		//! Identifier of a registered component type.
+		//! Packs the component id, size, alignment, storage mode and SoA layout into one 64-bit value.
 		struct GAIA_API Component final {
+			//! Bit mask covering all valid component ids.
 			static constexpr uint32_t IdMask = IdentifierIdBad;
+			//! Number of bits used to store the component size.
 			static constexpr uint32_t MaxComponentSize_Bits = 13;
+			//! Largest component size storable, in bytes.
 			static constexpr uint32_t MaxComponentSizeInBytes = (1 << MaxComponentSize_Bits) - 1;
+			//! Number of bits used to store the component alignment.
 			static constexpr uint32_t MaxAlignment_Bits = MaxComponentSize_Bits;
+			//! Largest component alignment storable.
 			static constexpr uint32_t MaxAlignment = MaxComponentSizeInBytes;
 
+			//! Bit-packed storage layout of a component id.
 			struct InternalData {
 				//! Component entity index
 				uint32_t id;
@@ -61,7 +69,9 @@ namespace gaia {
 			static_assert(sizeof(InternalData) == sizeof(Identifier));
 
 			union {
+				//! Structured view of the packed value.
 				InternalData data;
+				//! Raw 64-bit value.
 				Identifier val;
 			};
 
@@ -76,26 +86,38 @@ namespace gaia {
 				data.unused = 0;
 			}
 
+			//! Component id.
+			//! \return Component id.
 			GAIA_NODISCARD constexpr auto id() const noexcept {
 				return (uint32_t)data.id;
 			}
 
+			//! Whether the component uses SoA storage.
+			//! \return Non-zero when SoA storage is used.
 			GAIA_NODISCARD constexpr auto soa() const noexcept {
 				return (uint32_t)data.soa;
 			}
 
+			//! Component size in bytes.
+			//! \return Component size in bytes.
 			GAIA_NODISCARD constexpr auto size() const noexcept {
 				return (uint32_t)data.size;
 			}
 
+			//! Component alignment in bytes.
+			//! \return Component alignment in bytes.
 			GAIA_NODISCARD constexpr auto alig() const noexcept {
 				return (uint32_t)data.alig;
 			}
 
+			//! Storage mode of the component.
+			//! \return Storage mode of the component.
 			GAIA_NODISCARD constexpr DataStorageType storage_type() const noexcept {
 				return (DataStorageType)data.storage;
 			}
 
+			//! Raw identifier value.
+			//! \return Raw 64-bit value.
 			GAIA_NODISCARD constexpr auto value() const noexcept {
 				return val;
 			}
@@ -112,9 +134,15 @@ namespace gaia {
 				return id() < other.id();
 			}
 
+			//! Serializes the component id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to write to.
 			template <typename Serializer>
 			void save(Serializer& s) const;
 
+			//! Deserializes the component id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to read from.
 			template <typename Serializer>
 			void load(Serializer& s);
 		};
@@ -136,6 +164,7 @@ namespace gaia {
 		// Id type deduction
 		//----------------------------------------------------------------------
 
+		//! Wraps a type as a unique entity kind with one value per chunk.
 		template <typename T>
 		struct uni {
 			static_assert(core::is_raw_v<T>);
@@ -235,17 +264,26 @@ namespace gaia {
 			using tgt_comp_type = component_type_t<Tgt>;
 
 		public:
+			//! Full relation type, either the relation or a \a uni wrapper.
 			using rel = typename rel_comp_type::TypeFull;
+			//! Full target type, either the target or a \a uni wrapper.
 			using tgt = typename tgt_comp_type::TypeFull;
+			//! Raw relation type.
 			using rel_type = typename rel_comp_type::Type;
+			//! Raw target type.
 			using tgt_type = typename tgt_comp_type::Type;
+			//! Original relation template type.
 			using rel_original = typename rel_comp_type::TypeOriginal;
+			//! Original target template type.
 			using tgt_original = typename tgt_comp_type::TypeOriginal;
+			//! Storage type for the pair value.
 			using type = std::conditional_t<!std::is_empty_v<rel_type> || std::is_empty_v<tgt_type>, rel, tgt>;
 		};
 
+		//! Detects whether a type is a relationship pair.
 		template <typename T>
 		struct is_pair {
+			//! True when the type derives from the pair base.
 			static constexpr bool value = std::is_base_of<detail::pair_base, core::raw_t<T>>::value;
 		};
 
@@ -253,9 +291,13 @@ namespace gaia {
 		// Entity
 		// ------------------------------------------------------------------------------------
 
+		//! Identifier of an entity or component instance in the world.
+		//! Packs the entity index, generation, kind and flags into one 64-bit value.
 		struct GAIA_API Entity final {
+			//! Bit mask covering all valid entity indices.
 			static constexpr uint32_t IdMask = IdentifierIdBad;
 
+			//! Bit-packed storage layout of an entity identifier.
 			struct InternalData {
 				//! Index in the entity array
 				EntityId id;
@@ -282,7 +324,9 @@ namespace gaia {
 			static_assert(sizeof(InternalData) == sizeof(Identifier));
 
 			union {
+				//! Structured view of the packed value.
 				InternalData data;
+				//! Raw 64-bit value.
 				Identifier val;
 			};
 
@@ -310,30 +354,44 @@ namespace gaia {
 				data.tmp = 0;
 			}
 
+			//! Entity index in the entity array.
+			//! \return Entity index.
 			GAIA_NODISCARD constexpr auto id() const noexcept {
 				return (uint32_t)data.id;
 			}
 
+			//! Generation index of the entity.
+			//! \return Generation index.
 			GAIA_NODISCARD constexpr auto gen() const noexcept {
 				return (uint32_t)data.gen;
 			}
 
+			//! Whether this id refers to an entity.
+			//! \return True for an entity, false for a component.
 			GAIA_NODISCARD constexpr bool entity() const noexcept {
 				return data.ent != 0;
 			}
 
+			//! Whether this id refers to a relationship pair.
+			//! \return True when a pair.
 			GAIA_NODISCARD constexpr bool pair() const noexcept {
 				return data.pair != 0;
 			}
 
+			//! Whether this id refers to a component.
+			//! \return True when a component.
 			GAIA_NODISCARD constexpr bool comp() const noexcept {
 				return (data.pair | data.ent) == 0;
 			}
 
+			//! Entity kind of this id.
+			//! \return Entity kind.
 			GAIA_NODISCARD constexpr auto kind() const noexcept {
 				return (EntityKind)data.kind;
 			}
 
+			//! Raw identifier value.
+			//! \return Raw 64-bit value.
 			GAIA_NODISCARD constexpr auto value() const noexcept {
 				return val;
 			}
@@ -360,9 +418,15 @@ namespace gaia {
 				return value() >= other.value();
 			}
 
+			//! Serializes the entity id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to write to.
 			template <typename Serializer>
 			void save(Serializer& s) const;
 
+			//! Deserializes the entity id, remapping it to the current world.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to read from.
 			template <typename Serializer>
 			void load(Serializer& s);
 		};
@@ -477,6 +541,7 @@ namespace gaia {
 
 		//! Hashmap lookup structure used for Entity
 		struct GAIA_API EntityLookupKey {
+			//! Direct hash type used for entity lookups.
 			using LookupHash = core::direct_hash_key<uint64_t>;
 
 		private:
@@ -490,6 +555,7 @@ namespace gaia {
 			}
 
 		public:
+			//! Marks this key as a direct hash key.
 			static constexpr bool IsDirectHashKey = true;
 
 			EntityLookupKey() = default;
@@ -501,10 +567,14 @@ namespace gaia {
 			EntityLookupKey& operator=(const EntityLookupKey&) = default;
 			EntityLookupKey& operator=(EntityLookupKey&&) noexcept = default;
 
+			//! Entity held by this lookup key.
+			//! \return Entity held by this lookup key.
 			Entity entity() const {
 				return m_entity;
 			}
 
+			//! Hash of the entity value.
+			//! \return Hash of the entity value.
 			size_t hash() const {
 				return (size_t)m_hash.hash;
 			}
@@ -525,9 +595,13 @@ namespace gaia {
 
 		//! Component used to describe the entity name
 		struct GAIA_API EntityDesc {
+			//! Entity name text.
 			const char* name{};
+			//! Length of the entity name.
 			uint32_t name_len{};
+			//! Entity alias text.
 			const char* alias{};
+			//! Length of the entity alias.
 			uint32_t alias_len{};
 		};
 
@@ -556,10 +630,14 @@ namespace gaia {
 						m_second.kind());
 			}
 
+			//! First entity of the pair.
+			//! \return First entity of the pair.
 			Entity first() const noexcept {
 				return m_first;
 			}
 
+			//! Second entity of the pair.
+			//! \return Second entity of the pair.
 			Entity second() const noexcept {
 				return m_second;
 			}
@@ -789,8 +867,12 @@ namespace gaia {
 	} // namespace ecs
 
 	namespace cnt {
+		//! Converts an \a Entity to a sparse id.
 		template <>
 		struct to_sparse_id<ecs::Entity> {
+			//! Returns the entity index as a sparse id.
+			//! \param item entity to convert.
+			//! \return Sparse id matching the entity index.
 			static sparse_id get(const ecs::Entity& item) noexcept {
 				// Cut off the flags
 				return item.id();

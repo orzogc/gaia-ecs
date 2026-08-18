@@ -32,10 +32,14 @@ namespace gaia {
 		void world_invalidate_sorted_queries(World& world);
 		void world_notify_on_set(World& world, Entity term, Chunk& chunk, uint16_t from, uint16_t to);
 
+		//! Fixed-capacity archetype storage unit holding entities and their component columns.
 		class GAIA_API Chunk final {
 		public:
+			//! Fixed-size array of entity identifiers held by the chunk.
 			using EntityArray = cnt::sarray_ext<Entity, ChunkHeader::MAX_COMPONENTS>;
+			//! Fixed-size array of component descriptors for the chunk columns.
 			using ComponentArray = cnt::sarray_ext<Component, ChunkHeader::MAX_COMPONENTS>;
+			//! Fixed-size array of byte offsets into the chunk data area, one per column.
 			using ComponentOffsetArray = cnt::sarray_ext<ChunkDataOffset, ChunkHeader::MAX_COMPONENTS>;
 
 		private:
@@ -431,6 +435,8 @@ namespace gaia {
 			Chunk& operator=(Chunk&& chunk) = delete;
 			~Chunk() = default;
 
+			//! Size in bytes of the chunk header area reserved before entity and component data.
+			//! \return Header size in bytes.
 			static constexpr uint16_t chunk_header_size() {
 				const auto dataAreaOffset =
 						// ChunkAllocator reserves the first few bytes for internal purposes
@@ -442,15 +448,22 @@ namespace gaia {
 				return dataAreaOffset;
 			}
 
+			//! Total chunk allocation size for a given usable data size.
+			//! \param dataSize Usable data area size in bytes.
+			//! \return Header plus data size in bytes.
 			static constexpr uint16_t chunk_total_bytes(uint16_t dataSize) {
 				return chunk_header_size() + dataSize;
 			}
 
+			//! Usable data area size for a given total chunk allocation size.
+			//! \param totalSize Total allocation size in bytes.
+			//! \return Data area size in bytes.
 			static constexpr uint16_t chunk_data_bytes(uint16_t totalSize) {
 				return totalSize - chunk_header_size();
 			}
 
 			//! Returns the relative offset of m_data in Chunk
+			//! \return Byte offset of the chunk data area relative to the Chunk start.
 			static uintptr_t chunk_data_area_offset() {
 				// Note, offsetof is implementation-defined and conditionally-supported since C++17.
 				// Therefore, we instantiate the chunk and calculate the relative address ourselves.
@@ -511,6 +524,8 @@ namespace gaia {
 #endif
 			}
 
+			//! Serializes chunk contents: entity counts, lifespan state, entity ids and component data.
+			//! \param s serializer to write to.
 			void save(ser::serializer& s) const {
 				s.save(m_header.count);
 				if (m_header.count == 0)
@@ -544,6 +559,8 @@ namespace gaia {
 				}
 			}
 
+			//! Deserializes chunk contents, restoring entity ids and component data.
+			//! \param s serializer to read from.
 			void load(ser::serializer& s) {
 				uint16_t prevCount = m_header.count;
 				s.load(m_header.count);
@@ -622,11 +639,19 @@ namespace gaia {
 					return mem::auto_view_policy_get<U>{view_inter<T>(from, to)};
 			}
 
+			//! Returns a read-only entity or component view.
+			//! \tparam T Component or Entity.
+			//! \return Read-only view over all chunk entities or the component column.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view() const {
 				return view<T>(0, m_header.count);
 			}
 
+			//! Returns a read-only view over raw bytes as typed data.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Read-only view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_raw(const void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -651,11 +676,19 @@ namespace gaia {
 					return mem::auto_view_policy_set<U>{view_mut_inter<T, true>(from, to)};
 			}
 
+			//! Returns a mutable entity or component view.
+			//! \tparam T Component or Entity.
+			//! \return Mutable view over all chunk entities or the component column.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_mut() {
 				return view_mut<T>(0, m_header.count);
 			}
 
+			//! Returns a mutable view over raw bytes as typed data.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Mutable view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_mut_raw(void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -683,6 +716,11 @@ namespace gaia {
 					return mem::auto_view_policy_set<U>{view_mut_inter<T, false>(from, to)};
 			}
 
+			//! Returns a mutable view over raw bytes without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Mutable view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_mut_raw(void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -691,6 +729,9 @@ namespace gaia {
 				return mem::auto_view_policy_set<U>{std::span{(uint8_t*)ptr, size}};
 			}
 
+			//! Returns a mutable entity or component view without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \return Mutable view without query-version updates.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_mut() {
 				return sview_mut<T>(0, m_header.count);
@@ -771,6 +812,9 @@ namespace gaia {
 					return view<T>(from, to);
 			}
 
+			//! Returns an automatically-typed mutable view over the chunk.
+			//! \tparam T Component or Entity.
+			//! \return Automatically-typed mutable view over the chunk.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_auto() {
 				return view_auto<T>(0, m_header.count);
@@ -793,46 +837,73 @@ namespace gaia {
 					return view<T>(from, to);
 			}
 
+			//! Returns an automatically-typed mutable view without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \return Automatically-typed mutable view without query-version updates.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_auto() {
 				return sview_auto<T>(0, m_header.count);
 			}
 
+			//! Span over the entities stored in this chunk.
+			//! \return Entity span covering all stored entities.
 			GAIA_NODISCARD EntitySpan entity_view() const {
 				return {(const Entity*)m_records.pEntities, m_header.count};
 			}
 
+			//! Owning world mutable reference.
+			//! \return Owning world.
 			GAIA_NODISCARD World& world() {
 				return *const_cast<World*>(m_header.world);
 			}
 
+			//! Owning world const reference.
+			//! \return Owning world.
 			GAIA_NODISCARD const World& world() const {
 				return *m_header.world;
 			}
 
+			//! Span over the component and entity identifiers held by this chunk.
+			//! \return Identifier span.
 			GAIA_NODISCARD EntitySpan ids_view() const {
 				return {(const Entity*)m_records.pCompEntities, m_header.cntEntities};
 			}
 
+			//! Span over the component records describing each chunk column.
+			//! \return Component record span.
 			GAIA_NODISCARD std::span<const ComponentRecord> comp_rec_view() const {
 				return {m_records.pRecords, m_header.cntEntities};
 			}
 
+			//! Mutable pointer to the start of a component column.
+			//! \param compIdx Component column index.
+			//! \return Pointer to the column data start.
 			GAIA_NODISCARD uint8_t* comp_ptr_mut(uint32_t compIdx) {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData;
 			}
 
+			//! Mutable pointer to a component element within a column.
+			//! \param compIdx Component column index.
+			//! \param offset Entity row offset.
+			//! \return Pointer to the element at \a offset.
 			GAIA_NODISCARD uint8_t* comp_ptr_mut(uint32_t compIdx, uint32_t offset) {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData + ((uintptr_t)rec.comp.size() * offset);
 			}
 
+			//! Const pointer to the start of a component column.
+			//! \param compIdx Component column index.
+			//! \return Pointer to the column data start.
 			GAIA_NODISCARD const uint8_t* comp_ptr(uint32_t compIdx) const {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData;
 			}
 
+			//! Const pointer to a component element within a column.
+			//! \param compIdx Component column index.
+			//! \param offset Entity row offset.
+			//! \return Pointer to the element at \a offset.
 			GAIA_NODISCARD const uint8_t* comp_ptr(uint32_t compIdx, uint32_t offset) const {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData + ((uintptr_t)rec.comp.size() * offset);
@@ -1382,6 +1453,10 @@ namespace gaia {
 			// Component handling
 			//----------------------------------------------------------------------
 
+			//! Invokes the registered constructor for one component instance.
+			//! \param entIdx Entity row to construct.
+			//! \param compIdx Component column index.
+			//! \param item Component cache item carrying the constructor.
 			void call_ctor(uint32_t entIdx, uint32_t compIdx, const ComponentCacheItem& item) {
 				if (item.func_ctor == nullptr || !component_uses_table_storage(item.comp))
 					return;
@@ -1392,6 +1467,9 @@ namespace gaia {
 				item.func_ctor(pSrc, 1);
 			}
 
+			//! Invokes registered constructors for all generic columns at a row range.
+			//! \param entIdx First entity row to construct.
+			//! \param entCnt Number of entity rows to construct.
 			void call_gen_ctors(uint32_t entIdx, uint32_t entCnt) {
 				if (!m_header.hasAnyCustomGenCtor)
 					return;
@@ -1413,6 +1491,7 @@ namespace gaia {
 				}
 			}
 
+			//! Invokes registered destructors for all custom component instances before release.
 			void call_all_dtors() {
 				if (!m_header.hasAnyCustomGenDtor && !m_header.hasAnyCustomUniCtor)
 					return;
@@ -1473,6 +1552,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set(uint16_t row) {
 				verify_comp<T>();
@@ -1493,6 +1573,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \param compIdx Pre-resolved component column index
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set_idx(uint16_t row, uint32_t compIdx) {
 				verify_comp<T>();
@@ -1512,6 +1593,7 @@ namespace gaia {
 			//! Sets the value of a unique component using a pre-resolved component column.
 			//! \tparam T Component or pair
 			//! \param compIdx Pre-resolved component column index
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set_idx(uint32_t compIdx) {
 				verify_comp<T>();
@@ -1530,6 +1612,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set(uint16_t row, Entity type) {
 				const uint32_t compIdx = comp_idx(type);
@@ -1552,6 +1635,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset(uint16_t row) {
 				GAIA_ASSERT2(
@@ -1564,6 +1648,7 @@ namespace gaia {
 
 			//! Sets the value of a generic component using a pre-resolved component column.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset_idx(uint16_t row, uint32_t compIdx) {
 				verify_comp<T>();
@@ -1577,6 +1662,7 @@ namespace gaia {
 
 			//! Sets the value of a unique component using a pre-resolved component column.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset_idx(uint32_t compIdx) {
 				verify_comp<T>();
@@ -1593,6 +1679,7 @@ namespace gaia {
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset(uint16_t row, Entity type) {
 				static_assert(core::is_raw_v<T>);
@@ -1631,6 +1718,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \param compIdx Pre-resolved component column index
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get_idx(uint16_t row, uint32_t compIdx) const {
 				static_assert(
@@ -1645,6 +1733,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component is present. Undefined behavior otherwise.
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get(uint16_t row, Entity type) const {
 				GAIA_ASSERT(row < m_header.count);
@@ -1673,6 +1762,7 @@ namespace gaia {
 			//! Returns the value stored in the unique component \a T using a pre-resolved component column.
 			//! \tparam T Component or pair
 			//! \param compIdx Pre-resolved component column index
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get_idx(uint32_t compIdx) const {
 				static_assert(
@@ -1682,6 +1772,9 @@ namespace gaia {
 				return comp_inter_idx<T>(0, compIdx);
 			}
 
+			//! Component entity for the chunk archetype contents.
+			//! \tparam T Component or pair.
+			//! \return Component identifier of the archetype term.
 			template <typename T>
 			GAIA_NODISCARD Entity comp_entity() const {
 				if constexpr (is_pair<T>::value) {
@@ -1717,32 +1810,38 @@ namespace gaia {
 				m_header.index = value;
 			}
 
-			//! Returns the index of this chunk in its archetype's storage
+			//! Returns the index of this chunk in its archetype's storage.
+			//! \return Index of this chunk in its archetype's storage.
 			GAIA_NODISCARD uint32_t idx() const {
 				return m_header.index;
 			}
 
 			//! Checks is this chunk has any enabled entities
+			//! \return True when at least one entity is enabled.
 			GAIA_NODISCARD bool has_enabled_entities() const {
 				return m_header.has_enabled_entities();
 			}
 
 			//! Checks is this chunk has any disabled entities
+			//! \return True when at least one entity is disabled.
 			GAIA_NODISCARD bool has_disabled_entities() const {
 				return m_header.has_disabled_entities();
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the chunk is in its dying lifespan countdown.
 			GAIA_NODISCARD bool dying() const {
 				return m_header.lifespanCountdown > 0;
 			}
 
 			//! Returns true when the chunk is currently queued for deferred deletion.
+			//! \return True when the chunk is queued for deferred deletion.
 			GAIA_NODISCARD bool queued_for_deletion() const {
 				return m_header.deleteQueueIndex != BadIndex;
 			}
 
 			//! Returns the index inside World's deferred chunk-delete queue.
+			//! \return Deferred-delete queue index, BadIndex when not queued.
 			GAIA_NODISCARD uint32_t delete_queue_index() const {
 				return m_header.deleteQueueIndex;
 			}
@@ -1763,6 +1862,7 @@ namespace gaia {
 			}
 
 			//! Checks is this chunk is dead (ready to delete)
+			//! \return True when the chunk is dead and ready to be deleted.
 			GAIA_NODISCARD bool dead() const {
 				return m_header.dead == 1;
 			}
@@ -1790,11 +1890,13 @@ namespace gaia {
 			}
 
 			//! Checks is the full capacity of the has has been reached
+			//! \return True when the chunk capacity is exhausted.
 			GAIA_NODISCARD bool full() const {
 				return m_header.count >= m_header.capacity;
 			}
 
 			//! Checks is the chunk is semi-full.
+			//! \return True when the chunk is below the semi-full threshold.
 			GAIA_NODISCARD bool is_semi() const {
 				// We want the chunk filled to at least 75% before considering it semi-full
 				constexpr float Threshold = 0.75f;
@@ -1802,31 +1904,37 @@ namespace gaia {
 			}
 
 			//! Returns the total number of entities in the chunk (both enabled and disabled)
+			//! \return Total number of entities, enabled and disabled.
 			GAIA_NODISCARD uint16_t size() const {
 				return m_header.count;
 			}
 
 			//! Checks is there are any entities in the chunk
+			//! \return True when the chunk holds no entities.
 			GAIA_NODISCARD bool empty() const {
 				return m_header.count == 0;
 			}
 
 			//! Return the number of entities in the chunk which are enabled
+			//! \return Number of enabled entities.
 			GAIA_NODISCARD uint16_t size_enabled() const {
 				return m_header.countEnabled;
 			}
 
 			//! Return the number of entities in the chunk which are enabled
+			//! \return Number of disabled entities.
 			GAIA_NODISCARD uint16_t size_disabled() const {
 				return (uint16_t)m_header.rowFirstEnabledEntity;
 			}
 
 			//! Returns the number of entities in the chunk
+			//! \return Maximum number of entities the chunk can hold.
 			GAIA_NODISCARD uint16_t capacity() const {
 				return m_header.capacity;
 			}
 
 			//! Returns the total number of generic entities/components in the chunk
+			//! \return Number of generic entity or component columns.
 			GAIA_NODISCARD uint8_t size_generic() const {
 				return m_header.genEntities;
 			}
@@ -1834,6 +1942,8 @@ namespace gaia {
 			//! Returns true if the provided version is newer than the one stored internally.
 			//! Use when checking if there was a movement in data in the world. E.g. if an entity
 			//! was added, removed or moved in its archetype.
+			//! \param requiredVersion Version to compare against.
+			//! \return True when the stored chunk version is newer.
 			GAIA_NODISCARD bool changed(uint32_t requiredVersion) const {
 				const auto* versions = m_records.pVersions;
 				const auto changeVersion = versions[0];
@@ -1841,6 +1951,9 @@ namespace gaia {
 			}
 
 			//! Returns true if the provided version is newer than the one stored internally
+			//! \param requiredVersion Version to compare against.
+			//! \param compIdx Component column index.
+			//! \return True when the stored component version is newer.
 			GAIA_NODISCARD bool changed(uint32_t requiredVersion, uint32_t compIdx) const {
 				const auto* versions = m_records.pVersions;
 				// Do +1 because index 0 is reserved for the entity version number.
@@ -1850,6 +1963,8 @@ namespace gaia {
 
 			//! Returns true if entity order changed since \a requiredVersion.
 			//! This is narrower than changed(requiredVersion): unrelated component writes do not affect it.
+			//! \param requiredVersion Version to compare against.
+			//! \return True when the entity order changed at or after \a requiredVersion.
 			GAIA_NODISCARD bool entity_order_changed(uint32_t requiredVersion) const {
 				return ::gaia::ecs::version_changed(m_header.entityOrderVersion, requiredVersion);
 			}
@@ -1892,6 +2007,7 @@ namespace gaia {
 				m_header.entityOrderVersion = m_header.worldVersion;
 			}
 
+			//! Logs a diagnostic line describing the chunk capacity and lifespan state.
 			void diag() const {
 				GAIA_LOG_N(
 						"  Chunk #%04u, entities:%u/%u, lifespanCountdown:%u", m_header.index, m_header.count, m_header.capacity,

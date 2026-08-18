@@ -31353,13 +31353,21 @@ namespace gaia {
 		// Component
 		// ------------------------------------------------------------------------------------
 
+		//! Identifier of a registered component type.
+		//! Packs the component id, size, alignment, storage mode and SoA layout into one 64-bit value.
 		struct GAIA_API Component final {
+			//! Bit mask covering all valid component ids.
 			static constexpr uint32_t IdMask = IdentifierIdBad;
+			//! Number of bits used to store the component size.
 			static constexpr uint32_t MaxComponentSize_Bits = 13;
+			//! Largest component size storable, in bytes.
 			static constexpr uint32_t MaxComponentSizeInBytes = (1 << MaxComponentSize_Bits) - 1;
+			//! Number of bits used to store the component alignment.
 			static constexpr uint32_t MaxAlignment_Bits = MaxComponentSize_Bits;
+			//! Largest component alignment storable.
 			static constexpr uint32_t MaxAlignment = MaxComponentSizeInBytes;
 
+			//! Bit-packed storage layout of a component id.
 			struct InternalData {
 				//! Component entity index
 				uint32_t id;
@@ -31377,7 +31385,9 @@ namespace gaia {
 			static_assert(sizeof(InternalData) == sizeof(Identifier));
 
 			union {
+				//! Structured view of the packed value.
 				InternalData data;
+				//! Raw 64-bit value.
 				Identifier val;
 			};
 
@@ -31392,26 +31402,38 @@ namespace gaia {
 				data.unused = 0;
 			}
 
+			//! Component id.
+			//! \return Component id.
 			GAIA_NODISCARD constexpr auto id() const noexcept {
 				return (uint32_t)data.id;
 			}
 
+			//! Whether the component uses SoA storage.
+			//! \return Non-zero when SoA storage is used.
 			GAIA_NODISCARD constexpr auto soa() const noexcept {
 				return (uint32_t)data.soa;
 			}
 
+			//! Component size in bytes.
+			//! \return Component size in bytes.
 			GAIA_NODISCARD constexpr auto size() const noexcept {
 				return (uint32_t)data.size;
 			}
 
+			//! Component alignment in bytes.
+			//! \return Component alignment in bytes.
 			GAIA_NODISCARD constexpr auto alig() const noexcept {
 				return (uint32_t)data.alig;
 			}
 
+			//! Storage mode of the component.
+			//! \return Storage mode of the component.
 			GAIA_NODISCARD constexpr DataStorageType storage_type() const noexcept {
 				return (DataStorageType)data.storage;
 			}
 
+			//! Raw identifier value.
+			//! \return Raw 64-bit value.
 			GAIA_NODISCARD constexpr auto value() const noexcept {
 				return val;
 			}
@@ -31428,9 +31450,15 @@ namespace gaia {
 				return id() < other.id();
 			}
 
+			//! Serializes the component id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to write to.
 			template <typename Serializer>
 			void save(Serializer& s) const;
 
+			//! Deserializes the component id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to read from.
 			template <typename Serializer>
 			void load(Serializer& s);
 		};
@@ -31452,6 +31480,7 @@ namespace gaia {
 		// Id type deduction
 		//----------------------------------------------------------------------
 
+		//! Wraps a type as a unique entity kind with one value per chunk.
 		template <typename T>
 		struct uni {
 			static_assert(core::is_raw_v<T>);
@@ -31551,17 +31580,26 @@ namespace gaia {
 			using tgt_comp_type = component_type_t<Tgt>;
 
 		public:
+			//! Full relation type, either the relation or a \a uni wrapper.
 			using rel = typename rel_comp_type::TypeFull;
+			//! Full target type, either the target or a \a uni wrapper.
 			using tgt = typename tgt_comp_type::TypeFull;
+			//! Raw relation type.
 			using rel_type = typename rel_comp_type::Type;
+			//! Raw target type.
 			using tgt_type = typename tgt_comp_type::Type;
+			//! Original relation template type.
 			using rel_original = typename rel_comp_type::TypeOriginal;
+			//! Original target template type.
 			using tgt_original = typename tgt_comp_type::TypeOriginal;
+			//! Storage type for the pair value.
 			using type = std::conditional_t<!std::is_empty_v<rel_type> || std::is_empty_v<tgt_type>, rel, tgt>;
 		};
 
+		//! Detects whether a type is a relationship pair.
 		template <typename T>
 		struct is_pair {
+			//! True when the type derives from the pair base.
 			static constexpr bool value = std::is_base_of<detail::pair_base, core::raw_t<T>>::value;
 		};
 
@@ -31569,9 +31607,13 @@ namespace gaia {
 		// Entity
 		// ------------------------------------------------------------------------------------
 
+		//! Identifier of an entity or component instance in the world.
+		//! Packs the entity index, generation, kind and flags into one 64-bit value.
 		struct GAIA_API Entity final {
+			//! Bit mask covering all valid entity indices.
 			static constexpr uint32_t IdMask = IdentifierIdBad;
 
+			//! Bit-packed storage layout of an entity identifier.
 			struct InternalData {
 				//! Index in the entity array
 				EntityId id;
@@ -31598,7 +31640,9 @@ namespace gaia {
 			static_assert(sizeof(InternalData) == sizeof(Identifier));
 
 			union {
+				//! Structured view of the packed value.
 				InternalData data;
+				//! Raw 64-bit value.
 				Identifier val;
 			};
 
@@ -31626,30 +31670,44 @@ namespace gaia {
 				data.tmp = 0;
 			}
 
+			//! Entity index in the entity array.
+			//! \return Entity index.
 			GAIA_NODISCARD constexpr auto id() const noexcept {
 				return (uint32_t)data.id;
 			}
 
+			//! Generation index of the entity.
+			//! \return Generation index.
 			GAIA_NODISCARD constexpr auto gen() const noexcept {
 				return (uint32_t)data.gen;
 			}
 
+			//! Whether this id refers to an entity.
+			//! \return True for an entity, false for a component.
 			GAIA_NODISCARD constexpr bool entity() const noexcept {
 				return data.ent != 0;
 			}
 
+			//! Whether this id refers to a relationship pair.
+			//! \return True when a pair.
 			GAIA_NODISCARD constexpr bool pair() const noexcept {
 				return data.pair != 0;
 			}
 
+			//! Whether this id refers to a component.
+			//! \return True when a component.
 			GAIA_NODISCARD constexpr bool comp() const noexcept {
 				return (data.pair | data.ent) == 0;
 			}
 
+			//! Entity kind of this id.
+			//! \return Entity kind.
 			GAIA_NODISCARD constexpr auto kind() const noexcept {
 				return (EntityKind)data.kind;
 			}
 
+			//! Raw identifier value.
+			//! \return Raw 64-bit value.
 			GAIA_NODISCARD constexpr auto value() const noexcept {
 				return val;
 			}
@@ -31676,9 +31734,15 @@ namespace gaia {
 				return value() >= other.value();
 			}
 
+			//! Serializes the entity id.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to write to.
 			template <typename Serializer>
 			void save(Serializer& s) const;
 
+			//! Deserializes the entity id, remapping it to the current world.
+			//! \tparam Serializer serializer type.
+			//! \param s serializer to read from.
 			template <typename Serializer>
 			void load(Serializer& s);
 		};
@@ -31793,6 +31857,7 @@ namespace gaia {
 
 		//! Hashmap lookup structure used for Entity
 		struct GAIA_API EntityLookupKey {
+			//! Direct hash type used for entity lookups.
 			using LookupHash = core::direct_hash_key<uint64_t>;
 
 		private:
@@ -31806,6 +31871,7 @@ namespace gaia {
 			}
 
 		public:
+			//! Marks this key as a direct hash key.
 			static constexpr bool IsDirectHashKey = true;
 
 			EntityLookupKey() = default;
@@ -31817,10 +31883,14 @@ namespace gaia {
 			EntityLookupKey& operator=(const EntityLookupKey&) = default;
 			EntityLookupKey& operator=(EntityLookupKey&&) noexcept = default;
 
+			//! Entity held by this lookup key.
+			//! \return Entity held by this lookup key.
 			Entity entity() const {
 				return m_entity;
 			}
 
+			//! Hash of the entity value.
+			//! \return Hash of the entity value.
 			size_t hash() const {
 				return (size_t)m_hash.hash;
 			}
@@ -31841,9 +31911,13 @@ namespace gaia {
 
 		//! Component used to describe the entity name
 		struct GAIA_API EntityDesc {
+			//! Entity name text.
 			const char* name{};
+			//! Length of the entity name.
 			uint32_t name_len{};
+			//! Entity alias text.
 			const char* alias{};
+			//! Length of the entity alias.
 			uint32_t alias_len{};
 		};
 
@@ -31872,10 +31946,14 @@ namespace gaia {
 						m_second.kind());
 			}
 
+			//! First entity of the pair.
+			//! \return First entity of the pair.
 			Entity first() const noexcept {
 				return m_first;
 			}
 
+			//! Second entity of the pair.
+			//! \return Second entity of the pair.
 			Entity second() const noexcept {
 				return m_second;
 			}
@@ -32105,8 +32183,12 @@ namespace gaia {
 	} // namespace ecs
 
 	namespace cnt {
+		//! Converts an \a Entity to a sparse id.
 		template <>
 		struct to_sparse_id<ecs::Entity> {
+			//! Returns the entity index as a sparse id.
+			//! \param item entity to convert.
+			//! \return Sparse id matching the entity index.
 			static sparse_id get(const ecs::Entity& item) noexcept {
 				// Cut off the flags
 				return item.id();
@@ -33465,6 +33547,7 @@ namespace gaia {
 			uint32_t value = UINT32_MAX;
 
 			//! Checks whether the identifier refers to an interned string.
+			//! \return True when the identifier refers to an interned string.
 			GAIA_NODISCARD constexpr bool valid() const noexcept {
 				return value != UINT32_MAX;
 			}
@@ -36439,10 +36522,14 @@ namespace gaia {
 		void world_invalidate_sorted_queries(World& world);
 		void world_notify_on_set(World& world, Entity term, Chunk& chunk, uint16_t from, uint16_t to);
 
+		//! Fixed-capacity archetype storage unit holding entities and their component columns.
 		class GAIA_API Chunk final {
 		public:
+			//! Fixed-size array of entity identifiers held by the chunk.
 			using EntityArray = cnt::sarray_ext<Entity, ChunkHeader::MAX_COMPONENTS>;
+			//! Fixed-size array of component descriptors for the chunk columns.
 			using ComponentArray = cnt::sarray_ext<Component, ChunkHeader::MAX_COMPONENTS>;
+			//! Fixed-size array of byte offsets into the chunk data area, one per column.
 			using ComponentOffsetArray = cnt::sarray_ext<ChunkDataOffset, ChunkHeader::MAX_COMPONENTS>;
 
 		private:
@@ -36838,6 +36925,8 @@ namespace gaia {
 			Chunk& operator=(Chunk&& chunk) = delete;
 			~Chunk() = default;
 
+			//! Size in bytes of the chunk header area reserved before entity and component data.
+			//! \return Header size in bytes.
 			static constexpr uint16_t chunk_header_size() {
 				const auto dataAreaOffset =
 						// ChunkAllocator reserves the first few bytes for internal purposes
@@ -36849,15 +36938,22 @@ namespace gaia {
 				return dataAreaOffset;
 			}
 
+			//! Total chunk allocation size for a given usable data size.
+			//! \param dataSize Usable data area size in bytes.
+			//! \return Header plus data size in bytes.
 			static constexpr uint16_t chunk_total_bytes(uint16_t dataSize) {
 				return chunk_header_size() + dataSize;
 			}
 
+			//! Usable data area size for a given total chunk allocation size.
+			//! \param totalSize Total allocation size in bytes.
+			//! \return Data area size in bytes.
 			static constexpr uint16_t chunk_data_bytes(uint16_t totalSize) {
 				return totalSize - chunk_header_size();
 			}
 
 			//! Returns the relative offset of m_data in Chunk
+			//! \return Byte offset of the chunk data area relative to the Chunk start.
 			static uintptr_t chunk_data_area_offset() {
 				// Note, offsetof is implementation-defined and conditionally-supported since C++17.
 				// Therefore, we instantiate the chunk and calculate the relative address ourselves.
@@ -36918,6 +37014,8 @@ namespace gaia {
 #endif
 			}
 
+			//! Serializes chunk contents: entity counts, lifespan state, entity ids and component data.
+			//! \param s serializer to write to.
 			void save(ser::serializer& s) const {
 				s.save(m_header.count);
 				if (m_header.count == 0)
@@ -36951,6 +37049,8 @@ namespace gaia {
 				}
 			}
 
+			//! Deserializes chunk contents, restoring entity ids and component data.
+			//! \param s serializer to read from.
 			void load(ser::serializer& s) {
 				uint16_t prevCount = m_header.count;
 				s.load(m_header.count);
@@ -37029,11 +37129,19 @@ namespace gaia {
 					return mem::auto_view_policy_get<U>{view_inter<T>(from, to)};
 			}
 
+			//! Returns a read-only entity or component view.
+			//! \tparam T Component or Entity.
+			//! \return Read-only view over all chunk entities or the component column.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view() const {
 				return view<T>(0, m_header.count);
 			}
 
+			//! Returns a read-only view over raw bytes as typed data.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Read-only view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_raw(const void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -37058,11 +37166,19 @@ namespace gaia {
 					return mem::auto_view_policy_set<U>{view_mut_inter<T, true>(from, to)};
 			}
 
+			//! Returns a mutable entity or component view.
+			//! \tparam T Component or Entity.
+			//! \return Mutable view over all chunk entities or the component column.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_mut() {
 				return view_mut<T>(0, m_header.count);
 			}
 
+			//! Returns a mutable view over raw bytes as typed data.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Mutable view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_mut_raw(void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -37090,6 +37206,11 @@ namespace gaia {
 					return mem::auto_view_policy_set<U>{view_mut_inter<T, false>(from, to)};
 			}
 
+			//! Returns a mutable view over raw bytes without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \param ptr Raw data start.
+			//! \param size Raw data size in bytes.
+			//! \return Mutable view over the raw bytes.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_mut_raw(void* ptr, uint32_t size) const {
 				using U = typename actual_type_t<T>::Type;
@@ -37098,6 +37219,9 @@ namespace gaia {
 				return mem::auto_view_policy_set<U>{std::span{(uint8_t*)ptr, size}};
 			}
 
+			//! Returns a mutable entity or component view without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \return Mutable view without query-version updates.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_mut() {
 				return sview_mut<T>(0, m_header.count);
@@ -37178,6 +37302,9 @@ namespace gaia {
 					return view<T>(from, to);
 			}
 
+			//! Returns an automatically-typed mutable view over the chunk.
+			//! \tparam T Component or Entity.
+			//! \return Automatically-typed mutable view over the chunk.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) view_auto() {
 				return view_auto<T>(0, m_header.count);
@@ -37200,46 +37327,73 @@ namespace gaia {
 					return view<T>(from, to);
 			}
 
+			//! Returns an automatically-typed mutable view without query-version updates.
+			//! \tparam T Component or Entity.
+			//! \return Automatically-typed mutable view without query-version updates.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) sview_auto() {
 				return sview_auto<T>(0, m_header.count);
 			}
 
+			//! Span over the entities stored in this chunk.
+			//! \return Entity span covering all stored entities.
 			GAIA_NODISCARD EntitySpan entity_view() const {
 				return {(const Entity*)m_records.pEntities, m_header.count};
 			}
 
+			//! Owning world mutable reference.
+			//! \return Owning world.
 			GAIA_NODISCARD World& world() {
 				return *const_cast<World*>(m_header.world);
 			}
 
+			//! Owning world const reference.
+			//! \return Owning world.
 			GAIA_NODISCARD const World& world() const {
 				return *m_header.world;
 			}
 
+			//! Span over the component and entity identifiers held by this chunk.
+			//! \return Identifier span.
 			GAIA_NODISCARD EntitySpan ids_view() const {
 				return {(const Entity*)m_records.pCompEntities, m_header.cntEntities};
 			}
 
+			//! Span over the component records describing each chunk column.
+			//! \return Component record span.
 			GAIA_NODISCARD std::span<const ComponentRecord> comp_rec_view() const {
 				return {m_records.pRecords, m_header.cntEntities};
 			}
 
+			//! Mutable pointer to the start of a component column.
+			//! \param compIdx Component column index.
+			//! \return Pointer to the column data start.
 			GAIA_NODISCARD uint8_t* comp_ptr_mut(uint32_t compIdx) {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData;
 			}
 
+			//! Mutable pointer to a component element within a column.
+			//! \param compIdx Component column index.
+			//! \param offset Entity row offset.
+			//! \return Pointer to the element at \a offset.
 			GAIA_NODISCARD uint8_t* comp_ptr_mut(uint32_t compIdx, uint32_t offset) {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData + ((uintptr_t)rec.comp.size() * offset);
 			}
 
+			//! Const pointer to the start of a component column.
+			//! \param compIdx Component column index.
+			//! \return Pointer to the column data start.
 			GAIA_NODISCARD const uint8_t* comp_ptr(uint32_t compIdx) const {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData;
 			}
 
+			//! Const pointer to a component element within a column.
+			//! \param compIdx Component column index.
+			//! \param offset Entity row offset.
+			//! \return Pointer to the element at \a offset.
 			GAIA_NODISCARD const uint8_t* comp_ptr(uint32_t compIdx, uint32_t offset) const {
 				const auto& rec = m_records.pRecords[compIdx];
 				return rec.pData + ((uintptr_t)rec.comp.size() * offset);
@@ -37789,6 +37943,10 @@ namespace gaia {
 			// Component handling
 			//----------------------------------------------------------------------
 
+			//! Invokes the registered constructor for one component instance.
+			//! \param entIdx Entity row to construct.
+			//! \param compIdx Component column index.
+			//! \param item Component cache item carrying the constructor.
 			void call_ctor(uint32_t entIdx, uint32_t compIdx, const ComponentCacheItem& item) {
 				if (item.func_ctor == nullptr || !component_uses_table_storage(item.comp))
 					return;
@@ -37799,6 +37957,9 @@ namespace gaia {
 				item.func_ctor(pSrc, 1);
 			}
 
+			//! Invokes registered constructors for all generic columns at a row range.
+			//! \param entIdx First entity row to construct.
+			//! \param entCnt Number of entity rows to construct.
 			void call_gen_ctors(uint32_t entIdx, uint32_t entCnt) {
 				if (!m_header.hasAnyCustomGenCtor)
 					return;
@@ -37820,6 +37981,7 @@ namespace gaia {
 				}
 			}
 
+			//! Invokes registered destructors for all custom component instances before release.
 			void call_all_dtors() {
 				if (!m_header.hasAnyCustomGenDtor && !m_header.hasAnyCustomUniCtor)
 					return;
@@ -37880,6 +38042,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set(uint16_t row) {
 				verify_comp<T>();
@@ -37900,6 +38063,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \param compIdx Pre-resolved component column index
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set_idx(uint16_t row, uint32_t compIdx) {
 				verify_comp<T>();
@@ -37919,6 +38083,7 @@ namespace gaia {
 			//! Sets the value of a unique component using a pre-resolved component column.
 			//! \tparam T Component or pair
 			//! \param compIdx Pre-resolved component column index
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set_idx(uint32_t compIdx) {
 				verify_comp<T>();
@@ -37937,6 +38102,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) set(uint16_t row, Entity type) {
 				const uint32_t compIdx = comp_idx(type);
@@ -37959,6 +38125,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset(uint16_t row) {
 				GAIA_ASSERT2(
@@ -37971,6 +38138,7 @@ namespace gaia {
 
 			//! Sets the value of a generic component using a pre-resolved component column.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset_idx(uint16_t row, uint32_t compIdx) {
 				verify_comp<T>();
@@ -37984,6 +38152,7 @@ namespace gaia {
 
 			//! Sets the value of a unique component using a pre-resolved component column.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset_idx(uint32_t compIdx) {
 				verify_comp<T>();
@@ -38000,6 +38169,7 @@ namespace gaia {
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component \a T is present. Undefined behavior otherwise.
 			//! \warning World version is not updated so Query filters will not be able to catch this change.
+			//! \return Mutable reference to the component value.
 			template <typename T>
 			decltype(auto) sset(uint16_t row, Entity type) {
 				static_assert(core::is_raw_v<T>);
@@ -38038,6 +38208,7 @@ namespace gaia {
 			//! \tparam T Component or pair
 			//! \param row Row of entity in the chunk
 			//! \param compIdx Pre-resolved component column index
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get_idx(uint16_t row, uint32_t compIdx) const {
 				static_assert(
@@ -38052,6 +38223,7 @@ namespace gaia {
 			//! \param row Row of entity in the chunk
 			//! \param type Component/entity/pair
 			//! \warning It is expected the component is present. Undefined behavior otherwise.
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get(uint16_t row, Entity type) const {
 				GAIA_ASSERT(row < m_header.count);
@@ -38080,6 +38252,7 @@ namespace gaia {
 			//! Returns the value stored in the unique component \a T using a pre-resolved component column.
 			//! \tparam T Component or pair
 			//! \param compIdx Pre-resolved component column index
+			//! \return Value stored in the component.
 			template <typename T>
 			GAIA_NODISCARD decltype(auto) get_idx(uint32_t compIdx) const {
 				static_assert(
@@ -38089,6 +38262,9 @@ namespace gaia {
 				return comp_inter_idx<T>(0, compIdx);
 			}
 
+			//! Component entity for the chunk archetype contents.
+			//! \tparam T Component or pair.
+			//! \return Component identifier of the archetype term.
 			template <typename T>
 			GAIA_NODISCARD Entity comp_entity() const {
 				if constexpr (is_pair<T>::value) {
@@ -38124,32 +38300,38 @@ namespace gaia {
 				m_header.index = value;
 			}
 
-			//! Returns the index of this chunk in its archetype's storage
+			//! Returns the index of this chunk in its archetype's storage.
+			//! \return Index of this chunk in its archetype's storage.
 			GAIA_NODISCARD uint32_t idx() const {
 				return m_header.index;
 			}
 
 			//! Checks is this chunk has any enabled entities
+			//! \return True when at least one entity is enabled.
 			GAIA_NODISCARD bool has_enabled_entities() const {
 				return m_header.has_enabled_entities();
 			}
 
 			//! Checks is this chunk has any disabled entities
+			//! \return True when at least one entity is disabled.
 			GAIA_NODISCARD bool has_disabled_entities() const {
 				return m_header.has_disabled_entities();
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the chunk is in its dying lifespan countdown.
 			GAIA_NODISCARD bool dying() const {
 				return m_header.lifespanCountdown > 0;
 			}
 
 			//! Returns true when the chunk is currently queued for deferred deletion.
+			//! \return True when the chunk is queued for deferred deletion.
 			GAIA_NODISCARD bool queued_for_deletion() const {
 				return m_header.deleteQueueIndex != BadIndex;
 			}
 
 			//! Returns the index inside World's deferred chunk-delete queue.
+			//! \return Deferred-delete queue index, BadIndex when not queued.
 			GAIA_NODISCARD uint32_t delete_queue_index() const {
 				return m_header.deleteQueueIndex;
 			}
@@ -38170,6 +38352,7 @@ namespace gaia {
 			}
 
 			//! Checks is this chunk is dead (ready to delete)
+			//! \return True when the chunk is dead and ready to be deleted.
 			GAIA_NODISCARD bool dead() const {
 				return m_header.dead == 1;
 			}
@@ -38197,11 +38380,13 @@ namespace gaia {
 			}
 
 			//! Checks is the full capacity of the has has been reached
+			//! \return True when the chunk capacity is exhausted.
 			GAIA_NODISCARD bool full() const {
 				return m_header.count >= m_header.capacity;
 			}
 
 			//! Checks is the chunk is semi-full.
+			//! \return True when the chunk is below the semi-full threshold.
 			GAIA_NODISCARD bool is_semi() const {
 				// We want the chunk filled to at least 75% before considering it semi-full
 				constexpr float Threshold = 0.75f;
@@ -38209,31 +38394,37 @@ namespace gaia {
 			}
 
 			//! Returns the total number of entities in the chunk (both enabled and disabled)
+			//! \return Total number of entities, enabled and disabled.
 			GAIA_NODISCARD uint16_t size() const {
 				return m_header.count;
 			}
 
 			//! Checks is there are any entities in the chunk
+			//! \return True when the chunk holds no entities.
 			GAIA_NODISCARD bool empty() const {
 				return m_header.count == 0;
 			}
 
 			//! Return the number of entities in the chunk which are enabled
+			//! \return Number of enabled entities.
 			GAIA_NODISCARD uint16_t size_enabled() const {
 				return m_header.countEnabled;
 			}
 
 			//! Return the number of entities in the chunk which are enabled
+			//! \return Number of disabled entities.
 			GAIA_NODISCARD uint16_t size_disabled() const {
 				return (uint16_t)m_header.rowFirstEnabledEntity;
 			}
 
 			//! Returns the number of entities in the chunk
+			//! \return Maximum number of entities the chunk can hold.
 			GAIA_NODISCARD uint16_t capacity() const {
 				return m_header.capacity;
 			}
 
 			//! Returns the total number of generic entities/components in the chunk
+			//! \return Number of generic entity or component columns.
 			GAIA_NODISCARD uint8_t size_generic() const {
 				return m_header.genEntities;
 			}
@@ -38241,6 +38432,8 @@ namespace gaia {
 			//! Returns true if the provided version is newer than the one stored internally.
 			//! Use when checking if there was a movement in data in the world. E.g. if an entity
 			//! was added, removed or moved in its archetype.
+			//! \param requiredVersion Version to compare against.
+			//! \return True when the stored chunk version is newer.
 			GAIA_NODISCARD bool changed(uint32_t requiredVersion) const {
 				const auto* versions = m_records.pVersions;
 				const auto changeVersion = versions[0];
@@ -38248,6 +38441,9 @@ namespace gaia {
 			}
 
 			//! Returns true if the provided version is newer than the one stored internally
+			//! \param requiredVersion Version to compare against.
+			//! \param compIdx Component column index.
+			//! \return True when the stored component version is newer.
 			GAIA_NODISCARD bool changed(uint32_t requiredVersion, uint32_t compIdx) const {
 				const auto* versions = m_records.pVersions;
 				// Do +1 because index 0 is reserved for the entity version number.
@@ -38257,6 +38453,8 @@ namespace gaia {
 
 			//! Returns true if entity order changed since \a requiredVersion.
 			//! This is narrower than changed(requiredVersion): unrelated component writes do not affect it.
+			//! \param requiredVersion Version to compare against.
+			//! \return True when the entity order changed at or after \a requiredVersion.
 			GAIA_NODISCARD bool entity_order_changed(uint32_t requiredVersion) const {
 				return ::gaia::ecs::version_changed(m_header.entityOrderVersion, requiredVersion);
 			}
@@ -38299,6 +38497,7 @@ namespace gaia {
 				m_header.entityOrderVersion = m_header.worldVersion;
 			}
 
+			//! Logs a diagnostic line describing the chunk capacity and lifespan state.
 			void diag() const {
 				GAIA_LOG_N(
 						"  Chunk #%04u, entities:%u/%u, lifespanCountdown:%u", m_header.index, m_header.count, m_header.capacity,
@@ -38428,8 +38627,11 @@ namespace gaia {
 		} // namespace detail
 		//! \endcond
 
+		//! Pairs an archetype with one of its chunks.
 		struct ArchetypeChunkPair {
+			//! Archetype the chunk belongs to.
 			Archetype* pArchetype;
+			//! Chunk owned by the paired archetype.
 			Chunk* pChunk;
 
 			GAIA_NODISCARD bool operator==(const ArchetypeChunkPair& other) const {
@@ -38437,17 +38639,21 @@ namespace gaia {
 			}
 		};
 
+		//! Base shared by archetype lookups and concrete archetypes, carrying the archetype id.
 		class ArchetypeBase {
 		protected:
 			//! Archetype ID - used to address the archetype directly in the world's list or archetypes
 			ArchetypeId m_archetypeId = ArchetypeIdBad;
 
 		public:
+			//! Archetype id used to address the archetype in the world list.
+			//! \return Archetype id.
 			GAIA_NODISCARD ArchetypeId id() const {
 				return m_archetypeId;
 			}
 		};
 
+		//! Archetype lookup key that compares against a component term span instead of a full archetype id.
 		class ArchetypeLookupChecker: public ArchetypeBase {
 			friend class Archetype;
 
@@ -38457,13 +38663,19 @@ namespace gaia {
 		public:
 			ArchetypeLookupChecker(EntitySpan comps): m_comps(comps) {}
 
+			//! Compares the lookup checker component spans in archetype order.
+			//! \param other Other checker to compare against.
+			//! \return True when both spans match element-wise.
 			GAIA_NODISCARD bool cmp_comps(const ArchetypeLookupChecker& other) const {
 				return detail::cmp_comps(m_comps, other.m_comps);
 			}
 		};
 
+		//! Fixed-shape group of chunks storing entities that share the same component layout.
+		//! Owns chunk storage, component hashes, relation-pair indexing and inter-archetype graph edges.
 		class GAIA_API Archetype final: public ArchetypeBase {
 		public:
+			//! Direct hash type used for archetype lookups.
 			using LookupHash = core::direct_hash_key<uint64_t>;
 
 			//! Number of bits representing archetype lifespan
@@ -38473,6 +38685,7 @@ namespace gaia {
 			//! Number of ticks before empty chunks are removed
 			static constexpr uint16_t MAX_ARCHETYPE_LIFESPAN = (1 << ARCHETYPE_LIFESPAN_BITS) - 1;
 
+			//! Shape properties of this archetype.
 			struct Properties {
 				//! The number of data entities this archetype can take (e.g 5 = 5 entities with all their components)
 				uint16_t capacity;
@@ -38541,9 +38754,13 @@ namespace gaia {
 			};
 
 			struct PairIndexData {
+				//! Counts how many pair indices of one relation or target occupy a contiguous range.
 				struct PairCountBucket {
+					//! Relation or target entity id the bucket counts.
 					EntityId id;
+					//! First pair index within the archetype ids array.
 					uint8_t start;
+					//! Number of pair indices belonging to this relation or target.
 					uint8_t count;
 				};
 
@@ -38830,6 +39047,8 @@ namespace gaia {
 			Archetype& operator=(Archetype&&) = delete;
 			Archetype& operator=(const Archetype&) = delete;
 
+			//! Serializes the archetype: free-chunk index, list index, and each chunk.
+			//! \param s serializer to write to.
 			void save(ser::serializer& s) {
 				s.save(m_storage.firstFreeChunkIdx);
 				s.save(m_runtime.listIdx);
@@ -38841,6 +39060,8 @@ namespace gaia {
 				}
 			}
 
+			//! Deserializes the archetype, recreating missing chunks from the shape description.
+			//! \param s serializer to read from.
 			void load(ser::serializer& s) {
 				s.load(m_storage.firstFreeChunkIdx);
 				s.load(m_runtime.listIdx);
@@ -38869,18 +39090,31 @@ namespace gaia {
 				}
 			}
 
+			//! Sets the archetype index in the world list of active archetypes.
+			//! \param idx List index to store.
 			void list_idx(uint32_t idx) {
 				m_runtime.listIdx = idx;
 			}
 
+			//! Archetype index in the world list of active archetypes.
+			//! \return Archetype list index.
 			uint32_t list_idx() const {
 				return m_runtime.listIdx;
 			}
 
+			//! Compares the lookup checker component spans in archetype order.
+			//! \param other Other checker to compare against.
+			//! \return True when both spans match element-wise.
 			GAIA_NODISCARD bool cmp_comps(const ArchetypeLookupChecker& other) const {
 				return detail::cmp_comps(ids_view(), other.m_comps);
 			}
 
+			//! Creates a new archetype from a component term span.
+			//! \param world World owning the component cache.
+			//! \param archetypeId Archetype id to register.
+			//! \param worldVersion World version reference for chunk versioning.
+			//! \param ids Component and entity identifiers defining the shape.
+			//! \return Newly created archetype.
 			GAIA_NODISCARD static Archetype*
 			create(const World& world, ArchetypeId archetypeId, uint32_t& worldVersion, EntitySpan ids) {
 				const auto& cc = comp_cache(world);
@@ -39011,16 +39245,22 @@ namespace gaia {
 				return newArch;
 			}
 
+			//! Destroys the archetype and frees its memory.
+			//! \param pArchetype Archetype to destroy.
 			void static destroy(Archetype* pArchetype) {
 				GAIA_ASSERT(pArchetype != nullptr);
 				pArchetype->~Archetype();
 				mem::AllocHelper::free("Archetype", pArchetype);
 			}
 
+			//! Query mask describing which simple queries may match this archetype.
+			//! \return Query mask of the archetype shape.
 			QueryMask queryMask() const {
 				return m_shape.queryMask;
 			}
 
+			//! Archetype id hash used for graph edge storage.
+			//! \return Hash of the archetype id.
 			ArchetypeIdLookupKey::LookupHash id_hash() const {
 				return m_shape.archetypeIdHash;
 			}
@@ -39066,6 +39306,7 @@ namespace gaia {
 			//! Tries to locate a chunk that has some space left for a new entity.
 			//! If not found a new chunk is created.
 			//! \warning Always used in tandem with try_update_free_chunk_idx() or remove_entity()
+			//! \return Chunk with free space, or a newly created chunk.
 			GAIA_NODISCARD Chunk* foc_free_chunk() {
 				const auto chunkCnt = m_storage.chunks.size();
 
@@ -39146,22 +39387,32 @@ namespace gaia {
 				chunk.update_versions();
 			}
 
+			//! Shape properties of this archetype.
+			//! \return Archetype properties.
 			GAIA_NODISCARD const Properties& props() const {
 				return m_shape.properties;
 			}
 
+			//! Chunks managed by this archetype.
+			//! \return Array of chunk pointers.
 			GAIA_NODISCARD const cnt::darray<Chunk*>& chunks() const {
 				return m_storage.chunks;
 			}
 
+			//! Hash of the component terms used for archetype lookup.
+			//! \return Component-term lookup hash.
 			GAIA_NODISCARD LookupHash lookup_hash() const {
 				return m_shape.hashLookup;
 			}
 
+			//! Span over the component and entity identifiers defining the archetype shape.
+			//! \return Identifier span.
 			GAIA_NODISCARD EntitySpan ids_view() const {
 				return {&m_shape.ids[0], m_shape.properties.cntEntities};
 			}
 
+			//! Span over the per-term component data offsets.
+			//! \return Component offset span.
 			GAIA_NODISCARD ChunkDataOffsetSpan comp_offs_view() const {
 				return {&m_shape.compOffs[0], m_shape.properties.cntEntities};
 			}
@@ -39180,23 +39431,36 @@ namespace gaia {
 
 			//! Returns how many pair ids in this archetype match the provided wildcard-capable pair query.
 			//! This stays archetype-local because variable matching repeatedly probes a single candidate archetype.
+			//! \param pair Wildcard-capable pair query.
+			//! \return Number of matching pair ids in this archetype.
 			GAIA_NODISCARD uint32_t pair_matches(Entity pair) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_matches(ids_view(), pair) : 0;
 			}
 
+			//! Resolves a relation-pair index to its pair entity.
+			//! \param idx Index within the archetype pair array.
+			//! \return Pair entity at \a idx.
 			GAIA_NODISCARD Entity entity_from_pairs_as_idx(uint32_t idx) const {
 				GAIA_ASSERT(m_pPairIndex != nullptr);
 				return m_pPairIndex->entity_from_pairs_as_idx(ids_view(), idx);
 			}
 
+			//! Indices of all relation pairs within the ids array.
+			//! \return Pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_indices() const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_indices() : std::span<const uint8_t>{};
 			}
 
+			//! Indices of pairs whose relation matches the given relation.
+			//! \param relation Relation entity to match.
+			//! \return Matching pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_rel_indices(Entity relation) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_rel_indices(relation) : std::span<const uint8_t>{};
 			}
 
+			//! Indices of pairs whose target matches the given target.
+			//! \param target Target entity to match.
+			//! \return Matching pair index span.
 			GAIA_NODISCARD std::span<const uint8_t> pair_tgt_indices(Entity target) const {
 				return m_pPairIndex != nullptr ? m_pPairIndex->pair_tgt_indices(target) : std::span<const uint8_t>{};
 			}
@@ -39210,16 +39474,20 @@ namespace gaia {
 				});
 			}
 
+			//! Increments the number of terms observing this archetype.
 			void observed_terms_inc() {
 				GAIA_ASSERT(m_runtime.observedTermCnt < m_shape.properties.cntEntities);
 				++m_runtime.observedTermCnt;
 			}
 
+			//! Decrements the number of terms observing this archetype.
 			void observed_terms_dec() {
 				GAIA_ASSERT(m_runtime.observedTermCnt > 0);
 				--m_runtime.observedTermCnt;
 			}
 
+			//! Whether any observer term currently observes this archetype.
+			//! \return True when the observed-term counter is non-zero.
 			GAIA_NODISCARD bool has_observed_terms() const {
 				return m_runtime.observedTermCnt != 0;
 			}
@@ -39446,6 +39714,9 @@ namespace gaia {
 				pArchetypeRight->build_graph_edges_left(this, entity);
 			}
 
+			//! Records a cached "del" graph edge from entity \a entity to this archetype.
+			//! \param pArchetypeLeft Owning archetype of \a entity.
+			//! \param entity Entity forming the left edge.
 			void build_graph_edges_left(Archetype* pArchetypeLeft, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeLeft != this);
@@ -39453,6 +39724,9 @@ namespace gaia {
 				m_edges.graph.add_edge_left(entity, pArchetypeLeft->id(), pArchetypeLeft->id_hash());
 			}
 
+			//! Removes the cached "add" edge for \a entity and propagates the delete to the right archetype.
+			//! \param pArchetypeRight Target archetype of the edge.
+			//! \param entity Entity whose edge is removed.
 			void del_graph_edges(Archetype* pArchetypeRight, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeRight != this);
@@ -39461,6 +39735,9 @@ namespace gaia {
 				pArchetypeRight->del_graph_edges_left(this, entity);
 			}
 
+			//! Removes the cached "del" edge for \a entity after the matching "add" edge is removed.
+			//! \param pArchetypeLeft Owning archetype of \a entity.
+			//! \param entity Entity whose left edge is removed.
 			void del_graph_edges_left([[maybe_unused]] Archetype* pArchetypeLeft, Entity entity) {
 				// Loops can't happen
 				GAIA_ASSERT(pArchetypeLeft != this);
@@ -39496,23 +39773,32 @@ namespace gaia {
 				return m_edges.graph.find_edge_left(entity);
 			}
 
+			//! Mutable view over the archetype "add" graph edges.
+			//! \return Right-edge container reference.
 			GAIA_NODISCARD auto& right_edges() {
 				return m_edges.graph.right_edges();
 			}
 
+			//! Const view over the archetype "add" graph edges.
+			//! \return Right-edge container reference.
 			GAIA_NODISCARD const auto& right_edges() const {
 				return m_edges.graph.right_edges();
 			}
 
+			//! Mutable view over the archetype "del" graph edges.
+			//! \return Left-edge container reference.
 			GAIA_NODISCARD auto& left_edges() {
 				return m_edges.graph.left_edges();
 			}
 
+			//! Const view over the archetype "del" graph edges.
+			//! \return Left-edge container reference.
 			GAIA_NODISCARD const auto& left_edges() const {
 				return m_edges.graph.left_edges();
 			}
 
 			//! Checks is there are no chunk in the archetype.
+			//! \return True when the archetype holds no chunks.
 			GAIA_NODISCARD bool empty() const {
 				return m_storage.chunks.empty();
 			}
@@ -39523,6 +39809,7 @@ namespace gaia {
 			}
 
 			//! Returns true if this archetype is requested to be deleted.
+			//! \return True when the archetype is requested to be deleted.
 			GAIA_NODISCARD bool is_req_del() const {
 				return m_runtime.deleteReq;
 			}
@@ -39538,11 +39825,13 @@ namespace gaia {
 
 			//! Returns the maximal lifespan of the archetype.
 			//! If zero, the archetype it kept indefinitely.
+			//! \return Lifespan in world updates kept after the archetype empties, zero when indefinite.
 			GAIA_NODISCARD uint32_t max_lifespan() const {
 				return m_runtime.lifespanCountdownMax;
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the archetype is in its dying lifespan countdown.
 			GAIA_NODISCARD bool dying() const {
 				return m_runtime.lifespanCountdown > 0;
 			}
@@ -39553,6 +39842,7 @@ namespace gaia {
 			}
 
 			//! Checks is this chunk is dying
+			//! \return True when the archetype is dead and ready to be deleted.
 			GAIA_NODISCARD bool dead() const {
 				return m_runtime.dead == 1;
 			}
@@ -39580,10 +39870,14 @@ namespace gaia {
 			}
 
 			//! Tells whether archetype is ready to be deleted
+			//! \return True when the archetype is empty, lifespan-bounded, and no longer dying.
 			GAIA_NODISCARD bool ready_to_die() const {
 				return m_runtime.lifespanCountdownMax > 0 && !dying() && empty();
 			}
 
+			//! Logs a diagnostic line for one entity, pair, or component of the archetype.
+			//! \param world World owning the entity types.
+			//! \param entity Entity to describe.
 			static void diag_entity(const World& world, Entity entity) {
 				if (entity.entity()) {
 					const auto name = entity_name(world, entity);
@@ -39607,6 +39901,9 @@ namespace gaia {
 				}
 			}
 
+			//! Logs basic archetype diagnostics: sizes, chunk count, entity counts, and component ids.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype to describe.
 			static void diag_basic_info(const World& world, const Archetype& archetype) {
 				auto ids = archetype.ids_view();
 
@@ -39647,10 +39944,15 @@ namespace gaia {
 				}
 			}
 
+			//! Logs the archetype graph edge diagnostics.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype whose graph is described.
 			static void diag_graph_info(const World& world, const Archetype& archetype) {
 				archetype.m_edges.graph.diag(world);
 			}
 
+			//! Logs per-chunk diagnostics for all chunks of the archetype.
+			//! \param archetype Archetype whose chunks are described.
 			static void diag_chunk_info(const Archetype& archetype) {
 				const auto& chunks = archetype.m_storage.chunks;
 				if (chunks.empty())
@@ -39661,6 +39963,9 @@ namespace gaia {
 					pChunk->diag();
 			}
 
+			//! Logs entity diagnostics for each entity of the archetype.
+			//! \param world World owning the archetype.
+			//! \param archetype Archetype whose entities are described.
 			static void diag_entity_info(const World& world, const Archetype& archetype) {
 				const auto& chunks = archetype.m_storage.chunks;
 				if (chunks.empty())
@@ -39692,21 +39997,28 @@ namespace gaia {
 			}
 		};
 
+		//! Hashmap key for archetype lookup, combining a hash with the archetype base pointer.
+		//! Hash collisions fall back to component-span comparison when no archetype id is set.
 		class GAIA_API ArchetypeLookupKey final {
 			Archetype::LookupHash m_hash;
 			const ArchetypeBase* m_pArchetypeBase;
 
 		public:
+			//! Marks this key as a direct hash key.
 			static constexpr bool IsDirectHashKey = true;
 
 			ArchetypeLookupKey(): m_hash({0}), m_pArchetypeBase(nullptr) {}
 			explicit ArchetypeLookupKey(Archetype::LookupHash hash, const ArchetypeBase* pArchetypeBase):
 					m_hash(hash), m_pArchetypeBase(pArchetypeBase) {}
 
+			//! Hash of the archetype lookup value.
+			//! \return Archetype hash.
 			GAIA_NODISCARD size_t hash() const {
 				return (size_t)m_hash.hash;
 			}
 
+			//! Resolves the lookup key to its concrete archetype.
+			//! \return Archetype pointer, or null when the key holds no archetype.
 			GAIA_NODISCARD Archetype* archetype() const {
 				return (Archetype*)m_pArchetypeBase;
 			}
@@ -40026,24 +40338,28 @@ namespace gaia {
 			}
 
 			//! Returns the runtime type kind at the current cursor scope.
+			//! \return Runtime type kind of the current scope, RuntimeTypeKind::None for invalid cursors.
 			GAIA_NODISCARD RuntimeTypeKind type_kind() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->typeKind : RuntimeTypeKind::None;
 			}
 
 			//! Returns the semantic runtime type exposed by the current opaque scope, or EntityBad otherwise.
+			//! \return Semantic runtime type, or EntityBad when not in an opaque scope.
 			GAIA_NODISCARD Entity opaque_as_type() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->opaque_as_type() : EntityBad;
 			}
 
 			//! Returns the element type for the current sequence scope, or EntityBad otherwise.
+			//! \return Element type of the current sequence scope, or EntityBad.
 			GAIA_NODISCARD Entity element_type() const noexcept {
 				const auto* pItem = current_item();
 				return pItem != nullptr ? pItem->element_type() : EntityBad;
 			}
 
 			//! Returns the current payload or field size in bytes.
+			//! \return Current payload or field size in bytes, or zero for an invalid cursor.
 			GAIA_NODISCARD uint32_t size() const noexcept {
 				return m_valid ? m_stack[m_depth].size : 0;
 			}
@@ -40073,6 +40389,7 @@ namespace gaia {
 			}
 
 			//! Returns the element count for the current fixed or adapted sequence scope.
+			//! \return Element count and read status.
 			GAIA_NODISCARD CursorResult<uint32_t> count() const noexcept {
 				CursorResult<uint32_t> result{};
 				if (!m_valid) {
@@ -40256,6 +40573,7 @@ namespace gaia {
 			}
 
 			//! Resizes the current adapted dynamic sequence scope.
+			//! \return Resize status.
 			CursorResult<void> resize(uint32_t count) noexcept {
 				if (!m_valid)
 					return {CursorStatus::Invalid};
@@ -40397,101 +40715,121 @@ namespace gaia {
 			}
 
 			//! Reads the current cursor value as an s8.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int8_t> s8() const noexcept {
 				return read_primitive<int8_t>(S8);
 			}
 
 			//! Writes \a value to the current cursor value as an s8.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s8(int8_t value) noexcept {
 				return write_primitive(S8, value);
 			}
 
 			//! Reads the current cursor value as a u8.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint8_t> u8() const noexcept {
 				return read_primitive<uint8_t>(U8);
 			}
 
 			//! Writes \a value to the current cursor value as a u8.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u8(uint8_t value) noexcept {
 				return write_primitive(U8, value);
 			}
 
 			//! Reads the current cursor value as an s16.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int16_t> s16() const noexcept {
 				return read_primitive<int16_t>(S16);
 			}
 
 			//! Writes \a value to the current cursor value as an s16.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s16(int16_t value) noexcept {
 				return write_primitive(S16, value);
 			}
 
 			//! Reads the current cursor value as a u16.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint16_t> u16() const noexcept {
 				return read_primitive<uint16_t>(U16);
 			}
 
 			//! Writes \a value to the current cursor value as a u16.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u16(uint16_t value) noexcept {
 				return write_primitive(U16, value);
 			}
 
 			//! Reads the current cursor value as an s32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int32_t> s32() const noexcept {
 				return read_primitive<int32_t>(S32);
 			}
 
 			//! Writes \a value to the current cursor value as an s32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s32(int32_t value) noexcept {
 				return write_primitive(S32, value);
 			}
 
 			//! Reads the current cursor value as a u32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint32_t> u32() const noexcept {
 				return read_primitive<uint32_t>(U32);
 			}
 
 			//! Writes \a value to the current cursor value as a u32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u32(uint32_t value) noexcept {
 				return write_primitive(U32, value);
 			}
 
 			//! Reads the current cursor value as an s64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<int64_t> s64() const noexcept {
 				return read_primitive<int64_t>(S64);
 			}
 
 			//! Writes \a value to the current cursor value as an s64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> s64(int64_t value) noexcept {
 				return write_primitive(S64, value);
 			}
 
 			//! Reads the current cursor value as a u64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<uint64_t> u64() const noexcept {
 				return read_primitive<uint64_t>(U64);
 			}
 
 			//! Writes \a value to the current cursor value as a u64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> u64(uint64_t value) noexcept {
 				return write_primitive(U64, value);
 			}
 
 			//! Reads the current cursor value as an f32.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<float> f32() const noexcept {
 				return read_primitive<float>(F32);
 			}
 
 			//! Writes \a value to the current cursor value as an f32.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> f32(float value) noexcept {
 				return write_primitive(F32, value);
 			}
 
 			//! Reads the current cursor value as an f64.
+			//! \return Read result and value.
 			GAIA_NODISCARD CursorResult<double> f64() const noexcept {
 				return read_primitive<double>(F64);
 			}
 
 			//! Writes \a value to the current cursor value as an f64.
+			//! \return Write result.
 			GAIA_NODISCARD CursorResult<void> f64(double value) noexcept {
 				return write_primitive(F64, value);
 			}
@@ -52521,17 +52859,20 @@ namespace gaia {
 			}
 
 			//! Returns the mutable world owning this query.
+			//! \return Owning world.
 			GAIA_NODISCARD World* world() {
 				GAIA_ASSERT(m_plan.ctx.w != nullptr);
 				return const_cast<World*>(m_plan.ctx.w);
 			}
 			//! Returns the world owning this query.
+			//! \return Owning world.
 			GAIA_NODISCARD const World* world() const {
 				GAIA_ASSERT(m_plan.ctx.w != nullptr);
 				return m_plan.ctx.w;
 			}
 
 			//! Returns the query serialization buffer associated with the owning world.
+			//! \return Query serialization buffer.
 			GAIA_NODISCARD QuerySerBuffer& ser_buffer() {
 				return m_plan.ctx.q.ser_buffer(world());
 			}
@@ -52541,73 +52882,87 @@ namespace gaia {
 			}
 
 			//! Returns the mutable compiled query context.
+			//! \return Mutable compiled query context.
 			GAIA_NODISCARD QueryCtx& ctx() {
 				return m_plan.ctx;
 			}
 			//! Returns the compiled query context.
+			//! \return Compiled query context.
 			GAIA_NODISCARD const QueryCtx& ctx() const {
 				return m_plan.ctx;
 			}
 
 			//! Returns a textual dump of the compiled VM bytecode.
+			//! \return Textual VM bytecode dump.
 			GAIA_NODISCARD util::str bytecode() const {
 				return m_plan.vm.bytecode(*world());
 			}
 
 			//! Returns the number of VM operations in the compiled query.
+			//! \return Number of VM operations.
 			GAIA_NODISCARD uint32_t op_count() const {
 				return m_plan.vm.op_count();
 			}
 
 			//! Returns a stable signature for the compiled VM operation stream.
+			//! \return Stable opcode-stream signature.
 			GAIA_NODISCARD uint64_t op_signature() const {
 				return m_plan.vm.op_signature();
 			}
 
 			//! Returns true when the query has per-entity changed/filter terms.
+			//! \return True when the query has per-entity changed/filter terms.
 			GAIA_NODISCARD bool has_filters() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.changedCnt > 0;
 			}
 
 			//! Returns true when direct non-fragmenting terms must be rechecked per entity.
+			//! \return True when direct non-fragmenting terms must be rechecked per entity.
 			GAIA_NODISCARD bool has_entity_filter_terms() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.deps.has_dep_flag(QueryCtx::DependencyHasEntityFilterTerms);
 			}
 
 			//! Returns true when the query shape can resolve through inherited-id matching.
+			//! \return True when the query shape can resolve through inherited-id matching.
 			GAIA_NODISCARD bool has_potential_inherited_id_terms() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.deps.has_dep_flag(QueryCtx::DependencyHasPotentialInheritedIdTerms);
 			}
 
 			//! Returns the direct target evaluation mode selected during compilation.
+			//! \return Direct target evaluation mode.
 			GAIA_NODISCARD QueryCtx::DirectTargetEvalKind direct_target_eval_kind() const {
 				return m_plan.ctx.data.directTargetEvalKind;
 			}
 
 			//! Returns the concrete direct target id used by direct target evaluation.
+			//! \return Concrete direct target id.
 			GAIA_NODISCARD Entity direct_target_eval_id() const {
 				return m_plan.ctx.data.directTargetEvalId;
 			}
 
 			//! Returns true when the query can evaluate concrete target entities directly.
+			//! \return True when the query can evaluate concrete target entities directly.
 			GAIA_NODISCARD bool can_direct_target_eval() const {
 				return m_plan.ctx.data.canDirectTargetEval;
 			}
 
 			//! Returns true when the query shape is eligible for direct entity seed evaluation.
+			//! \return True when the query shape is eligible for direct entity seed evaluation.
 			GAIA_NODISCARD bool can_direct_entity_seed_eval_shape() const {
 				return m_plan.ctx.data.canDirectEntitySeedEvalShape;
 			}
 
 			//! Returns true when the query contains only direct OR/NOT terms and at least one OR term.
+			//! \return True when the query contains only direct OR/NOT terms and at least one OR term.
 			GAIA_NODISCARD bool has_only_direct_or_terms() const {
 				return m_plan.ctx.data.hasOnlyDirectOrTerms;
 			}
 
 			//! Returns true when prefab-tagged entities should participate in query results.
+			//! \return True when prefab-tagged entities should participate in query results.
 			GAIA_NODISCARD bool matches_prefab_entities() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return (ctxData.flags & QueryCtx::QueryFlags::MatchPrefab) != 0 ||
@@ -52615,24 +52970,32 @@ namespace gaia {
 			}
 
 			//! Returns true when any of the requested types is present as an Any term.
+			//! \tparam T Query term types to test.
+			//! \return True when any of the requested types is present as an Any term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_any() const {
 				return (has_inter<T>(QueryOpKind::Any) || ...);
 			}
 
 			//! Returns true when any of the requested types is present as an Or term.
+			//! \tparam T Query term types to test.
+			//! \return True when any of the requested types is present as an Or term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_or() const {
 				return (has_inter<T>(QueryOpKind::Or) || ...);
 			}
 
 			//! Returns true when all requested types are present as All terms.
+			//! \tparam T Query term types to test.
+			//! \return True when all requested types are present as All terms.
 			template <typename... T>
 			GAIA_NODISCARD bool has_all() const {
 				return (has_inter<T>(QueryOpKind::All) && ...);
 			}
 
 			//! Returns true when none of the requested types is present as a Not term.
+			//! \tparam T Query term types to test.
+			//! \return True when none of the requested types is present as a Not term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_no() const {
 				return (!has_inter<T>(QueryOpKind::Not) && ...);
@@ -52648,6 +53011,7 @@ namespace gaia {
 			}
 
 			//! Returns a view of indices mapping for component entities in a given archetype
+			//! \return View of indices mapping for component entities in the archetype.
 			std::span<const uint8_t> indices_mapping_view(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_comp_indices();
 				const auto& ctxData = m_state.exec.archetypeCompIndices[archetypeIdx];
@@ -52667,11 +53031,13 @@ namespace gaia {
 			}
 
 			//! Returns cached flattened direct chunk data pointers.
+			//! \return Cached flattened direct chunk data pointers.
 			std::span<const void* const> direct_chunk_data_view() const {
 				return {m_state.exec.directChunkData.data(), m_state.exec.directChunkData.size()};
 			}
 
 			//! Returns cached inherited-term data for a matched archetype index.
+			//! \return Cached inherited-term data for the archetype index.
 			//! \param archetypeIdx Result-cache archetype index.
 			InheritedTermDataView inherited_data_view(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_inherited_data();
@@ -52682,6 +53048,7 @@ namespace gaia {
 			}
 
 			//! Returns cached inherited-term data for a matched archetype pointer.
+			//! \return Cached inherited-term data for the matched archetype.
 			//! \param pArchetype Matched archetype to look up.
 			InheritedTermDataView inherited_data_view(const Archetype* pArchetype) const {
 				if (!has_inherited_data_payload())
@@ -52698,6 +53065,7 @@ namespace gaia {
 			}
 
 			//! Returns a cached indices mapping view for an exact archetype match, or an empty span when absent.
+			//! \return Cached indices mapping view, or an empty span when absent.
 			std::span<const uint8_t> try_indices_mapping_view(const Archetype* pArchetype) const {
 				if (m_state.exec.compIndicesPending)
 					return {};
@@ -52708,6 +53076,7 @@ namespace gaia {
 			}
 
 			//! Returns cached inherited-term data if it is already available for a matched archetype.
+			//! \return Cached inherited-term data, or an empty view when unavailable.
 			//! \param pArchetype Matched archetype to look up.
 			InheritedTermDataView try_inherited_data_view(const Archetype* pArchetype) const {
 				if (!has_inherited_data_payload() || m_state.exec.inheritedDataPending)
@@ -52719,6 +53088,7 @@ namespace gaia {
 			}
 
 			//! Returns the cached group id for a matched archetype index.
+			//! \return Cached group id for the archetype index.
 			//! \param archetypeIdx Result-cache archetype index.
 			GAIA_NODISCARD GroupId group_id(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_group_data(true);
@@ -52727,6 +53097,7 @@ namespace gaia {
 			}
 
 			//! Returns true when the matched archetype passes the depth-order hierarchy barrier.
+			//! \return True when the matched archetype passes the depth-order hierarchy barrier.
 			//! \param archetypeIdx Result-cache archetype index.
 			GAIA_NODISCARD bool barrier_passes(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_depth_order_hierarchy_barrier_cache();
@@ -52737,52 +53108,62 @@ namespace gaia {
 			}
 
 			//! Returns true when any cached archetype can be pruned by the hierarchy barrier.
+			//! \return True when any cached archetype can be pruned by the hierarchy barrier.
 			GAIA_NODISCARD bool barrier_may_prune() const {
 				const_cast<QueryInfo*>(this)->ensure_depth_order_hierarchy_barrier_cache();
 				return m_state.nonTrivial.barrierMayPrune != 0;
 			}
 
 			//! Returns a mutable iterator to the first cached result archetype.
+			//! \return Mutable iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::iterator begin() {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns an iterator to the first cached result archetype.
+			//! \return Iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator begin() const {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns a const iterator to the first cached result archetype.
+			//! \return Const iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator cbegin() const {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns a mutable iterator past the last cached result archetype.
+			//! \return Mutable iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::iterator end() {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns an iterator past the last cached result archetype.
+			//! \return Iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator end() const {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns a const iterator past the last cached result archetype.
+			//! \return Const iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator cend() const {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns the cached result archetypes as a span.
+			//! \return Cached result archetypes as a span.
 			GAIA_NODISCARD std::span<const Archetype*> cache_archetype_view() const {
 				return std::span{(const Archetype**)m_state.archetypeCache.data(), m_state.archetypeCache.size()};
 			}
 
 			//! Returns cached sorted chunk slices.
+			//! \return Cached sorted chunk slices.
 			GAIA_NODISCARD std::span<const SortData> cache_sort_view() const {
 				return std::span{m_state.nonTrivial.archetypeSortData.data(), m_state.nonTrivial.archetypeSortData.size()};
 			}
 
 			//! Returns cached group ranges, rebuilding grouped data when needed.
+			//! \return Cached group ranges.
 			GAIA_NODISCARD std::span<const GroupData> group_data_view() const {
 				const_cast<QueryInfo*>(this)->ensure_group_data(true);
 				return std::span{m_state.grouped.archetypeGroupData.data(), m_state.grouped.archetypeGroupData.size()};
@@ -65850,6 +66231,10 @@ namespace gaia {
 				*pComp = comp;
 			}
 
+			//! Validates runtime-reflection state against the live scope graph in debug builds.
+			//! Verifies that every semantic entity referenced by \a runtimeType resolves to a
+			//! reachable scope path. All checks are compiled out when assertions are disabled.
+			//! \param runtimeType Runtime descriptor whose semantic entities are validated.
 			void validate_runtime_semantics(const RuntimeTypeDesc& runtimeType) const {
 #if GAIA_ASSERT_ENABLED
 				auto validate = [&](Entity semantic) {
@@ -72812,6 +73197,7 @@ namespace gaia {
 			}
 
 			//! Returns whether sorted-query invalidations are currently being recorded.
+			//! \return True while deferred sorted-query invalidation is active.
 			GAIA_NODISCARD bool defer_sort_inv_active() const {
 				return m_deferSortInvDepth != 0;
 			}
@@ -85164,18 +85550,25 @@ namespace gaia {
 
 namespace gaia {
 	namespace ecs {
+		//! Single-threaded command-buffer access guard. Locking is a no-op.
 		struct AccessContextST {
+			//! Acquires the access guard.
 			void lock() {}
+			//! Releases the access guard.
 			void unlock() {}
 		};
 
+		//! Multi-threaded command-buffer access guard backed by a spin lock.
 		struct AccessContextMT {
+			//! Spin lock serializing command-buffer access across worker threads.
 			mt::SpinLock m_lock;
 
+			//! Acquires the access guard.
 			void lock() {
 				m_lock.lock();
 			}
 
+			//! Releases the access guard.
 			void unlock() {
 				m_lock.unlock();
 			}

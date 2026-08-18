@@ -75,6 +75,7 @@ namespace gaia {
 			uint32_t value = UINT32_MAX;
 
 			//! Checks whether the identifier refers to an interned string.
+			//! \return True when the identifier refers to an interned string.
 			GAIA_NODISCARD constexpr bool valid() const noexcept {
 				return value != UINT32_MAX;
 			}

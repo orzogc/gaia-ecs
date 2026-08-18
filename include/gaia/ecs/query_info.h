@@ -2398,17 +2398,20 @@ namespace gaia {
 			}
 
 			//! Returns the mutable world owning this query.
+			//! \return Owning world.
 			GAIA_NODISCARD World* world() {
 				GAIA_ASSERT(m_plan.ctx.w != nullptr);
 				return const_cast<World*>(m_plan.ctx.w);
 			}
 			//! Returns the world owning this query.
+			//! \return Owning world.
 			GAIA_NODISCARD const World* world() const {
 				GAIA_ASSERT(m_plan.ctx.w != nullptr);
 				return m_plan.ctx.w;
 			}
 
 			//! Returns the query serialization buffer associated with the owning world.
+			//! \return Query serialization buffer.
 			GAIA_NODISCARD QuerySerBuffer& ser_buffer() {
 				return m_plan.ctx.q.ser_buffer(world());
 			}
@@ -2418,73 +2421,87 @@ namespace gaia {
 			}
 
 			//! Returns the mutable compiled query context.
+			//! \return Mutable compiled query context.
 			GAIA_NODISCARD QueryCtx& ctx() {
 				return m_plan.ctx;
 			}
 			//! Returns the compiled query context.
+			//! \return Compiled query context.
 			GAIA_NODISCARD const QueryCtx& ctx() const {
 				return m_plan.ctx;
 			}
 
 			//! Returns a textual dump of the compiled VM bytecode.
+			//! \return Textual VM bytecode dump.
 			GAIA_NODISCARD util::str bytecode() const {
 				return m_plan.vm.bytecode(*world());
 			}
 
 			//! Returns the number of VM operations in the compiled query.
+			//! \return Number of VM operations.
 			GAIA_NODISCARD uint32_t op_count() const {
 				return m_plan.vm.op_count();
 			}
 
 			//! Returns a stable signature for the compiled VM operation stream.
+			//! \return Stable opcode-stream signature.
 			GAIA_NODISCARD uint64_t op_signature() const {
 				return m_plan.vm.op_signature();
 			}
 
 			//! Returns true when the query has per-entity changed/filter terms.
+			//! \return True when the query has per-entity changed/filter terms.
 			GAIA_NODISCARD bool has_filters() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.changedCnt > 0;
 			}
 
 			//! Returns true when direct non-fragmenting terms must be rechecked per entity.
+			//! \return True when direct non-fragmenting terms must be rechecked per entity.
 			GAIA_NODISCARD bool has_entity_filter_terms() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.deps.has_dep_flag(QueryCtx::DependencyHasEntityFilterTerms);
 			}
 
 			//! Returns true when the query shape can resolve through inherited-id matching.
+			//! \return True when the query shape can resolve through inherited-id matching.
 			GAIA_NODISCARD bool has_potential_inherited_id_terms() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return ctxData.deps.has_dep_flag(QueryCtx::DependencyHasPotentialInheritedIdTerms);
 			}
 
 			//! Returns the direct target evaluation mode selected during compilation.
+			//! \return Direct target evaluation mode.
 			GAIA_NODISCARD QueryCtx::DirectTargetEvalKind direct_target_eval_kind() const {
 				return m_plan.ctx.data.directTargetEvalKind;
 			}
 
 			//! Returns the concrete direct target id used by direct target evaluation.
+			//! \return Concrete direct target id.
 			GAIA_NODISCARD Entity direct_target_eval_id() const {
 				return m_plan.ctx.data.directTargetEvalId;
 			}
 
 			//! Returns true when the query can evaluate concrete target entities directly.
+			//! \return True when the query can evaluate concrete target entities directly.
 			GAIA_NODISCARD bool can_direct_target_eval() const {
 				return m_plan.ctx.data.canDirectTargetEval;
 			}
 
 			//! Returns true when the query shape is eligible for direct entity seed evaluation.
+			//! \return True when the query shape is eligible for direct entity seed evaluation.
 			GAIA_NODISCARD bool can_direct_entity_seed_eval_shape() const {
 				return m_plan.ctx.data.canDirectEntitySeedEvalShape;
 			}
 
 			//! Returns true when the query contains only direct OR/NOT terms and at least one OR term.
+			//! \return True when the query contains only direct OR/NOT terms and at least one OR term.
 			GAIA_NODISCARD bool has_only_direct_or_terms() const {
 				return m_plan.ctx.data.hasOnlyDirectOrTerms;
 			}
 
 			//! Returns true when prefab-tagged entities should participate in query results.
+			//! \return True when prefab-tagged entities should participate in query results.
 			GAIA_NODISCARD bool matches_prefab_entities() const {
 				const auto& ctxData = m_plan.ctx.data;
 				return (ctxData.flags & QueryCtx::QueryFlags::MatchPrefab) != 0 ||
@@ -2492,24 +2509,32 @@ namespace gaia {
 			}
 
 			//! Returns true when any of the requested types is present as an Any term.
+			//! \tparam T Query term types to test.
+			//! \return True when any of the requested types is present as an Any term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_any() const {
 				return (has_inter<T>(QueryOpKind::Any) || ...);
 			}
 
 			//! Returns true when any of the requested types is present as an Or term.
+			//! \tparam T Query term types to test.
+			//! \return True when any of the requested types is present as an Or term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_or() const {
 				return (has_inter<T>(QueryOpKind::Or) || ...);
 			}
 
 			//! Returns true when all requested types are present as All terms.
+			//! \tparam T Query term types to test.
+			//! \return True when all requested types are present as All terms.
 			template <typename... T>
 			GAIA_NODISCARD bool has_all() const {
 				return (has_inter<T>(QueryOpKind::All) && ...);
 			}
 
 			//! Returns true when none of the requested types is present as a Not term.
+			//! \tparam T Query term types to test.
+			//! \return True when none of the requested types is present as a Not term.
 			template <typename... T>
 			GAIA_NODISCARD bool has_no() const {
 				return (!has_inter<T>(QueryOpKind::Not) && ...);
@@ -2525,6 +2550,7 @@ namespace gaia {
 			}
 
 			//! Returns a view of indices mapping for component entities in a given archetype
+			//! \return View of indices mapping for component entities in the archetype.
 			std::span<const uint8_t> indices_mapping_view(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_comp_indices();
 				const auto& ctxData = m_state.exec.archetypeCompIndices[archetypeIdx];
@@ -2544,11 +2570,13 @@ namespace gaia {
 			}
 
 			//! Returns cached flattened direct chunk data pointers.
+			//! \return Cached flattened direct chunk data pointers.
 			std::span<const void* const> direct_chunk_data_view() const {
 				return {m_state.exec.directChunkData.data(), m_state.exec.directChunkData.size()};
 			}
 
 			//! Returns cached inherited-term data for a matched archetype index.
+			//! \return Cached inherited-term data for the archetype index.
 			//! \param archetypeIdx Result-cache archetype index.
 			InheritedTermDataView inherited_data_view(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_inherited_data();
@@ -2559,6 +2587,7 @@ namespace gaia {
 			}
 
 			//! Returns cached inherited-term data for a matched archetype pointer.
+			//! \return Cached inherited-term data for the matched archetype.
 			//! \param pArchetype Matched archetype to look up.
 			InheritedTermDataView inherited_data_view(const Archetype* pArchetype) const {
 				if (!has_inherited_data_payload())
@@ -2575,6 +2604,7 @@ namespace gaia {
 			}
 
 			//! Returns a cached indices mapping view for an exact archetype match, or an empty span when absent.
+			//! \return Cached indices mapping view, or an empty span when absent.
 			std::span<const uint8_t> try_indices_mapping_view(const Archetype* pArchetype) const {
 				if (m_state.exec.compIndicesPending)
 					return {};
@@ -2585,6 +2615,7 @@ namespace gaia {
 			}
 
 			//! Returns cached inherited-term data if it is already available for a matched archetype.
+			//! \return Cached inherited-term data, or an empty view when unavailable.
 			//! \param pArchetype Matched archetype to look up.
 			InheritedTermDataView try_inherited_data_view(const Archetype* pArchetype) const {
 				if (!has_inherited_data_payload() || m_state.exec.inheritedDataPending)
@@ -2596,6 +2627,7 @@ namespace gaia {
 			}
 
 			//! Returns the cached group id for a matched archetype index.
+			//! \return Cached group id for the archetype index.
 			//! \param archetypeIdx Result-cache archetype index.
 			GAIA_NODISCARD GroupId group_id(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_group_data(true);
@@ -2604,6 +2636,7 @@ namespace gaia {
 			}
 
 			//! Returns true when the matched archetype passes the depth-order hierarchy barrier.
+			//! \return True when the matched archetype passes the depth-order hierarchy barrier.
 			//! \param archetypeIdx Result-cache archetype index.
 			GAIA_NODISCARD bool barrier_passes(uint32_t archetypeIdx) const {
 				const_cast<QueryInfo*>(this)->ensure_depth_order_hierarchy_barrier_cache();
@@ -2614,52 +2647,62 @@ namespace gaia {
 			}
 
 			//! Returns true when any cached archetype can be pruned by the hierarchy barrier.
+			//! \return True when any cached archetype can be pruned by the hierarchy barrier.
 			GAIA_NODISCARD bool barrier_may_prune() const {
 				const_cast<QueryInfo*>(this)->ensure_depth_order_hierarchy_barrier_cache();
 				return m_state.nonTrivial.barrierMayPrune != 0;
 			}
 
 			//! Returns a mutable iterator to the first cached result archetype.
+			//! \return Mutable iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::iterator begin() {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns an iterator to the first cached result archetype.
+			//! \return Iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator begin() const {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns a const iterator to the first cached result archetype.
+			//! \return Const iterator to the first cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator cbegin() const {
 				return m_state.archetypeCache.begin();
 			}
 
 			//! Returns a mutable iterator past the last cached result archetype.
+			//! \return Mutable iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::iterator end() {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns an iterator past the last cached result archetype.
+			//! \return Iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator end() const {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns a const iterator past the last cached result archetype.
+			//! \return Const iterator past the last cached result archetype.
 			GAIA_NODISCARD CArchetypeDArray::const_iterator cend() const {
 				return m_state.archetypeCache.end();
 			}
 
 			//! Returns the cached result archetypes as a span.
+			//! \return Cached result archetypes as a span.
 			GAIA_NODISCARD std::span<const Archetype*> cache_archetype_view() const {
 				return std::span{(const Archetype**)m_state.archetypeCache.data(), m_state.archetypeCache.size()};
 			}
 
 			//! Returns cached sorted chunk slices.
+			//! \return Cached sorted chunk slices.
 			GAIA_NODISCARD std::span<const SortData> cache_sort_view() const {
 				return std::span{m_state.nonTrivial.archetypeSortData.data(), m_state.nonTrivial.archetypeSortData.size()};
 			}
 
 			//! Returns cached group ranges, rebuilding grouped data when needed.
+			//! \return Cached group ranges.
 			GAIA_NODISCARD std::span<const GroupData> group_data_view() const {
 				const_cast<QueryInfo*>(this)->ensure_group_data(true);
 				return std::span{m_state.grouped.archetypeGroupData.data(), m_state.grouped.archetypeGroupData.size()};

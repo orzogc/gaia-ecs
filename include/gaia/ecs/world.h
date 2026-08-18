@@ -1070,6 +1070,10 @@ namespace gaia {
 				*pComp = comp;
 			}
 
+			//! Validates runtime-reflection state against the live scope graph in debug builds.
+			//! Verifies that every semantic entity referenced by \a runtimeType resolves to a
+			//! reachable scope path. All checks are compiled out when assertions are disabled.
+			//! \param runtimeType Runtime descriptor whose semantic entities are validated.
 			void validate_runtime_semantics(const RuntimeTypeDesc& runtimeType) const {
 #if GAIA_ASSERT_ENABLED
 				auto validate = [&](Entity semantic) {
@@ -8032,6 +8036,7 @@ namespace gaia {
 			}
 
 			//! Returns whether sorted-query invalidations are currently being recorded.
+			//! \return True while deferred sorted-query invalidation is active.
 			GAIA_NODISCARD bool defer_sort_inv_active() const {
 				return m_deferSortInvDepth != 0;
 			}
