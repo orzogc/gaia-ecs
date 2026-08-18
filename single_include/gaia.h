@@ -1189,14 +1189,14 @@ namespace gaia {
 #if GAIA_COMPILER_MSVC || GAIA_PLATFORM_WINDOWS
 	#define GAIA_STRCPY(var, max_len, text)                                                                              \
 		strncpy_s((var), (text), (max_len));                                                                               \
-		(var)[(max_len)-1] = 0;
+		(var)[(max_len) - 1] = 0;
 	#define GAIA_STRFMT(var, max_len, fmt, ...) sprintf_s((var), (max_len), fmt, __VA_ARGS__)
 	#define GAIA_STRLEN(var, max_len) strnlen_s((var), (max_len))
 #else
 	#define GAIA_STRCPY(var, max_len, text)                                                                              \
 		{                                                                                                                  \
 			strncpy((var), (text), (max_len));                                                                               \
-			(var)[(max_len)-1] = 0;                                                                                          \
+			(var)[(max_len) - 1] = 0;                                                                                        \
 		}
 	#define GAIA_STRFMT(var, max_len, fmt, ...) snprintf((var), (max_len), fmt, __VA_ARGS__)
 	#define GAIA_STRLEN(var, max_len) strnlen((var), (max_len))
@@ -2002,10 +2002,11 @@ namespace gaia {
 			//! \param func Callable invoked once for each selected tuple element type.
 			template <auto FirstIdx, typename Tuple, typename Func, auto... Is>
 			void each_tuple_impl(Func func, std::integer_sequence<decltype(FirstIdx), Is...> /*no_name*/) {
-				if constexpr ((std::is_invocable_v<
-													 Func&&, decltype(std::tuple_element_t<FirstIdx + Is, Tuple>{}),
-													 std::integral_constant<decltype(FirstIdx), Is>> &&
-											 ...))
+				if constexpr (
+						(std::is_invocable_v<
+								 Func&&, decltype(std::tuple_element_t<FirstIdx + Is, Tuple>{}),
+								 std::integral_constant<decltype(FirstIdx), Is>> &&
+						 ...))
 					// func(Args&& arg, uint32_t idx)
 					(func(
 							 std::tuple_element_t<FirstIdx + Is, Tuple>{},
@@ -2025,10 +2026,10 @@ namespace gaia {
 			//! \param func Callable invoked once for each selected tuple element.
 			template <auto FirstIdx, typename Tuple, typename Func, auto... Is>
 			void each_tuple_impl(Tuple&& tuple, Func func, std::integer_sequence<decltype(FirstIdx), Is...> /*no_name*/) {
-				if constexpr ((std::is_invocable_v<
-													 Func&&, decltype(std::get<FirstIdx + Is>(tuple)),
-													 std::integral_constant<decltype(FirstIdx), Is>> &&
-											 ...))
+				if constexpr (
+						(std::is_invocable_v<
+								 Func&&, decltype(std::get<FirstIdx + Is>(tuple)), std::integral_constant<decltype(FirstIdx), Is>> &&
+						 ...))
 					// func(Args&& arg, uint32_t idx)
 					(func(std::get<FirstIdx + Is>(tuple), std::integral_constant<decltype(FirstIdx), FirstIdx + Is>{}), ...);
 				else
@@ -5262,76 +5263,83 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				return std::make_tuple();
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8, p9);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7, p8);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6, p7);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5, p6);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4, p5);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3, p4);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3] = GAIA_FWD(object);
 				return std::make_tuple(p1, p2, p3);
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
@@ -5358,64 +5366,71 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				return 0;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 15;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 14;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 13;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				return 12;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				return 11;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 10;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 9;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 8;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				return 7;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				return 6;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 5;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 4;
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				return 3;
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
 				return 2;
@@ -5438,76 +5453,83 @@ namespace gaia {
 
 			if constexpr (std::is_empty_v<type>) {
 				visitor();
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8, p9] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8, p9);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7, p8] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7, p8);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6, p7] = object;
 				return visitor(p1, p2, p3, p4, p5, p6, p7);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
+							detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5, p6] = object;
 				return visitor(p1, p2, p3, p4, p5, p6);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type,
-															 detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4, p5] = object;
 				return visitor(p1, p2, p3, p4, p5);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<
+							type, detail::any_type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3, p4] = object;
 				return visitor(p1, p2, p3, p4);
-			} else if constexpr (detail::is_braces_constructible_t<
-															 type, detail::any_type, detail::any_type, detail::any_type>{}) {
+			} else if constexpr (
+					detail::is_braces_constructible_t<type, detail::any_type, detail::any_type, detail::any_type>{}) {
 				auto&& [p1, p2, p3] = object;
 				return visitor(p1, p2, p3);
 			} else if constexpr (detail::is_braces_constructible_t<type, detail::any_type, detail::any_type>{}) {
@@ -9417,11 +9439,11 @@ namespace gaia {
 				void* m_data;
 				BlockArray m_blocks;
 
-				uint32_t m_sizeType: SizeTypeBits;
-				uint32_t m_blockCnt: NBlocks_Bits;
-				uint32_t m_usedBlocks: NBlocks_Bits;
-				uint32_t m_nextFreeBlock: NBlocks_Bits;
-				uint32_t m_freeBlocks: NBlocks_Bits;
+				uint32_t m_sizeType : SizeTypeBits;
+				uint32_t m_blockCnt : NBlocks_Bits;
+				uint32_t m_usedBlocks : NBlocks_Bits;
+				uint32_t m_nextFreeBlock : NBlocks_Bits;
+				uint32_t m_freeBlocks : NBlocks_Bits;
 
 #if GAIA_ASSERT_ENABLED
 				uint64_t m_usedMask = 0;
@@ -9459,344 +9481,344 @@ namespace gaia {
 				//! Allocates one block from this page.
 				//! \param bytesWanted Requested usable bytes.
 				//! \return Pointer to the usable storage.
-				GAIA_NODISCARD void* alloc_block(uint32_t bytesWanted) {
+				GAIA_NODISCARD void* alloc_block(uint32_t bytesWanted){
 #else
 				//! Allocates one block from this page.
 				//! \return Pointer to the usable storage.
 				GAIA_NODISCARD void* alloc_block() {
 #endif
-					auto store_block_address = [&](uint32_t index) {
-						auto* pMemoryBlock = (uint8_t*)m_data + (index * block_stride());
-						GAIA_ASSERT((uintptr_t)pMemoryBlock % SmallBlockAlignment == 0);
-						auto& header = block_header(pMemoryBlock);
-						header.m_pageAddr = (uintptr_t)this;
+						auto store_block_address = [&](uint32_t index) {
+							auto* pMemoryBlock = (uint8_t*)m_data + (index * block_stride());
+							GAIA_ASSERT((uintptr_t)pMemoryBlock % SmallBlockAlignment == 0);
+							auto& header = block_header(pMemoryBlock);
+							header.m_pageAddr = (uintptr_t)this;
 #if GAIA_DEBUG
-						header.m_requestedBytes = bytesWanted;
-						header.m_reserved = 0;
+							header.m_requestedBytes = bytesWanted;
+							header.m_reserved = 0;
 #else
 						header.m_reserved = 0;
 #endif
-						auto* pData = pMemoryBlock + SmallBlockUsableOffset;
-						GAIA_ASSERT((uintptr_t)pData % SmallBlockAlignment == 0);
-						return (void*)pData;
-					};
+							auto* pData = pMemoryBlock + SmallBlockUsableOffset;
+							GAIA_ASSERT((uintptr_t)pData % SmallBlockAlignment == 0);
+							return (void*)pData;
+						};
 
-					GAIA_ASSERT(!full() && "Trying to allocate too many blocks!");
+				GAIA_ASSERT(!full() && "Trying to allocate too many blocks!");
 
-					uint32_t index = 0;
-					if (m_freeBlocks == 0U) {
-						index = m_blockCnt;
-						++m_usedBlocks;
-						++m_blockCnt;
-						write_block_idx(index, index);
-					} else {
-						GAIA_ASSERT(m_nextFreeBlock < m_blockCnt && "Block allocator recycle list broken!");
+				uint32_t index = 0;
+				if (m_freeBlocks == 0U) {
+					index = m_blockCnt;
+					++m_usedBlocks;
+					++m_blockCnt;
+					write_block_idx(index, index);
+				} else {
+					GAIA_ASSERT(m_nextFreeBlock < m_blockCnt && "Block allocator recycle list broken!");
 
-						++m_usedBlocks;
-						--m_freeBlocks;
+					++m_usedBlocks;
+					--m_freeBlocks;
 
-						index = m_nextFreeBlock;
-						m_nextFreeBlock = read_block_idx(m_nextFreeBlock);
-					}
-
-#if GAIA_ASSERT_ENABLED
-					GAIA_ASSERT((m_usedMask & (uint64_t(1) << index)) == 0 && "Block already marked as live");
-					m_usedMask |= uint64_t(1) << index;
-#endif
-
-					return store_block_address(index);
+					index = m_nextFreeBlock;
+					m_nextFreeBlock = read_block_idx(m_nextFreeBlock);
 				}
 
-				//! Frees one block back to this page.
-				//! \param pBlock Pointer previously returned by alloc_block().
-				void free_block(void* pBlock) {
-					GAIA_ASSERT(pBlock != nullptr);
-					GAIA_ASSERT(m_usedBlocks > 0);
-					GAIA_ASSERT(m_freeBlocks <= NBlocks);
-
-					const auto* pMemoryBlock = (uint8_t*)pBlock - SmallBlockUsableOffset;
-					const auto blckAddr = (uintptr_t)pMemoryBlock;
-					GAIA_ASSERT(blckAddr % SmallBlockAlignment == 0);
-					const auto dataAddr = (uintptr_t)m_data;
-					GAIA_ASSERT(blckAddr >= dataAddr);
-					const auto blockStride = (uintptr_t)block_stride();
 #if GAIA_ASSERT_ENABLED
-					const auto pageSize = blockStride * NBlocks;
-					GAIA_ASSERT(blckAddr < dataAddr + pageSize);
+				GAIA_ASSERT((m_usedMask & (uint64_t(1) << index)) == 0 && "Block already marked as live");
+				m_usedMask |= uint64_t(1) << index;
 #endif
-					GAIA_ASSERT((blckAddr - dataAddr) % blockStride == 0);
-					const auto blockIdx = (uint32_t)((blckAddr - dataAddr) / blockStride);
-					GAIA_ASSERT(blockIdx < m_blockCnt);
+
+				return store_block_address(index);
+			}
+
+			//! Frees one block back to this page.
+			//! \param pBlock Pointer previously returned by alloc_block().
+			void free_block(void* pBlock) {
+				GAIA_ASSERT(pBlock != nullptr);
+				GAIA_ASSERT(m_usedBlocks > 0);
+				GAIA_ASSERT(m_freeBlocks <= NBlocks);
+
+				const auto* pMemoryBlock = (uint8_t*)pBlock - SmallBlockUsableOffset;
+				const auto blckAddr = (uintptr_t)pMemoryBlock;
+				GAIA_ASSERT(blckAddr % SmallBlockAlignment == 0);
+				const auto dataAddr = (uintptr_t)m_data;
+				GAIA_ASSERT(blckAddr >= dataAddr);
+				const auto blockStride = (uintptr_t)block_stride();
+#if GAIA_ASSERT_ENABLED
+				const auto pageSize = blockStride * NBlocks;
+				GAIA_ASSERT(blckAddr < dataAddr + pageSize);
+#endif
+				GAIA_ASSERT((blckAddr - dataAddr) % blockStride == 0);
+				const auto blockIdx = (uint32_t)((blckAddr - dataAddr) / blockStride);
+				GAIA_ASSERT(blockIdx < m_blockCnt);
 
 #if GAIA_DEBUG
-					auto& header = block_header((void*)pMemoryBlock);
-					GAIA_ASSERT(header.m_requestedBytes > 0);
+				auto& header = block_header((void*)pMemoryBlock);
+				GAIA_ASSERT(header.m_requestedBytes > 0);
 #endif
 #if GAIA_ASSERT_ENABLED
-					GAIA_ASSERT((m_usedMask & (uint64_t(1) << blockIdx)) != 0 && "Double free or corrupted block state");
-					m_usedMask &= ~(uint64_t(1) << blockIdx);
+				GAIA_ASSERT((m_usedMask & (uint64_t(1) << blockIdx)) != 0 && "Double free or corrupted block state");
+				m_usedMask &= ~(uint64_t(1) << blockIdx);
 #endif
 
 #if GAIA_DEBUG
-					header.m_requestedBytes = 0;
-					std::memset(pBlock, FreedBlockPattern, small_block_size(m_sizeType));
+				header.m_requestedBytes = 0;
+				std::memset(pBlock, FreedBlockPattern, small_block_size(m_sizeType));
 #endif
 
-					if (m_freeBlocks == 0U)
-						write_block_idx(blockIdx, InvalidBlockId);
-					else
-						write_block_idx(blockIdx, m_nextFreeBlock);
-					m_nextFreeBlock = blockIdx;
+				if (m_freeBlocks == 0U)
+					write_block_idx(blockIdx, InvalidBlockId);
+				else
+					write_block_idx(blockIdx, m_nextFreeBlock);
+				m_nextFreeBlock = blockIdx;
 
-					++m_freeBlocks;
-					--m_usedBlocks;
-				}
+				++m_freeBlocks;
+				--m_usedBlocks;
+			}
 
-				//! Returns the number of live blocks.
-				GAIA_NODISCARD uint32_t used_blocks_cnt() const {
-					return m_usedBlocks;
-				}
+			//! Returns the number of live blocks.
+			GAIA_NODISCARD uint32_t used_blocks_cnt() const {
+				return m_usedBlocks;
+			}
 
-				//! Returns true when the page is full.
-				GAIA_NODISCARD bool full() const {
-					return used_blocks_cnt() >= NBlocks;
-				}
+			//! Returns true when the page is full.
+			GAIA_NODISCARD bool full() const {
+				return used_blocks_cnt() >= NBlocks;
+			}
 
-				//! Returns true when the page is empty.
-				GAIA_NODISCARD bool empty() const {
-					return used_blocks_cnt() == 0;
-				}
+			//! Returns true when the page is empty.
+			GAIA_NODISCARD bool empty() const {
+				return used_blocks_cnt() == 0;
+			}
 
-				//! Verifies internal page invariants.
-				void verify() const {
+			//! Verifies internal page invariants.
+			void verify() const {
 #if GAIA_ASSERT_ENABLED
-					GAIA_ASSERT(m_sizeType < SmallBlockSizeTypeCount);
-					GAIA_ASSERT(m_blockCnt <= NBlocks);
-					GAIA_ASSERT(m_usedBlocks <= m_blockCnt);
-					GAIA_ASSERT(m_freeBlocks <= m_blockCnt);
-					GAIA_ASSERT(m_usedBlocks + m_freeBlocks == m_blockCnt);
-					GAIA_ASSERT(((uintptr_t)m_data % SmallBlockAlignment) == 0);
+				GAIA_ASSERT(m_sizeType < SmallBlockSizeTypeCount);
+				GAIA_ASSERT(m_blockCnt <= NBlocks);
+				GAIA_ASSERT(m_usedBlocks <= m_blockCnt);
+				GAIA_ASSERT(m_freeBlocks <= m_blockCnt);
+				GAIA_ASSERT(m_usedBlocks + m_freeBlocks == m_blockCnt);
+				GAIA_ASSERT(((uintptr_t)m_data % SmallBlockAlignment) == 0);
 
-					[[maybe_unused]] uint64_t freeMask = 0;
+				[[maybe_unused]] uint64_t freeMask = 0;
 
-					if (m_freeBlocks != 0) {
-						uint32_t next = m_nextFreeBlock;
-						GAIA_FOR(m_freeBlocks) {
-							GAIA_ASSERT(next < m_blockCnt);
-	#if GAIA_DEBUG
-							const auto bit = uint64_t(1) << next;
-							GAIA_ASSERT((freeMask & bit) == 0 && "Free list contains a cycle");
-							freeMask |= bit;
-	#endif
-							next = read_block_idx(next);
-						}
-
-						GAIA_ASSERT(next == InvalidBlockId);
-					}
-
-					GAIA_FOR(m_blockCnt) {
-						const auto* pMemoryBlock = (const uint8_t*)m_data + (i * block_stride());
-						const auto& header = block_header(pMemoryBlock);
-						GAIA_ASSERT(header.m_pageAddr == (uintptr_t)this);
-						GAIA_ASSERT(((uintptr_t)pMemoryBlock % SmallBlockAlignment) == 0);
-
-	#if GAIA_DEBUG
-						const bool isFree = (freeMask & (uint64_t(1) << i)) != 0;
-						GAIA_ASSERT((header.m_requestedBytes == 0) == isFree);
-	#endif
-					}
-
-	#if GAIA_DEBUG
-					GAIA_ASSERT((m_usedMask & freeMask) == 0);
-					const auto liveMask = m_blockCnt == 64 ? ~uint64_t(0) : ((uint64_t(1) << m_blockCnt) - 1);
-					GAIA_ASSERT((m_usedMask | freeMask) == liveMask);
-	#endif
-#endif
-				}
-
-#if GAIA_DEBUG
-				//! Returns the number of caller-requested bytes held by live blocks.
-				GAIA_NODISCARD uint64_t requested_bytes() const {
-					if (m_usedBlocks == 0)
-						return 0;
-
-					uint64_t freeMask = 0;
+				if (m_freeBlocks != 0) {
 					uint32_t next = m_nextFreeBlock;
 					GAIA_FOR(m_freeBlocks) {
 						GAIA_ASSERT(next < m_blockCnt);
+	#if GAIA_DEBUG
 						const auto bit = uint64_t(1) << next;
 						GAIA_ASSERT((freeMask & bit) == 0 && "Free list contains a cycle");
 						freeMask |= bit;
+	#endif
 						next = read_block_idx(next);
 					}
 
-					uint64_t requested = 0;
-					GAIA_FOR(m_blockCnt) {
-						if ((freeMask & (uint64_t(1) << i)) != 0)
-							continue;
-
-						const auto* pMemoryBlock = (const uint8_t*)m_data + (i * block_stride());
-						requested += block_header(pMemoryBlock).m_requestedBytes;
-					}
-
-					return requested;
+					GAIA_ASSERT(next == InvalidBlockId);
 				}
+
+				GAIA_FOR(m_blockCnt) {
+					const auto* pMemoryBlock = (const uint8_t*)m_data + (i * block_stride());
+					const auto& header = block_header(pMemoryBlock);
+					GAIA_ASSERT(header.m_pageAddr == (uintptr_t)this);
+					GAIA_ASSERT(((uintptr_t)pMemoryBlock % SmallBlockAlignment) == 0);
+
+	#if GAIA_DEBUG
+					const bool isFree = (freeMask & (uint64_t(1) << i)) != 0;
+					GAIA_ASSERT((header.m_requestedBytes == 0) == isFree);
+	#endif
+				}
+
+	#if GAIA_DEBUG
+				GAIA_ASSERT((m_usedMask & freeMask) == 0);
+				const auto liveMask = m_blockCnt == 64 ? ~uint64_t(0) : ((uint64_t(1) << m_blockCnt) - 1);
+				GAIA_ASSERT((m_usedMask | freeMask) == liveMask);
+	#endif
 #endif
-
-			private:
-				static SmallBlockHeader& block_header(void* pMemoryBlock) {
-					return *(SmallBlockHeader*)pMemoryBlock;
-				}
-
-				static const SmallBlockHeader& block_header(const void* pMemoryBlock) {
-					return *(const SmallBlockHeader*)pMemoryBlock;
-				}
-			}; // namespace detail
-
-			enum class SmallBlockPageState : uint8_t { Detached, Empty, Partial, Full };
-
-			struct SmallBlockPageContainer final {
-				cnt::fwd_llist<SmallBlockPage> pagesEmpty;
-				cnt::fwd_llist<SmallBlockPage> pagesPartial;
-				cnt::fwd_llist<SmallBlockPage> pagesFull;
-			};
-		} // namespace detail
-			//! \endcond
-
-		//! Shared allocator for variable-sized allocations up to SmallBlockMaxSize bytes.
-		using SmallBlockAllocator = core::dyn_singleton<detail::SmallBlockAllocatorImpl>;
-
-		//! \cond INTERNAL
-		namespace detail {
-			//! General-purpose allocator for small, variable-sized allocations up to 512 bytes.
-			class SmallBlockAllocatorImpl final {
-				friend ::gaia::mem::SmallBlockAllocator;
-
-				SmallBlockPageContainer m_pages[SmallBlockSizeTypeCount];
-				bool m_isDone = false;
-
-				SmallBlockAllocatorImpl() = default;
-
-			public:
-				static constexpr uint32_t MAX_SIZE = SmallBlockMaxSize;
-
-				~SmallBlockAllocatorImpl() {
-					flush(true);
-
-#if GAIA_ASSERT_ENABLED
-					for (const auto& container: m_pages) {
-						const bool hasPages = container.pagesEmpty.first != nullptr || container.pagesPartial.first != nullptr ||
-																	container.pagesFull.first != nullptr;
-						GAIA_ASSERT(!hasPages && "SmallBlockAllocator leaking memory");
-					}
-#endif
-				}
-
-				SmallBlockAllocatorImpl(SmallBlockAllocatorImpl&&) = delete;
-				SmallBlockAllocatorImpl(const SmallBlockAllocatorImpl&) = delete;
-				SmallBlockAllocatorImpl& operator=(SmallBlockAllocatorImpl&&) = delete;
-				SmallBlockAllocatorImpl& operator=(const SmallBlockAllocatorImpl&) = delete;
-
-				//! Allocates storage for up to 512 bytes.
-				//! \param bytesWanted Requested usable bytes.
-				//! \return Pointer to aligned usable storage.
-				GAIA_NODISCARD void* alloc(uint32_t bytesWanted) {
-					GAIA_ASSERT(bytesWanted > 0);
-					GAIA_ASSERT(bytesWanted <= MAX_SIZE);
-					if (bytesWanted == 0 || bytesWanted > MAX_SIZE)
-						return nullptr;
-
-					const auto sizeType = small_block_size_type(bytesWanted);
-					auto& container = m_pages[sizeType];
-
-					SmallBlockPageState prevState = SmallBlockPageState::Partial;
-					auto* pPage = container.pagesPartial.first;
-					if (pPage == nullptr) {
-						prevState = SmallBlockPageState::Empty;
-						pPage = container.pagesEmpty.first;
-						if (pPage == nullptr) {
-							prevState = SmallBlockPageState::Detached;
-							pPage = alloc_page(sizeType);
-						}
-					}
+			}
 
 #if GAIA_DEBUG
-					void* pBlock = pPage->alloc_block(bytesWanted);
+			//! Returns the number of caller-requested bytes held by live blocks.
+			GAIA_NODISCARD uint64_t requested_bytes() const {
+				if (m_usedBlocks == 0)
+					return 0;
+
+				uint64_t freeMask = 0;
+				uint32_t next = m_nextFreeBlock;
+				GAIA_FOR(m_freeBlocks) {
+					GAIA_ASSERT(next < m_blockCnt);
+					const auto bit = uint64_t(1) << next;
+					GAIA_ASSERT((freeMask & bit) == 0 && "Free list contains a cycle");
+					freeMask |= bit;
+					next = read_block_idx(next);
+				}
+
+				uint64_t requested = 0;
+				GAIA_FOR(m_blockCnt) {
+					if ((freeMask & (uint64_t(1) << i)) != 0)
+						continue;
+
+					const auto* pMemoryBlock = (const uint8_t*)m_data + (i * block_stride());
+					requested += block_header(pMemoryBlock).m_requestedBytes;
+				}
+
+				return requested;
+			}
+#endif
+
+		private:
+			static SmallBlockHeader& block_header(void* pMemoryBlock) {
+				return *(SmallBlockHeader*)pMemoryBlock;
+			}
+
+			static const SmallBlockHeader& block_header(const void* pMemoryBlock) {
+				return *(const SmallBlockHeader*)pMemoryBlock;
+			}
+		}; // namespace detail
+
+		enum class SmallBlockPageState : uint8_t { Detached, Empty, Partial, Full };
+
+		struct SmallBlockPageContainer final {
+			cnt::fwd_llist<SmallBlockPage> pagesEmpty;
+			cnt::fwd_llist<SmallBlockPage> pagesPartial;
+			cnt::fwd_llist<SmallBlockPage> pagesFull;
+		};
+	} // namespace mem
+		//! \endcond
+
+	//! Shared allocator for variable-sized allocations up to SmallBlockMaxSize bytes.
+	using SmallBlockAllocator = core::dyn_singleton<detail::SmallBlockAllocatorImpl>;
+
+	//! \cond INTERNAL
+	namespace detail {
+		//! General-purpose allocator for small, variable-sized allocations up to 512 bytes.
+		class SmallBlockAllocatorImpl final {
+			friend ::gaia::mem::SmallBlockAllocator;
+
+			SmallBlockPageContainer m_pages[SmallBlockSizeTypeCount];
+			bool m_isDone = false;
+
+			SmallBlockAllocatorImpl() = default;
+
+		public:
+			static constexpr uint32_t MAX_SIZE = SmallBlockMaxSize;
+
+			~SmallBlockAllocatorImpl() {
+				flush(true);
+
+#if GAIA_ASSERT_ENABLED
+				for (const auto& container: m_pages) {
+					const bool hasPages = container.pagesEmpty.first != nullptr || container.pagesPartial.first != nullptr ||
+																container.pagesFull.first != nullptr;
+					GAIA_ASSERT(!hasPages && "SmallBlockAllocator leaking memory");
+				}
+#endif
+			}
+
+			SmallBlockAllocatorImpl(SmallBlockAllocatorImpl&&) = delete;
+			SmallBlockAllocatorImpl(const SmallBlockAllocatorImpl&) = delete;
+			SmallBlockAllocatorImpl& operator=(SmallBlockAllocatorImpl&&) = delete;
+			SmallBlockAllocatorImpl& operator=(const SmallBlockAllocatorImpl&) = delete;
+
+			//! Allocates storage for up to 512 bytes.
+			//! \param bytesWanted Requested usable bytes.
+			//! \return Pointer to aligned usable storage.
+			GAIA_NODISCARD void* alloc(uint32_t bytesWanted) {
+				GAIA_ASSERT(bytesWanted > 0);
+				GAIA_ASSERT(bytesWanted <= MAX_SIZE);
+				if (bytesWanted == 0 || bytesWanted > MAX_SIZE)
+					return nullptr;
+
+				const auto sizeType = small_block_size_type(bytesWanted);
+				auto& container = m_pages[sizeType];
+
+				SmallBlockPageState prevState = SmallBlockPageState::Partial;
+				auto* pPage = container.pagesPartial.first;
+				if (pPage == nullptr) {
+					prevState = SmallBlockPageState::Empty;
+					pPage = container.pagesEmpty.first;
+					if (pPage == nullptr) {
+						prevState = SmallBlockPageState::Detached;
+						pPage = alloc_page(sizeType);
+					}
+				}
+
+#if GAIA_DEBUG
+				void* pBlock = pPage->alloc_block(bytesWanted);
 #else
 					void* pBlock = pPage->alloc_block();
 #endif
-					GAIA_PROF_ALLOC(pBlock, bytesWanted);
-					move_page(container, pPage, prevState, state_for(*pPage));
-					verify();
-					return pBlock;
-				}
+				GAIA_PROF_ALLOC(pBlock, bytesWanted);
+				move_page(container, pPage, prevState, state_for(*pPage));
+				verify();
+				return pBlock;
+			}
 
-				//! Releases storage allocated for the given pointer.
-				//! \param pBlock Pointer previously returned by alloc().
-				void free(void* pBlock) {
-					GAIA_ASSERT(pBlock != nullptr);
-					if (pBlock == nullptr)
-						return;
+			//! Releases storage allocated for the given pointer.
+			//! \param pBlock Pointer previously returned by alloc().
+			void free(void* pBlock) {
+				GAIA_ASSERT(pBlock != nullptr);
+				if (pBlock == nullptr)
+					return;
 
-					const auto& header = *(const SmallBlockHeader*)((uint8_t*)pBlock - SmallBlockUsableOffset);
-					const auto pageAddr = header.m_pageAddr;
-					GAIA_ASSERT(pageAddr % sizeof(uintptr_t) == 0);
+				const auto& header = *(const SmallBlockHeader*)((uint8_t*)pBlock - SmallBlockUsableOffset);
+				const auto pageAddr = header.m_pageAddr;
+				GAIA_ASSERT(pageAddr % sizeof(uintptr_t) == 0);
 #if GAIA_DEBUG
-					GAIA_ASSERT(header.m_requestedBytes > 0);
+				GAIA_ASSERT(header.m_requestedBytes > 0);
 #endif
-					auto* pPage = (SmallBlockPage*)pageAddr;
-					const auto prevState = state_for(*pPage);
-					auto& container = m_pages[pPage->m_sizeType];
+				auto* pPage = (SmallBlockPage*)pageAddr;
+				const auto prevState = state_for(*pPage);
+				auto& container = m_pages[pPage->m_sizeType];
 
-					GAIA_PROF_FREE(pBlock);
-					pPage->free_block(pBlock);
-					move_page(container, pPage, prevState, state_for(*pPage));
-					verify();
+				GAIA_PROF_FREE(pBlock);
+				pPage->free_block(pBlock);
+				move_page(container, pPage, prevState, state_for(*pPage));
+				verify();
 
-					if (m_isDone) {
-						if (pPage->empty()) {
-							container.pagesEmpty.unlink(pPage);
-							free_page(pPage);
-						}
-
-						try_delete_this();
+				if (m_isDone) {
+					if (pPage->empty()) {
+						container.pagesEmpty.unlink(pPage);
+						free_page(pPage);
 					}
+
+					try_delete_this();
 				}
+			}
 
-				//! Flushes unused pages.
-				//! \param releaseAll When true, all empty pages are released.
-				void flush(bool releaseAll = false) {
-					for (uint32_t i = 0; i < SmallBlockSizeTypeCount; ++i)
-						flush_pages(m_pages[i], releaseAll);
-					verify();
-				}
+			//! Flushes unused pages.
+			//! \param releaseAll When true, all empty pages are released.
+			void flush(bool releaseAll = false) {
+				for (uint32_t i = 0; i < SmallBlockSizeTypeCount; ++i)
+					flush_pages(m_pages[i], releaseAll);
+				verify();
+			}
 
-				//! Returns allocator statistics per size class.
-				//! \return Current statistics for every size class.
-				GAIA_NODISCARD SmallBlockAllocatorStats stats() const {
-					SmallBlockAllocatorStats stats{};
-					for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType)
-						stats.stats[sizeType] = page_stats(sizeType);
-					return stats;
-				}
+			//! Returns allocator statistics per size class.
+			//! \return Current statistics for every size class.
+			GAIA_NODISCARD SmallBlockAllocatorStats stats() const {
+				SmallBlockAllocatorStats stats{};
+				for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType)
+					stats.stats[sizeType] = page_stats(sizeType);
+				return stats;
+			}
 
-				//! Performs diagnostics of allocator memory usage.
-				void diag() const {
-					const auto allStats = stats();
-					for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType) {
-						const auto& stats = allStats.stats[sizeType];
-						if (stats.num_pages == 0)
-							continue;
+			//! Performs diagnostics of allocator memory usage.
+			void diag() const {
+				const auto allStats = stats();
+				for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType) {
+					const auto& stats = allStats.stats[sizeType];
+					if (stats.num_pages == 0)
+						continue;
 
-						GAIA_LOG_N("SmallBlockAllocator %u B stats", small_block_size(sizeType));
-						GAIA_LOG_N("  Allocated: %" PRIu64 " B", stats.mem_total);
-						GAIA_LOG_N("  Reserved by live blocks: %" PRIu64 " B", stats.mem_used);
-						GAIA_LOG_N("  Pages: %u", stats.num_pages);
-						GAIA_LOG_N("  Reusable pages: %u", stats.num_pages_free);
+					GAIA_LOG_N("SmallBlockAllocator %u B stats", small_block_size(sizeType));
+					GAIA_LOG_N("  Allocated: %" PRIu64 " B", stats.mem_total);
+					GAIA_LOG_N("  Reserved by live blocks: %" PRIu64 " B", stats.mem_used);
+					GAIA_LOG_N("  Pages: %u", stats.num_pages);
+					GAIA_LOG_N("  Reusable pages: %u", stats.num_pages_free);
 #if !GAIA_DEBUG
-						GAIA_LOG_N(
-								"  Utilization: %.1f%%",
-								stats.mem_total ? 100.0 * ((double)stats.mem_used / (double)stats.mem_total) : 0.0);
+					GAIA_LOG_N(
+							"  Utilization: %.1f%%",
+							stats.mem_total ? 100.0 * ((double)stats.mem_used / (double)stats.mem_total) : 0.0);
 #else
 						GAIA_LOG_N("  Requested: %" PRIu64 " B", stats.mem_requested);
 						GAIA_LOG_N("  Free capacity: %" PRIu64 " B", stats.mem_total - stats.mem_used);
@@ -9806,170 +9828,169 @@ namespace gaia {
 								stats.mem_total ? 100.0 * ((double)stats.mem_requested / (double)stats.mem_total) : 0.0);
 						GAIA_LOG_N("  Empty pages: %u", stats.num_pages_empty);
 #endif
-					}
 				}
+			}
 
-				//! Verifies allocator invariants.
-				void verify() const {
+			//! Verifies allocator invariants.
+			void verify() const {
 #if GAIA_ASSERT_ENABLED
-					for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType)
-						verify_container(m_pages[sizeType], sizeType);
+				for (uint32_t sizeType = 0; sizeType < SmallBlockSizeTypeCount; ++sizeType)
+					verify_container(m_pages[sizeType], sizeType);
 #endif
+			}
+
+		private:
+			static constexpr const char* s_strSmallBlockData = "SmallBlockData";
+			static constexpr const char* s_strSmallBlockPage = "SmallBlockPage";
+
+			static SmallBlockPage* alloc_page(uint8_t sizeType) {
+				const uint32_t size = small_block_stride(sizeType) * SmallBlockPage::NBlocks;
+				auto* pPageData = AllocHelper::alloc_alig<uint8_t>(s_strSmallBlockData, SmallBlockAlignment, size);
+				auto* pMemoryPage = AllocHelper::alloc<SmallBlockPage>(s_strSmallBlockPage);
+				return new (pMemoryPage) SmallBlockPage(pPageData, sizeType);
+			}
+
+			static void free_page(SmallBlockPage* pPage) {
+				GAIA_ASSERT(pPage != nullptr);
+
+				AllocHelper::free_alig(s_strSmallBlockData, pPage->m_data);
+				pPage->~SmallBlockPage();
+				AllocHelper::free(s_strSmallBlockPage, pPage);
+			}
+
+			void done() {
+				m_isDone = true;
+			}
+
+			void try_delete_this() {
+				bool allEmpty = true;
+				for (const auto& container: m_pages) {
+					const bool hasPages = container.pagesEmpty.first != nullptr || container.pagesPartial.first != nullptr ||
+																container.pagesFull.first != nullptr;
+					allEmpty = allEmpty && !hasPages;
 				}
 
-			private:
-				static constexpr const char* s_strSmallBlockData = "SmallBlockData";
-				static constexpr const char* s_strSmallBlockPage = "SmallBlockPage";
+				if (allEmpty)
+					delete this;
+			}
 
-				static SmallBlockPage* alloc_page(uint8_t sizeType) {
-					const uint32_t size = small_block_stride(sizeType) * SmallBlockPage::NBlocks;
-					auto* pPageData = AllocHelper::alloc_alig<uint8_t>(s_strSmallBlockData, SmallBlockAlignment, size);
-					auto* pMemoryPage = AllocHelper::alloc<SmallBlockPage>(s_strSmallBlockPage);
-					return new (pMemoryPage) SmallBlockPage(pPageData, sizeType);
+			static constexpr uint32_t warm_pages_to_keep() {
+				return 0;
+			}
+
+			static SmallBlockPageState state_for(const SmallBlockPage& page) {
+				if (page.empty())
+					return SmallBlockPageState::Empty;
+				if (page.full())
+					return SmallBlockPageState::Full;
+				return SmallBlockPageState::Partial;
+			}
+
+			static cnt::fwd_llist<SmallBlockPage>& page_list(SmallBlockPageContainer& container, SmallBlockPageState state) {
+				switch (state) {
+					case SmallBlockPageState::Empty:
+						return container.pagesEmpty;
+					case SmallBlockPageState::Partial:
+						return container.pagesPartial;
+					default:
+						GAIA_ASSERT(state == SmallBlockPageState::Full);
+						return container.pagesFull;
+				}
+			}
+
+			static void move_page(
+					SmallBlockPageContainer& container, SmallBlockPage* pPage, SmallBlockPageState fromState,
+					SmallBlockPageState toState) {
+				if (fromState == toState)
+					return;
+
+				if (fromState != SmallBlockPageState::Detached)
+					page_list(container, fromState).unlink(pPage);
+				page_list(container, toState).link(pPage);
+			}
+
+			[[maybe_unused]] static void verify_page_membership(
+					[[maybe_unused]] const SmallBlockPage& page, //
+					[[maybe_unused]] uint32_t sizeType, //
+					[[maybe_unused]] SmallBlockPageState expectedState //
+			) {
+				GAIA_ASSERT(page.m_sizeType == sizeType);
+				GAIA_ASSERT(state_for(page) == expectedState);
+				GAIA_ASSERT(page.get_fwd_llist_link().linked());
+			}
+
+			static void verify_container(const SmallBlockPageContainer& container, uint32_t sizeType) {
+				for (const auto& page: container.pagesEmpty) {
+					verify_page_membership(page, sizeType, SmallBlockPageState::Empty);
+					page.verify();
 				}
 
-				static void free_page(SmallBlockPage* pPage) {
-					GAIA_ASSERT(pPage != nullptr);
-
-					AllocHelper::free_alig(s_strSmallBlockData, pPage->m_data);
-					pPage->~SmallBlockPage();
-					AllocHelper::free(s_strSmallBlockPage, pPage);
+				for (const auto& page: container.pagesPartial) {
+					verify_page_membership(page, sizeType, SmallBlockPageState::Partial);
+					page.verify();
 				}
 
-				void done() {
-					m_isDone = true;
+				for (const auto& page: container.pagesFull) {
+					verify_page_membership(page, sizeType, SmallBlockPageState::Full);
+					page.verify();
 				}
+			}
 
-				void try_delete_this() {
-					bool allEmpty = true;
-					for (const auto& container: m_pages) {
-						const bool hasPages = container.pagesEmpty.first != nullptr || container.pagesPartial.first != nullptr ||
-																	container.pagesFull.first != nullptr;
-						allEmpty = allEmpty && !hasPages;
-					}
+			GAIA_NODISCARD SmallBlockAllocatorPageStats page_stats(uint32_t sizeType) const {
+				SmallBlockAllocatorPageStats stats{};
+				const auto& container = m_pages[sizeType];
+				const auto blockStride = (uint64_t)small_block_stride(sizeType);
+				const auto pageSize = blockStride * SmallBlockPage::NBlocks;
 
-					if (allEmpty)
-						delete this;
-				}
-
-				static constexpr uint32_t warm_pages_to_keep() {
-					return 0;
-				}
-
-				static SmallBlockPageState state_for(const SmallBlockPage& page) {
-					if (page.empty())
-						return SmallBlockPageState::Empty;
-					if (page.full())
-						return SmallBlockPageState::Full;
-					return SmallBlockPageState::Partial;
-				}
-
-				static cnt::fwd_llist<SmallBlockPage>&
-				page_list(SmallBlockPageContainer& container, SmallBlockPageState state) {
-					switch (state) {
-						case SmallBlockPageState::Empty:
-							return container.pagesEmpty;
-						case SmallBlockPageState::Partial:
-							return container.pagesPartial;
-						default:
-							GAIA_ASSERT(state == SmallBlockPageState::Full);
-							return container.pagesFull;
-					}
-				}
-
-				static void move_page(
-						SmallBlockPageContainer& container, SmallBlockPage* pPage, SmallBlockPageState fromState,
-						SmallBlockPageState toState) {
-					if (fromState == toState)
-						return;
-
-					if (fromState != SmallBlockPageState::Detached)
-						page_list(container, fromState).unlink(pPage);
-					page_list(container, toState).link(pPage);
-				}
-
-				[[maybe_unused]] static void verify_page_membership(
-						[[maybe_unused]] const SmallBlockPage& page, //
-						[[maybe_unused]] uint32_t sizeType, //
-						[[maybe_unused]] SmallBlockPageState expectedState //
-				) {
-					GAIA_ASSERT(page.m_sizeType == sizeType);
-					GAIA_ASSERT(state_for(page) == expectedState);
-					GAIA_ASSERT(page.get_fwd_llist_link().linked());
-				}
-
-				static void verify_container(const SmallBlockPageContainer& container, uint32_t sizeType) {
-					for (const auto& page: container.pagesEmpty) {
-						verify_page_membership(page, sizeType, SmallBlockPageState::Empty);
-						page.verify();
-					}
-
-					for (const auto& page: container.pagesPartial) {
-						verify_page_membership(page, sizeType, SmallBlockPageState::Partial);
-						page.verify();
-					}
-
-					for (const auto& page: container.pagesFull) {
-						verify_page_membership(page, sizeType, SmallBlockPageState::Full);
-						page.verify();
-					}
-				}
-
-				GAIA_NODISCARD SmallBlockAllocatorPageStats page_stats(uint32_t sizeType) const {
-					SmallBlockAllocatorPageStats stats{};
-					const auto& container = m_pages[sizeType];
-					const auto blockStride = (uint64_t)small_block_stride(sizeType);
-					const auto pageSize = blockStride * SmallBlockPage::NBlocks;
-
-					stats.num_pages = (uint32_t)container.pagesEmpty.size() + (uint32_t)container.pagesPartial.size() +
-														(uint32_t)container.pagesFull.size();
-					stats.num_pages_free = (uint32_t)container.pagesEmpty.size() + (uint32_t)container.pagesPartial.size();
-					stats.mem_total = stats.num_pages * pageSize;
-					stats.mem_used = container.pagesFull.size() * pageSize;
+				stats.num_pages = (uint32_t)container.pagesEmpty.size() + (uint32_t)container.pagesPartial.size() +
+													(uint32_t)container.pagesFull.size();
+				stats.num_pages_free = (uint32_t)container.pagesEmpty.size() + (uint32_t)container.pagesPartial.size();
+				stats.mem_total = stats.num_pages * pageSize;
+				stats.mem_used = container.pagesFull.size() * pageSize;
 
 #if GAIA_DEBUG
-					stats.num_pages_empty = (uint32_t)container.pagesEmpty.size();
+				stats.num_pages_empty = (uint32_t)container.pagesEmpty.size();
 
-					for (const auto& page: container.pagesFull)
-						stats.mem_requested += page.requested_bytes();
+				for (const auto& page: container.pagesFull)
+					stats.mem_requested += page.requested_bytes();
 
-					for (const auto& page: container.pagesPartial) {
-						stats.mem_used += page.used_blocks_cnt() * blockStride;
-						stats.mem_requested += page.requested_bytes();
-					}
+				for (const auto& page: container.pagesPartial) {
+					stats.mem_used += page.used_blocks_cnt() * blockStride;
+					stats.mem_requested += page.requested_bytes();
+				}
 #else
 					for (const auto& page: container.pagesPartial)
 						stats.mem_used += page.used_blocks_cnt() * blockStride;
 #endif
 
-					return stats;
-				}
+				return stats;
+			}
 
-				static void flush_pages(SmallBlockPageContainer& container, bool releaseAll) {
-					const bool keepWarmPage = !releaseAll && warm_pages_to_keep() != 0;
-					bool keptWarmPage = false;
+			static void flush_pages(SmallBlockPageContainer& container, bool releaseAll) {
+				const bool keepWarmPage = !releaseAll && warm_pages_to_keep() != 0;
+				bool keptWarmPage = false;
 
-					for (auto it = container.pagesEmpty.begin(); it != container.pagesEmpty.end();) {
-						auto* pPage = &(*it);
-						++it;
+				for (auto it = container.pagesEmpty.begin(); it != container.pagesEmpty.end();) {
+					auto* pPage = &(*it);
+					++it;
 
-						if (!pPage->empty())
-							continue;
+					if (!pPage->empty())
+						continue;
 
-						if (keepWarmPage && !keptWarmPage) {
-							keptWarmPage = true;
-							continue;
-						}
-
-						container.pagesEmpty.unlink(pPage);
-						free_page(pPage);
+					if (keepWarmPage && !keptWarmPage) {
+						keptWarmPage = true;
+						continue;
 					}
-				}
-			};
 
-		} // namespace detail
-		//! \endcond
-	} // namespace mem
+					container.pagesEmpty.unlink(pPage);
+					free_page(pPage);
+				}
+			}
+		};
+
+	} // namespace detail
+	//! \endcond
+} // namespace gaia
 } // namespace gaia
 
 //! Defines class-local new/delete operators backed by SmallBlockAllocator.
@@ -15653,14 +15674,12 @@ namespace robin_hood {
 		template <typename E, typename... Args>
 		[[noreturn]] GAIA_NOINLINE
 	#if ROBIN_HOOD(HAS_EXCEPTIONS)
-				void
-				doThrow(Args&&... args) {
+				void doThrow(Args&&... args) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 			throw E(GAIA_FWD(args)...);
 		}
 	#else
-				void
-				doThrow(Args&&... ROBIN_HOOD_UNUSED(args) /*unused*/) {
+				void doThrow(Args&&... ROBIN_HOOD_UNUSED(args) /*unused*/) {
 			abort();
 		}
 	#endif
@@ -15710,7 +15729,7 @@ namespace robin_hood {
 
 			BulkPoolAllocator&
 			// NOLINTNEXTLINE(bugprone-unhandled-self-assignment,cert-oop54-cpp)
-			operator=(const BulkPoolAllocator & ROBIN_HOOD_UNUSED(o) /*unused*/) noexcept {
+			operator=(const BulkPoolAllocator& ROBIN_HOOD_UNUSED(o) /*unused*/) noexcept {
 				// does not do anything
 				return *this;
 			}
@@ -15891,25 +15910,21 @@ namespace robin_hood {
 		// pair constructors are explicit so we don't accidentally call this ctor when we don't have to.
 		explicit constexpr pair(std::pair<T1, T2> const& o) noexcept(
 				noexcept(T1(std::declval<T1 const&>())) && noexcept(T2(std::declval<T2 const&>()))):
-				first(o.first),
-				second(o.second) {}
+				first(o.first), second(o.second) {}
 
 		// pair constructors are explicit so we don't accidentally call this ctor when we don't have to.
 		explicit constexpr pair(std::pair<T1, T2>&& o) noexcept(
 				noexcept(T1(GAIA_MOV(std::declval<T1&&>()))) && noexcept(T2(GAIA_MOV(std::declval<T2&&>())))):
-				first(GAIA_MOV(o.first)),
-				second(GAIA_MOV(o.second)) {}
+				first(GAIA_MOV(o.first)), second(GAIA_MOV(o.second)) {}
 
 		constexpr pair(T1&& a, T2&& b) noexcept(
 				noexcept(T1(GAIA_MOV(std::declval<T1&&>()))) && noexcept(T2(GAIA_MOV(std::declval<T2&&>())))):
-				first(GAIA_MOV(a)),
-				second(GAIA_MOV(b)) {}
+				first(GAIA_MOV(a)), second(GAIA_MOV(b)) {}
 
 		template <typename U1, typename U2>
 		constexpr pair(U1&& a, U2&& b) noexcept(
 				noexcept(T1(GAIA_FWD(std::declval<U1&&>()))) && noexcept(T2(GAIA_FWD(std::declval<U2&&>())))):
-				first(GAIA_FWD(a)),
-				second(GAIA_FWD(b)) {}
+				first(GAIA_FWD(a)), second(GAIA_FWD(b)) {}
 
 		template <typename... U1, typename... U2>
 		// MSVC 2015 produces error "C2476: ‘constexpr’ constructor does not initialize all members"
@@ -15926,10 +15941,9 @@ namespace robin_hood {
 		// constructor called from the std::piecewise_construct_t ctor
 		template <typename... U1, size_t... I1, typename... U2, size_t... I2>
 		pair(std::tuple<U1...>& a, std::tuple<U2...>& b, std::index_sequence<I1...> /*unused*/, std::index_sequence<I2...> /*unused*/) noexcept(
-				noexcept(T1(GAIA_FWD(std::get<I1>(std::declval<std::tuple<U1...>&>()))...)) && noexcept(
-						T2(GAIA_FWD(std::get<I2>(std::declval<std::tuple<U2...>&>()))...))):
-				first(GAIA_FWD(std::get<I1>(a))...),
-				second(GAIA_FWD(std::get<I2>(b))...) {
+				noexcept(T1(GAIA_FWD(std::get<I1>(std::declval<std::tuple<U1...>&>()))...)) &&
+				noexcept(T2(GAIA_FWD(std::get<I2>(std::declval<std::tuple<U2...>&>()))...))):
+				first(GAIA_FWD(std::get<I1>(a))...), second(GAIA_FWD(std::get<I2>(b))...) {
 			// make visual studio compiler happy about warning about unused a & b.
 			// Visual studio's pair implementation disables warning 4100.
 			(void)a;
@@ -15962,9 +15976,9 @@ namespace robin_hood {
 		return !(x == y);
 	}
 	template <typename A, typename B>
-	inline constexpr bool operator<(pair<A, B> const& x, pair<A, B> const& y) noexcept(noexcept(
-			std::declval<A const&>() <
-			std::declval<A const&>()) && noexcept(std::declval<B const&>() < std::declval<B const&>())) {
+	inline constexpr bool operator<(pair<A, B> const& x, pair<A, B> const& y) noexcept(
+			noexcept(std::declval<A const&>() < std::declval<A const&>()) &&
+			noexcept(std::declval<B const&>() < std::declval<B const&>())) {
 		return x.first < y.first || (!(y.first < x.first) && x.second < y.second);
 	}
 	template <typename A, typename B>
@@ -16234,12 +16248,10 @@ namespace robin_hood {
 			public:
 				template <typename... Args>
 				explicit DataNode(M& ROBIN_HOOD_UNUSED(map) /*unused*/, Args&&... args) noexcept(
-						noexcept(value_type(GAIA_FWD(args)...))):
-						mData(GAIA_FWD(args)...) {}
+						noexcept(value_type(GAIA_FWD(args)...))): mData(GAIA_FWD(args)...) {}
 
 				DataNode(M& ROBIN_HOOD_UNUSED(map) /*unused*/, DataNode<M, true>&& n) noexcept(
-						std::is_nothrow_move_constructible<value_type>::value):
-						mData(GAIA_MOV(n.mData)) {}
+						std::is_nothrow_move_constructible<value_type>::value): mData(GAIA_MOV(n.mData)) {}
 
 				// doesn't do anything
 				void destroy(M& ROBIN_HOOD_UNUSED(map) /*unused*/) noexcept {}
@@ -16757,8 +16769,7 @@ namespace robin_hood {
 			explicit Table(
 					size_t ROBIN_HOOD_UNUSED(bucket_count) /*unused*/, const Hash& h = Hash{},
 					const KeyEqual& equal = KeyEqual{}) noexcept(noexcept(Hash(h)) && noexcept(KeyEqual(equal))):
-					WHash(h),
-					WKeyEqual(equal) {
+					WHash(h), WKeyEqual(equal) {
 				ROBIN_HOOD_TRACE("%p", this);
 				GAIA_ASSERT(gaia::CheckEndianess());
 			}
@@ -16766,9 +16777,7 @@ namespace robin_hood {
 			template <typename Iter>
 			Table(
 					Iter first, Iter last, size_t ROBIN_HOOD_UNUSED(bucket_count) /*unused*/ = 0, const Hash& h = Hash{},
-					const KeyEqual& equal = KeyEqual{}):
-					WHash(h),
-					WKeyEqual(equal) {
+					const KeyEqual& equal = KeyEqual{}): WHash(h), WKeyEqual(equal) {
 				ROBIN_HOOD_TRACE("%p", this);
 				GAIA_ASSERT(gaia::CheckEndianess());
 				insert(first, last);
@@ -16776,9 +16785,7 @@ namespace robin_hood {
 
 			Table(
 					std::initializer_list<value_type> initlist, size_t ROBIN_HOOD_UNUSED(bucket_count) /*unused*/ = 0,
-					const Hash& h = Hash{}, const KeyEqual& equal = KeyEqual{}):
-					WHash(h),
-					WKeyEqual(equal) {
+					const Hash& h = Hash{}, const KeyEqual& equal = KeyEqual{}): WHash(h), WKeyEqual(equal) {
 				ROBIN_HOOD_TRACE("%p", this);
 				GAIA_ASSERT(gaia::CheckEndianess());
 				insert(initlist.begin(), initlist.end());
@@ -18035,13 +18042,13 @@ namespace gaia {
 			BlockArray m_blocks;
 
 			//! Number of blocks in the block array
-			uint32_t m_blockCnt: NBlocks_Bits;
+			uint32_t m_blockCnt : NBlocks_Bits;
 			//! Number of used blocks out of NBlocks
-			uint32_t m_usedBlocks: NBlocks_Bits;
+			uint32_t m_usedBlocks : NBlocks_Bits;
 			//! Index of the next block to recycle
-			uint32_t m_nextFreeBlock: NBlocks_Bits;
+			uint32_t m_nextFreeBlock : NBlocks_Bits;
 			//! Number of blocks to recycle
-			uint32_t m_freeBlocks: NBlocks_Bits;
+			uint32_t m_freeBlocks : NBlocks_Bits;
 			//! Free bits to use in the future
 			// uint32_t m_unused : 8;
 
@@ -23718,9 +23725,7 @@ namespace gaia {
 					// Ringbuffer size
 					sringbuffer_detail::size_type size,
 					// Current index
-					sringbuffer_detail::size_type index):
-					m_ptr(ptr),
-					m_tail(tail), m_size(size), m_index(index) {}
+					sringbuffer_detail::size_type index): m_ptr(ptr), m_tail(tail), m_size(size), m_index(index) {}
 
 			//! Dereferences the current logical element.
 			//! \return Reference to the current element.
@@ -24176,7 +24181,7 @@ namespace gaia {
 		struct is_reference_wrapper<std::reference_wrapper<U>>: std::true_type {};
 
 		template <class C, class Pointed, class Object, class... Args>
-		constexpr decltype(auto) invoke_memptr(Pointed C::*member, Object&& object, Args&&... args) {
+		constexpr decltype(auto) invoke_memptr(Pointed C::* member, Object&& object, Args&&... args) {
 			using object_t = std::decay_t<Object>;
 			constexpr bool is_member_function = std::is_function_v<Pointed>;
 			constexpr bool is_wrapped = is_reference_wrapper<object_t>::value;
@@ -27857,11 +27862,11 @@ namespace gaia {
 		private:
 			struct JobData {
 				//! Index in entity array
-				JobInternalType id: IdBits;
+				JobInternalType id : IdBits;
 				//! Generation index. Incremented every time an item is deleted
-				JobInternalType gen: GenBits;
+				JobInternalType gen : GenBits;
 				//! Encoded job priority bit.
-				JobInternalType prio: PrioBits;
+				JobInternalType prio : PrioBits;
 			};
 
 			union {
@@ -31359,13 +31364,13 @@ namespace gaia {
 				//! Component entity index
 				uint32_t id;
 				//! Component size
-				IdentifierData size: MaxComponentSize_Bits;
+				IdentifierData size : MaxComponentSize_Bits;
 				//! Component alignment
-				IdentifierData alig: MaxAlignment_Bits;
+				IdentifierData alig : MaxAlignment_Bits;
 				//! Component storage kind. 0 = table, 1 = sparse.
 				IdentifierData storage : 1;
 				//! Component is SoA
-				IdentifierData soa: meta::StructToTupleMaxTypes_Bits;
+				IdentifierData soa : meta::StructToTupleMaxTypes_Bits;
 				//! Unused part
 				IdentifierData unused : 1;
 			};
@@ -31597,7 +31602,7 @@ namespace gaia {
 				Identifier val;
 			};
 
-			constexpr Entity() noexcept: val(IdentifierBad){};
+			constexpr Entity() noexcept: val(IdentifierBad) {};
 
 			//! We need the entity to be braces-constructible and at the same type prevent it from
 			//! getting constructed accidentally from an int (e.g .Entity::id()). Therefore, only
@@ -32532,13 +32537,13 @@ namespace gaia {
 				//! Block size type, 0=8K, 1=16K, 2=32K, 3=64K-class blocks
 				uint32_t m_sizeType : 2;
 				//! Number of blocks in the block array
-				uint32_t m_blockCnt: NBlocks_Bits;
+				uint32_t m_blockCnt : NBlocks_Bits;
 				//! Number of used blocks out of NBlocks
-				uint32_t m_usedBlocks: NBlocks_Bits;
+				uint32_t m_usedBlocks : NBlocks_Bits;
 				//! Index of the next block to recycle
-				uint32_t m_nextFreeBlock: NBlocks_Bits;
+				uint32_t m_nextFreeBlock : NBlocks_Bits;
 				//! Number of blocks to recycle
-				uint32_t m_freeBlocks: NBlocks_Bits;
+				uint32_t m_freeBlocks : NBlocks_Bits;
 				//! Free bits to use in the future
 				// uint32_t m_unused : 6;
 
@@ -33186,7 +33191,7 @@ namespace gaia {
 			uint16_t capacity;
 
 			//! Index of the first enabled entity in the chunk
-			uint16_t rowFirstEnabledEntity: MAX_CHUNK_ENTITIES_BITS;
+			uint16_t rowFirstEnabledEntity : MAX_CHUNK_ENTITIES_BITS;
 			//! True if there's any generic component that requires custom construction
 			uint16_t hasAnyCustomGenCtor : 1;
 			//! True if there's any unique component that requires custom construction
@@ -33196,7 +33201,7 @@ namespace gaia {
 			//! True if there's any unique component that requires custom destruction
 			uint16_t hasAnyCustomUniDtor : 1;
 			//! When it hits 0 the chunk is scheduled for deletion
-			uint16_t lifespanCountdown: CHUNK_LIFESPAN_BITS;
+			uint16_t lifespanCountdown : CHUNK_LIFESPAN_BITS;
 			//! True if deleted, false otherwise
 			uint16_t dead : 1;
 			//! Empty space for future use
@@ -33218,8 +33223,8 @@ namespace gaia {
 			ChunkHeader(
 					const World& wld, const ComponentCache& compCache, uint32_t chunkIndex, uint16_t cap, uint8_t genEntitiesCnt,
 					uint32_t& version):
-					world(&wld),
-					cc(&compCache), index(chunkIndex), deleteQueueIndex(BadIndex), count(0), countEnabled(0), capacity(cap),
+					world(&wld), cc(&compCache), index(chunkIndex), deleteQueueIndex(BadIndex), count(0), countEnabled(0),
+					capacity(cap),
 					//
 					rowFirstEnabledEntity(0), hasAnyCustomGenCtor(0), hasAnyCustomUniCtor(0), hasAnyCustomGenDtor(0),
 					hasAnyCustomUniDtor(0), lifespanCountdown(0), dead(0), unused(0),
@@ -38523,9 +38528,9 @@ namespace gaia {
 				//! If set the archetype is to be deleted
 				uint32_t dead : 1;
 				//! Max lifespan of the archetype
-				uint32_t lifespanCountdownMax: ARCHETYPE_LIFESPAN_BITS;
+				uint32_t lifespanCountdownMax : ARCHETYPE_LIFESPAN_BITS;
 				//! Remaining lifespan of the archetype
-				uint32_t lifespanCountdown: ARCHETYPE_LIFESPAN_BITS;
+				uint32_t lifespanCountdown : ARCHETYPE_LIFESPAN_BITS;
 
 				RuntimeData(): deleteReq(0), dead(0), lifespanCountdownMax(1), lifespanCountdown(0) {}
 			};
@@ -41195,7 +41200,7 @@ namespace gaia {
 			};
 
 		public:
-			constexpr QueryHandle() noexcept: val((uint64_t)-1){};
+			constexpr QueryHandle() noexcept: val((uint64_t)-1) {};
 
 			//! Constructs a handle from query slot metadata.
 			//! \param id Query slot identifier.
@@ -51723,15 +51728,17 @@ namespace gaia {
 							entry.compIdx = compIdx;
 						return;
 					}
-					singleArchetypeLookup.push_back(SingleArchetypeLookupItem{
-							keyLookup, ComponentIndexEntry{const_cast<Archetype*>(&archetype), compIdx, matchCount}});
+					singleArchetypeLookup.push_back(
+							SingleArchetypeLookupItem{
+									keyLookup, ComponentIndexEntry{const_cast<Archetype*>(&archetype), compIdx, matchCount}});
 				};
 				auto archetypeIds = archetype.ids_view();
 				const auto cntIds = (uint32_t)archetypeIds.size();
 				GAIA_FOR(cntIds) {
 					const auto entity = archetypeIds[i];
-					singleArchetypeLookup.push_back(SingleArchetypeLookupItem{
-							EntityLookupKey(entity), ComponentIndexEntry{const_cast<Archetype*>(&archetype), (uint16_t)i, 1}});
+					singleArchetypeLookup.push_back(
+							SingleArchetypeLookupItem{
+									EntityLookupKey(entity), ComponentIndexEntry{const_cast<Archetype*>(&archetype), (uint16_t)i, 1}});
 
 					if (!entity.pair())
 						continue;
@@ -53234,6 +53241,9 @@ namespace gaia {
 				}
 			}
 
+			//! Invalidates cached queries whose dynamic result depends on \a relation.
+			//! \param relation Relation entity.
+			//! \param changeKind Type of change that invalidated the cached queries.
 			void invalidate_queries_for_rel(Entity relation, ChangeKind changeKind) {
 				auto it = m_relationToQuery.find(EntityLookupKey(relation));
 				if (it == m_relationToQuery.end())
@@ -53246,18 +53256,22 @@ namespace gaia {
 				}
 			}
 
-			//! Returns whether any cached sorted query is registered. O(1), so callers can skip the
-			//! sorted-query invalidation machinery cheaply when sorting is unused.
+			//! Checks whether any cached sorted query is registered.
+			//! \return True when at least one sorted query is cached.
 			GAIA_NODISCARD bool has_sorted_queries() const {
 				return !m_sortedQueries.empty();
 			}
 
-			//! Returns whether any cached sorted query depends on \a entity being written.
+			//! Checks whether any cached sorted query depends on \a entity being written.
+			//! \param entity Entity.
+			//! \return True when at least one cached sorted query reads a component of \a entity.
 			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
 				const auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				return it != m_sortEntityToQuery.end() && !it->second.empty();
 			}
 
+			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
+			//! \param entity Entity.
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				if (it == m_sortEntityToQuery.end())
@@ -59599,8 +59613,8 @@ namespace gaia {
 						World& world, QueryCache& queryCache, ArchetypeId& nextArchetypeId, uint32_t& worldVersion,
 						const EntityToArchetypeMap& entityToArchetypeMap,
 						const EntityToArchetypeVersionMap& entityToArchetypeMapVersions, const ArchetypeDArray& allArchetypes):
-						m_nextArchetypeId(&nextArchetypeId),
-						m_worldVersion(&worldVersion), m_entityToArchetypeMap(&entityToArchetypeMap),
+						m_nextArchetypeId(&nextArchetypeId), m_worldVersion(&worldVersion),
+						m_entityToArchetypeMap(&entityToArchetypeMap),
 						m_entityToArchetypeMapVersions(&entityToArchetypeMapVersions), m_allArchetypes(&allArchetypes) {
 					m_storage.init(&world, &queryCache);
 				}
@@ -60177,7 +60191,7 @@ namespace gaia {
 						return *this;
 
 					const auto idx = query_var_idx(varEntity);
-					m_varBindingsMask &= (uint8_t) ~(uint8_t(1) << idx);
+					m_varBindingsMask &= (uint8_t)~(uint8_t(1) << idx);
 					return *this;
 				}
 				//! Clears all runtime variable bindings.
@@ -76921,7 +76935,6 @@ namespace gaia {
 			}
 
 			//! Invalidates cached queries whose dynamic result depends on \a relation.
-			//! \param relation Relation entity
 			void invalidate_queries_for_rel(Entity relation) {
 				if (!m_queryCache.has_relation_query_dependencies())
 					return;
@@ -76929,17 +76942,21 @@ namespace gaia {
 				m_queryCache.invalidate_queries_for_rel(relation, QueryCache::ChangeKind::DynamicResult);
 			}
 
-			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
-			//! \param entity Entity
-			//! Returns whether any cached sorted query is registered in this world. O(1).
+			//! Checks whether any cached sorted query is registered in this world.
+			//! \return True when at least one sorted query is cached.
 			GAIA_NODISCARD bool has_sorted_queries() const {
 				return m_queryCache.has_sorted_queries();
 			}
 
+			//! Checks whether any cached sorted query depends on \a entity being written.
+			//! \param entity Entity.
+			//! \return True when at least one cached sorted query reads a component of \a entity.
 			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
 				return m_queryCache.has_sorted_queries_for_entity(entity);
 			}
 
+			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
+			//! \param entity Entity.
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				m_queryCache.invalidate_sorted_queries_for_entity(entity);
 			}

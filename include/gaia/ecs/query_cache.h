@@ -397,6 +397,9 @@ namespace gaia {
 				}
 			}
 
+			//! Invalidates cached queries whose dynamic result depends on \a relation.
+			//! \param relation Relation entity.
+			//! \param changeKind Type of change that invalidated the cached queries.
 			void invalidate_queries_for_rel(Entity relation, ChangeKind changeKind) {
 				auto it = m_relationToQuery.find(EntityLookupKey(relation));
 				if (it == m_relationToQuery.end())
@@ -409,18 +412,22 @@ namespace gaia {
 				}
 			}
 
-			//! Returns whether any cached sorted query is registered. O(1), so callers can skip the
-			//! sorted-query invalidation machinery cheaply when sorting is unused.
+			//! Checks whether any cached sorted query is registered.
+			//! \return True when at least one sorted query is cached.
 			GAIA_NODISCARD bool has_sorted_queries() const {
 				return !m_sortedQueries.empty();
 			}
 
-			//! Returns whether any cached sorted query depends on \a entity being written.
+			//! Checks whether any cached sorted query depends on \a entity being written.
+			//! \param entity Entity.
+			//! \return True when at least one cached sorted query reads a component of \a entity.
 			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
 				const auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				return it != m_sortEntityToQuery.end() && !it->second.empty();
 			}
 
+			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
+			//! \param entity Entity.
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				if (it == m_sortEntityToQuery.end())

@@ -12263,7 +12263,6 @@ namespace gaia {
 			}
 
 			//! Invalidates cached queries whose dynamic result depends on \a relation.
-			//! \param relation Relation entity
 			void invalidate_queries_for_rel(Entity relation) {
 				if (!m_queryCache.has_relation_query_dependencies())
 					return;
@@ -12271,17 +12270,21 @@ namespace gaia {
 				m_queryCache.invalidate_queries_for_rel(relation, QueryCache::ChangeKind::DynamicResult);
 			}
 
-			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
-			//! \param entity Entity
-			//! Returns whether any cached sorted query is registered in this world. O(1).
+			//! Checks whether any cached sorted query is registered in this world.
+			//! \return True when at least one sorted query is cached.
 			GAIA_NODISCARD bool has_sorted_queries() const {
 				return m_queryCache.has_sorted_queries();
 			}
 
+			//! Checks whether any cached sorted query depends on \a entity being written.
+			//! \param entity Entity.
+			//! \return True when at least one cached sorted query reads a component of \a entity.
 			GAIA_NODISCARD bool has_sorted_queries_for_entity(Entity entity) const {
 				return m_queryCache.has_sorted_queries_for_entity(entity);
 			}
 
+			//! Invalidates cached sorted queries whose row ordering depends on \a entity.
+			//! \param entity Entity.
 			void invalidate_sorted_queries_for_entity(Entity entity) {
 				m_queryCache.invalidate_sorted_queries_for_entity(entity);
 			}
