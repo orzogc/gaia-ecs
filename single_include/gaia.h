@@ -52859,6 +52859,9 @@ namespace gaia {
 	namespace cnt {
 		template <>
 		struct to_page_storage_id<ecs::QueryInfo> {
+			//! Storage key used by paged storage for a QueryInfo record.
+			//! \param item QueryInfo record.
+			//! \return Storage page id of \a item.
 			static page_storage_id get(const ecs::QueryInfo& item) noexcept {
 				return item.idx;
 			}
@@ -52876,6 +52879,8 @@ namespace gaia {
 			QueryLookupKey(): m_hash({0}), m_pCtx(nullptr) {}
 			explicit QueryLookupKey(QueryLookupHash hash, const QueryCtx* pCtx): m_hash(hash), m_pCtx(pCtx) {}
 
+			//! Returns the lookup hash of this key.
+			//! \return Stored lookup hash.
 			size_t hash() const {
 				return (size_t)m_hash.hash;
 			}
@@ -52905,6 +52910,7 @@ namespace gaia {
 
 		class QueryCache {
 		public:
+			//! Categories of changes that can invalidate cached query results.
 			enum class ChangeKind : uint8_t {
 				// Query membership may have changed due to structural world changes.
 				Structural,
@@ -52915,6 +52921,10 @@ namespace gaia {
 			};
 
 		private:
+			//! Registers \a info under \a handle with every reverse query index.
+			//! \param handle Query handle.
+			//! \param info QueryInfo record to register.
+			//! \return Reference to \a info.
 			QueryInfo& register_query_info(QueryHandle handle, QueryInfo& info) {
 				// Add the entity->query pair
 				add_entity_to_query_pairs(info.ctx().data.ids_view(), handle);
@@ -52944,11 +52954,13 @@ namespace gaia {
 				Count
 			};
 
+			//! Archetypes tracked for one cached query plus the cache revision they were synced at.
 			struct TrackedArchetypes {
 				cnt::darray<const Archetype*> archetypes;
 				uint32_t syncedRevision = 0;
 			};
 
+			//! Query cache
 			cnt::map<QueryLookupKey, QueryInfo*> m_pCache;
 			//! QueryInfo records are kept in paged storage so growth does not relocate live queries.
 			cnt::paged_ilist<QueryInfo, QueryHandle> m_queryArr;
@@ -52987,6 +52999,9 @@ namespace gaia {
 			QueryCache& operator=(QueryCache&&) = delete;
 			QueryCache& operator=(const QueryCache&) = delete;
 
+			//! Returns whether \a handle refers to a live cached query.
+			//! \param handle Query handle.
+			//! \return True if \a handle is valid.
 			GAIA_NODISCARD bool valid(QueryHandle handle) const {
 				if (handle.id() == QueryIdBad)
 					return false;
@@ -52998,6 +53013,7 @@ namespace gaia {
 				return h.idx == handle.id() && h.gen == handle.gen();
 			}
 
+			//! Removes every cached query and clears all reverse indices.
 			void clear() {
 				m_pCache.clear();
 				m_queryArr.clear();
@@ -53161,6 +53177,10 @@ namespace gaia {
 			}
 
 			//! Registers a cached query without deduplicating against the shared lookup map.
+			//! \param ctx Query context.
+			//! \param entityToArchetypeMap Map of all archetypes.
+			//! \param allArchetypes Array of all archetypes.
+			//! \return Reference to the registered QueryInfo object.
 			QueryInfo& add_local(
 					QueryCtx&& ctx, //
 					const EntityToArchetypeMap& entityToArchetypeMap, //
@@ -53206,10 +53226,12 @@ namespace gaia {
 				return true;
 			}
 
+			//! Returns an iterator to the first cached QueryInfo record.
 			auto begin() {
 				return m_queryArr.begin();
 			}
 
+			//! Returns the end iterator of the cached QueryInfo records.
 			auto end() {
 				return m_queryArr.end();
 			}
@@ -53297,6 +53319,8 @@ namespace gaia {
 				}
 			}
 
+			//! Reconciles the reverse archetype index for \a queryInfo with its current result archetypes.
+			//! \param queryInfo QueryInfo whose tracked archetypes must match its cache.
 			void sync_archetype_cache(QueryInfo& queryInfo) {
 				const auto handle = QueryInfo::handle(queryInfo);
 				if (!valid(handle))
@@ -53326,6 +53350,8 @@ namespace gaia {
 				trackedIt->second.syncedRevision = queryInfo.result_cache_rev();
 			}
 
+			//! Removes \a pArchetype from every cached query result that references it.
+			//! \param pArchetype Archetype leaving the world.
 			void remove_archetype_from_queries(Archetype* pArchetype) {
 				const auto archetypeKey = ArchetypeIdLookupKey(pArchetype->id(), pArchetype->id_hash());
 				auto it = m_archetypeToQuery.find(archetypeKey);
@@ -53351,6 +53377,8 @@ namespace gaia {
 				m_archetypeToQuery.erase(it);
 			}
 
+			//! Registers a newly created \a pArchetype with every cached query that may match it.
+			//! \param pArchetype Newly created archetype.
 			void register_archetype_with_queries(const Archetype* pArchetype) {
 				if (m_entityToCreateQuery.empty()) {
 					(void)pArchetype;
@@ -53404,6 +53432,10 @@ namespace gaia {
 
 		private:
 #if GAIA_ECS_TEST_HOOKS
+			//! Returns whether \a archetypes contains \a pArchetype.
+			//! \param archetypes Archetype span to scan.
+			//! \param pArchetype Archetype to find.
+			//! \return True when found.
 			GAIA_NODISCARD static bool
 			archetype_span_contains(std::span<const Archetype*> archetypes, const Archetype* pArchetype) {
 				for (const auto* pCachedArchetype: archetypes) {
@@ -53413,6 +53445,10 @@ namespace gaia {
 				return false;
 			}
 
+			//! Returns whether \a archetypes contains an archetype with \a archetypeKey.
+			//! \param archetypes Archetype list to scan.
+			//! \param archetypeKey Archetype key to find.
+			//! \return True when found.
 			GAIA_NODISCARD static bool tracked_archetypes_contain(
 					const cnt::darray<const Archetype*>& archetypes, const ArchetypeIdLookupKey& archetypeKey) {
 				for (const auto* pArchetype: archetypes) {
@@ -53437,10 +53473,16 @@ namespace gaia {
 				return CreateSelectorKind::ExactPair;
 			}
 
+			//! Returns the selector-category array index for \a kind.
+			//! \param kind Selector category.
+			//! \return Index into the selector-category counters.
 			GAIA_NODISCARD static constexpr uint32_t selector_kind_idx(CreateSelectorKind kind) {
 				return (uint32_t)kind;
 			}
 
+			//! Returns whether any cached create selector belongs to \a kind.
+			//! \param kind Selector category.
+			//! \return True when the category counter is nonzero.
 			GAIA_NODISCARD bool has_create_selector_kind(CreateSelectorKind kind) const {
 				return m_createQuerySelectorCnt[selector_kind_idx(kind)] != 0;
 			}
@@ -53459,6 +53501,10 @@ namespace gaia {
 				--cnt;
 			}
 
+			//! Maps a change category to the invalidation kind a query needs.
+			//! \param info Affected cached query.
+			//! \param changeKind Change category.
+			//! \return Invalidation kind to apply to \a info.
 			static QueryInfo::InvalidationKind select_invalidation_kind(const QueryInfo& info, ChangeKind changeKind) {
 				switch (changeKind) {
 					case ChangeKind::DynamicResult:
@@ -53530,6 +53576,9 @@ namespace gaia {
 				}
 			}
 
+			//! Adds \a handle to the create-query map entry for \a entity.
+			//! \param entity Positive structural selector.
+			//! \param handle Query handle awaiting a matching archetype.
 			void add_create_to_query_pair(Entity entity, QueryHandle handle) {
 				EntityLookupKey entityKey(entity);
 				const auto it = m_entityToCreateQuery.find(entityKey);
@@ -53546,6 +53595,9 @@ namespace gaia {
 				}
 			}
 
+			//! Adds \a handle to the sort-key map entry for \a entity.
+			//! \param entity Sort key entity.
+			//! \param handle Query handle sorting by \a entity.
 			void add_sort_to_query_pair(Entity entity, QueryHandle handle) {
 				auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				if (it == m_sortEntityToQuery.end()) {
@@ -53558,6 +53610,9 @@ namespace gaia {
 					handles.push_back(handle);
 			}
 
+			//! Removes \a handle from the sort-key map entry for \a entity.
+			//! \param entity Sort key entity.
+			//! \param handle Query handle that sorted by \a entity.
 			void del_sort_to_query_pair(Entity entity, QueryHandle handle) {
 				auto it = m_sortEntityToQuery.find(EntityLookupKey(entity));
 				if (it == m_sortEntityToQuery.end())
@@ -53569,6 +53624,9 @@ namespace gaia {
 					m_sortEntityToQuery.erase(it);
 			}
 
+			//! Adds \a handle to every sort-key entry found in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void add_sort_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.sortByFunc == nullptr || ctx.data.sortBy == EntityBad)
 					return;
@@ -53576,6 +53634,9 @@ namespace gaia {
 				add_sort_to_query_pair(ctx.data.sortBy, handle);
 			}
 
+			//! Removes \a handle from every sort-key entry found in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void del_sort_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.sortByFunc == nullptr || ctx.data.sortBy == EntityBad)
 					return;
@@ -53583,6 +53644,9 @@ namespace gaia {
 				del_sort_to_query_pair(ctx.data.sortBy, handle);
 			}
 
+			//! Appends \a handle to the global sorted-query list when \a ctx sorts rows.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void add_sorted_query(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.sortByFunc == nullptr)
 					return;
@@ -53590,6 +53654,9 @@ namespace gaia {
 				m_sortedQueries.push_back(handle);
 			}
 
+			//! Removes \a handle from the global sorted-query list.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void del_sorted_query(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.sortByFunc == nullptr)
 					return;
@@ -53600,6 +53667,9 @@ namespace gaia {
 					core::swap_erase(m_sortedQueries, idx);
 			}
 
+			//! Removes \a handle from the create-query map entry for \a entity.
+			//! \param entity Positive structural selector.
+			//! \param handle Query handle.
 			void del_create_to_query_pair(Entity entity, QueryHandle handle) {
 				auto it = m_entityToCreateQuery.find(EntityLookupKey(entity));
 				if (it == m_entityToCreateQuery.end())
@@ -53612,6 +53682,9 @@ namespace gaia {
 					m_entityToCreateQuery.erase(it);
 			}
 
+			//! Registers \a handle for every positive structural selector in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void add_create_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.cachePolicy != QueryCtx::CachePolicy::Immediate)
 					return;
@@ -53623,6 +53696,9 @@ namespace gaia {
 					add_create_to_query_pair(entity, handle);
 			}
 
+			//! Unregisters \a handle from every positive structural selector in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void del_create_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				if (ctx.data.cachePolicy != QueryCtx::CachePolicy::Immediate)
 					return;
@@ -53631,6 +53707,9 @@ namespace gaia {
 					del_create_to_query_pair(entity, handle);
 			}
 
+			//! Appends to \a handles every live query registered for \a selector.
+			//! \param selector Positive structural selector.
+			//! \param handles Candidate list to append to.
 			void add_create_query_handles(Entity selector, cnt::darray<CreateQueryCandidate>& handles) {
 				const auto it = m_entityToCreateQuery.find(EntityLookupKey(selector));
 				if (it == m_entityToCreateQuery.end())
@@ -53642,7 +53721,9 @@ namespace gaia {
 				}
 			}
 
-			cnt::darray<CreateQueryCandidate>& prepare_create_query_handles() {
+			//! Clears the scratch candidate list and advances the dedup stamp.
+			//! \return Cleared, ready-to-fill candidate list.
+			GAIA_NODISCARD cnt::darray<CreateQueryCandidate>& prepare_create_query_handles() {
 				m_createQueryHandleScratch.clear();
 
 				// Archetype creation can fan out through many positive selector ids. Use a monotonic stamp table
@@ -53656,6 +53737,9 @@ namespace gaia {
 				return m_createQueryHandleScratch;
 			}
 
+			//! Marks \a handle as seen in the current routing pass.
+			//! \param handle Query handle.
+			//! \return True on first visit in the current pass.
 			GAIA_NODISCARD bool mark_create_query_handle(QueryHandle handle) {
 				const auto handleId = (uint32_t)handle.id();
 				if (handleId >= m_createQueryHandleStampById.size())
@@ -53669,6 +53753,9 @@ namespace gaia {
 				return true;
 			}
 
+			//! Adds \a handle to the reverse archetype map entry for \a pArchetype.
+			//! \param pArchetype Archetype.
+			//! \param handle Query handle.
 			void add_archetype_query_pair(const Archetype* pArchetype, QueryHandle handle) {
 				const auto archetypeKey = ArchetypeIdLookupKey(pArchetype->id(), pArchetype->id_hash());
 				const auto it = m_archetypeToQuery.find(archetypeKey);
@@ -53683,6 +53770,9 @@ namespace gaia {
 				handles.push_back(handle);
 			}
 
+			//! Removes \a handle from the reverse archetype map entry for \a pArchetype.
+			//! \param pArchetype Archetype.
+			//! \param handle Query handle.
 			void del_archetype_query_pair(const Archetype* pArchetype, QueryHandle handle) {
 				auto it = m_archetypeToQuery.find(ArchetypeIdLookupKey(pArchetype->id(), pArchetype->id_hash()));
 				if (it == m_archetypeToQuery.end())
@@ -53696,6 +53786,8 @@ namespace gaia {
 					m_archetypeToQuery.erase(it);
 			}
 
+			//! Removes every archetype tracked for \a handle from the reverse index.
+			//! \param handle Query handle.
 			void unregister_query_archetypes(QueryHandle handle) {
 				auto it = m_queryToArchetype.find(QueryHandleLookupKey(handle));
 				if (it == m_queryToArchetype.end())
@@ -53708,6 +53800,10 @@ namespace gaia {
 				m_queryToArchetype.erase(it);
 			}
 
+			//! Records that \a pArchetype belongs to the result cache of \a handle.
+			//! \param handle Query handle.
+			//! \param pArchetype Archetype to track.
+			//! \param syncedRevision Cache revision the archetype is registered at.
 			void register_query_archetype(QueryHandle handle, const Archetype* pArchetype, uint32_t syncedRevision) {
 				auto [trackedIt, inserted] = m_queryToArchetype.try_emplace(QueryHandleLookupKey(handle));
 				auto& tracked = trackedIt->second.archetypes;
@@ -53720,6 +53816,9 @@ namespace gaia {
 				add_archetype_query_pair(pArchetype, handle);
 			}
 
+			//! Adds \a handle to the relation-query map entry for \a relation.
+			//! \param relation Relation entity.
+			//! \param handle Query handle.
 			void add_rel_query_pair(Entity relation, QueryHandle handle) {
 				const auto key = EntityLookupKey(relation);
 				const auto it = m_relationToQuery.find(key);
@@ -53733,6 +53832,9 @@ namespace gaia {
 					handles.push_back(handle);
 			}
 
+			//! Removes \a handle from the relation-query map entry for \a relation.
+			//! \param relation Relation entity.
+			//! \param handle Query handle.
 			void del_rel_query_pair(Entity relation, QueryHandle handle) {
 				auto it = m_relationToQuery.find(EntityLookupKey(relation));
 				if (it == m_relationToQuery.end())
@@ -53744,11 +53846,17 @@ namespace gaia {
 					m_relationToQuery.erase(it);
 			}
 
+			//! Adds \a handle for every relation dependency found in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void add_rel_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				for (const auto relation: ctx.data.deps.relations_view())
 					add_rel_query_pair(relation, handle);
 			}
 
+			//! Removes \a handle for every relation dependency found in \a ctx.
+			//! \param ctx Query context.
+			//! \param handle Query handle.
 			void del_rel_to_query_pairs(const QueryCtx& ctx, QueryHandle handle) {
 				for (const auto relation: ctx.data.deps.relations_view())
 					del_rel_query_pair(relation, handle);
