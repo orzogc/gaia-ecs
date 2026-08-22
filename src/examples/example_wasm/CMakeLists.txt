@@ -35,8 +35,8 @@ endif()
 # -----------------------------------------------------------------------------
 add_executable(${PROJ_NAME} ${SRC_FILE})
 
-# target_include_directories(${PROJ_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_include_directories(${PROJ_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+# Nested project() above resets PROJECT_SOURCE_DIR to this example.
+target_include_directories(${PROJ_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../../include)
 
 target_compile_options(${PROJ_NAME} PRIVATE
   "-pthread"

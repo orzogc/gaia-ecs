@@ -211,7 +211,7 @@ endif()
 if(GAIA_GENERATE_PACKAGES)
     add_custom_target(
         conan_run
-        COMMAND conan create ${CMAKE_SOURCE_DIR}/pkg/conan
+        COMMAND conan create ${PROJECT_SOURCE_DIR}/pkg/conan
         COMMENT "Conan: building + running test_package"
         USES_TERMINAL
     )
@@ -227,12 +227,12 @@ if(GAIA_GENERATE_CC)
     if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
         add_custom_target(
             generate_compile_commands ALL
-            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/ninja"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_SOURCE_DIR}/ninja"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${CMAKE_BINARY_DIR}/compile_commands.json"
-                    "${CMAKE_SOURCE_DIR}/ninja/compile_commands.json"
-            BYPRODUCTS "${CMAKE_SOURCE_DIR}/ninja/compile_commands.json"
-            COMMENT "Copying compile_commands.json to ${CMAKE_SOURCE_DIR}/ninja"
+                    "${PROJECT_SOURCE_DIR}/ninja/compile_commands.json"
+            BYPRODUCTS "${PROJECT_SOURCE_DIR}/ninja/compile_commands.json"
+            COMMENT "Copying compile_commands.json to ${PROJECT_SOURCE_DIR}/ninja"
             VERBATIM
         )
     else()

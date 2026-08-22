@@ -4720,6 +4720,7 @@ On Windows you can call:
 Default behavior is to format the generated header when `clang-format` is available. Use `--no-format` to skip the formatting pass.
 
 Creation of the single header can be automated via `-DGAIA_GENERATE_SINGLE_HEADER=ON` (ON by default).
+The generator always reads and writes inside the Gaia source tree (`PROJECT_SOURCE_DIR`), so it still works when Gaia is added with FetchContent or `add_subdirectory`.
 
 Formatting is controlled by `-DGAIA_FORMAT_SINGLE_HEADER=ON/OFF` and defaults to `ON`.
 If formatting is enabled but `clang-format` is not available the header is still generated, it just skips the formatting pass.

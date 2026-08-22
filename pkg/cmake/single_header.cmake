@@ -10,8 +10,10 @@ option(GAIA_GENERATE_SINGLE_HEADER "Generate the single file header automaticall
 option(GAIA_FORMAT_SINGLE_HEADER "Format the generated single header with clang-format when available." ON)
 
 if(GAIA_GENERATE_SINGLE_HEADER)
-    set(GAIA_SH_INPUT "${CMAKE_SOURCE_DIR}/include/gaia.h")
-    set(GAIA_SH_OUTPUT "${CMAKE_SOURCE_DIR}/single_include/gaia.h")
+    # PROJECT_SOURCE_DIR is the Gaia tree after project(gaia). CMAKE_SOURCE_DIR
+    # is the top-level consumer when Gaia is added via FetchContent/add_subdirectory.
+    set(GAIA_SH_INPUT "${PROJECT_SOURCE_DIR}/include/gaia.h")
+    set(GAIA_SH_OUTPUT "${PROJECT_SOURCE_DIR}/single_include/gaia.h")
 
     # -----------------------------------------------------------------------
     # Discover clang-format if it is available and formatting is enabled
@@ -44,19 +46,19 @@ if(GAIA_GENERATE_SINGLE_HEADER)
     # Glob all headers so the command reruns when any of them change
     # -----------------------------------------------------------------------
     file(GLOB_RECURSE GAIA_ALL_HEADERS
-        "${CMAKE_SOURCE_DIR}/include/*.h"
-        "${CMAKE_SOURCE_DIR}/include/*.hpp"
-        "${CMAKE_SOURCE_DIR}/include/*.inl"
+        "${PROJECT_SOURCE_DIR}/include/*.h"
+        "${PROJECT_SOURCE_DIR}/include/*.hpp"
+        "${PROJECT_SOURCE_DIR}/include/*.inl"
     )
 
     # -----------------------------------------------------------------------
     # Select the script for the host platform
     # -----------------------------------------------------------------------
     if(CMAKE_HOST_WIN32)
-        set(_script "${CMAKE_SOURCE_DIR}/make_single_header.bat")
+        set(_script "${PROJECT_SOURCE_DIR}/make_single_header.bat")
         set(_amalgam_cmd "${_script}")
     else()
-        set(_script "${CMAKE_SOURCE_DIR}/make_single_header.sh")
+        set(_script "${PROJECT_SOURCE_DIR}/make_single_header.sh")
         set(_amalgam_cmd bash "${_script}")
     endif()
 
@@ -77,7 +79,7 @@ if(GAIA_GENERATE_SINGLE_HEADER)
     # -----------------------------------------------------------------------
     add_custom_command(
         OUTPUT "${GAIA_SH_OUTPUT}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/single_include"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_SOURCE_DIR}/single_include"
         COMMAND ${_amalgam_cmd}
         DEPENDS ${GAIA_ALL_HEADERS} "${_script}"
         COMMENT "Generating single_include/gaia.h"

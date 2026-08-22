@@ -281,18 +281,18 @@ if(NOT EMSCRIPTEN)
 
     if(GAIA_PROFILER_BUILD)
       set(GAIA_TRACY_PROFILER_SOURCE_DIR
-        "${CMAKE_SOURCE_DIR}/build/tools/tracy-source"
+        "${PROJECT_SOURCE_DIR}/build/tools/tracy-source"
         CACHE PATH "Shared Tracy profiler GUI source directory")
       set(GAIA_TRACY_PROFILER_DEFAULT_BUILD_DIR
-        "${CMAKE_SOURCE_DIR}/build/tools/tracy-profiler-build")
+        "${PROJECT_SOURCE_DIR}/build/tools/tracy-profiler-build")
       set(GAIA_TRACY_PROFILER_OLD_PLATFORM_BUILD_DIR
-        "${CMAKE_SOURCE_DIR}/build/tools/tracy-profiler-build/${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+        "${PROJECT_SOURCE_DIR}/build/tools/tracy-profiler-build/${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
       if(DEFINED GAIA_TRACY_PROFILER_BUILD_DIR
           AND GAIA_TRACY_PROFILER_BUILD_DIR STREQUAL GAIA_TRACY_PROFILER_OLD_PLATFORM_BUILD_DIR)
         unset(GAIA_TRACY_PROFILER_BUILD_DIR CACHE)
       endif()
       set(GAIA_TRACY_PROFILER_OUTPUT_DIR
-        "${CMAKE_SOURCE_DIR}/build/tools/tracy-profiler"
+        "${PROJECT_SOURCE_DIR}/build/tools/tracy-profiler"
         CACHE PATH "Stable Tracy profiler GUI output directory")
       set(GAIA_TRACY_PROFILER_BUILD_DIR "${GAIA_TRACY_PROFILER_DEFAULT_BUILD_DIR}"
         CACHE PATH "Shared Tracy profiler GUI build directory")
@@ -308,8 +308,8 @@ if(NOT EMSCRIPTEN)
         set(GAIA_TRACY_UPSTREAM_REF "unknown")
       endif()
 
-      set(GAIA_TRACY_UPSTREAM_REF_FILE "${CMAKE_SOURCE_DIR}/build/tools/tracy-upstream-ref.txt")
-      file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/build/tools")
+      set(GAIA_TRACY_UPSTREAM_REF_FILE "${PROJECT_SOURCE_DIR}/build/tools/tracy-upstream-ref.txt")
+      file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/build/tools")
       set(gaia_write_tracy_ref ON)
       if(EXISTS "${GAIA_TRACY_UPSTREAM_REF_FILE}")
         file(READ "${GAIA_TRACY_UPSTREAM_REF_FILE}" gaia_existing_tracy_ref)
