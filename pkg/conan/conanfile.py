@@ -10,7 +10,7 @@ required_conan_version = ">=1.52.0"
 
 class GaiaConan(ConanFile):
     name = "gaia-ecs"
-    version = "0.9.2"
+    version = "1.0.0"
     license = "MIT"
     package_type = "header-library"
     description = "A simple and powerful entity component system (ECS) written in C++17"
